@@ -1,0 +1,27 @@
+#graphic canvas:focus {
+  outline: none !important;
+}
+
+#mapwrapper {
+  position: relative;
+  width: 100%;
+  max-width: 800px;
+  margin: 0 auto;
+}
+
+#graphic {
+  position: relative;
+}
+
+#keycontainer {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  margin: 0;
+  width: 100%;
+  background: rgba(255,255,255,0.85);
+  z-index: 1002;
+  box-sizing: border-box;
+  padding: 10px 0 0 0;
+}

@@ -65,24 +65,25 @@ function updateKeyInfo(value, areaName) {
 		explainerLine2.text('');
 		return;
 	}
-	// Format value with prefix/suffix
+	// Format value with prefix/suffix for value display
 	let fmt = d3.format(config.valueFormat || ',.0f');
 	let valuePrefix = config.valuePrefix || '';
 	let valueSuffix = config.valueSuffix || '';
-	// Render prefix and suffix as smaller spans
 	valueSel.html(
 		`<span style="font-size:0.6em;vertical-align:middle;">${valuePrefix}</span>` +
 		`<span style="font-size:1em;">${fmt(value)}</span>` +
 		`<span style="font-size:0.6em;vertical-align:middle;">${valueSuffix}</span>`
 	);
-	// Explainer: prefix, area name (bold), suffix
+
+	// Explainer: explainerPrefix, area name (bold), explainerSuffix
 	const explainerPrefix = config.explainerPrefix || '';
+	const explainerSuffix = config.explainerSuffix || '';
 	explainerLine1.html('');
 	explainerLine1.append('span').text(explainerPrefix);
 	if (areaName) {
 		explainerLine1.append('strong').text(areaName);
 	}
-	explainerLine2.text(config.explainerSuffix || '');
+	explainerLine2.text(explainerSuffix);
 }
 
 // Clear info on load
@@ -102,12 +103,12 @@ function drawKeyScale() {
 
 	// Compute tick positions and implement dropticks (staggered labels)
 	const legendFmt = d3.format(config.legendFormat || ',.2f');
-	const valuePrefix = config.valuePrefix || '';
-	const valueSuffix = config.valueSuffix || '';
+	const legendPrefix = config.legendPrefix || '';
+	const legendSuffix = config.legendSuffix || '';
 	const tickData = breaks.map((d, i) => ({
 		value: d,
 		index: i,
-		label: valuePrefix + legendFmt(d) + valueSuffix,
+		label: legendPrefix + legendFmt(d) + legendSuffix,
 		x: null // will set after x scale is defined
 	}));
 

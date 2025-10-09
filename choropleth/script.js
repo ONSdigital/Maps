@@ -58,11 +58,24 @@ if (explainerLine2.empty()) explainerLine2 = explainerSel.append('span').classed
 
 function updateKeyInfo(value, areaName) {
 	if (typeof value === 'undefined' || value === null || isNaN(value)) {
-		// Show placeholder in valueSel, clear explainer
-		const placeholder = config.explainerPlaceholder || '';
-		valueSel.html(`<span class="keyinfo-placeholder">${placeholder}</span>`);
-		explainerLine1.html('');
-		explainerLine2.text('');
+		// If areaName is provided, show unavailable message; else show placeholder
+		if (areaName) {
+			const unavailablePrefix = config.unavailablePrefix || 'The value for';
+			const unavailableSuffix = config.unavailableSuffix || 'is unavailable';
+			const areaLabel = areaName || 'this area';
+			valueSel.html(`<span class="keyinfo-placeholder"></span>`); // No value shown
+			explainerLine1.html('');
+			explainerLine1.append('span').text(`${unavailablePrefix} `);
+			explainerLine1.append('strong').text(areaLabel);
+			explainerLine1.append('span').text(` ${unavailableSuffix}`);
+			explainerLine2.text('');
+		} else {
+			// Show placeholder in valueSel, clear explainer
+			const placeholder = config.explainerPlaceholder || '';
+			valueSel.html(`<span class="keyinfo-placeholder">${placeholder}</span>`);
+			explainerLine1.html('');
+			explainerLine2.text('');
+		}
 		return;
 	}
 	// Format value with prefix/suffix for value display
@@ -399,7 +412,8 @@ function drawMap() {
 			const areaName = areanmKey ? e.features[0].properties[areanmKey] : '';
 			map.setFilter('area-hover', ['==', 'AREACD', code]);
 			// Show hover indicator and border
-			if (typeof e.features[0].properties.value !== 'undefined') {
+			const value = e.features[0].properties.value;
+			if (typeof value !== 'undefined' && value !== null && !isNaN(value)) {
 				window.moveKeyIndicator(e.features[0].properties.value);
 				// Show faded indicator for selected area if different
 				if (selectedAreaCode && selectedAreaCode !== code) {
@@ -408,7 +422,17 @@ function drawMap() {
 				} else {
 					window.moveKeyIndicatorSelected(undefined);
 				}
-				updateKeyInfo(e.features[0].properties.value, areaName);
+				updateKeyInfo(value, areaName);
+			} else {
+				// Value is missing, show unavailable message
+				window.moveKeyIndicator(undefined);
+				if (selectedAreaCode && selectedAreaCode !== code) {
+					const selectedVal = rateById[selectedAreaCode];
+					window.moveKeyIndicatorSelected(selectedVal);
+				} else {
+					window.moveKeyIndicatorSelected(undefined);
+				}
+				updateKeyInfo(undefined, areaName);
 			}
 			// Show selected border if different area is selected
 			if (selectedAreaCode && selectedAreaCode !== code) {

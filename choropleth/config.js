@@ -4,8 +4,8 @@ config = {
 	mapHeight: "650px",
 	colourPalette: "YlGnBu", // can be preset colourbrewer palette or custom array of colours
 	colourUnavailable: "#ccc",
-	textUnavailablePrefix: "The value for",
-	textUnavailableSuffix: "unavailable", //could change to supressed if purposefully suppressed
+	unavailablePrefix: "The value for",
+	unavailableSuffix: "is unavailable", //could change to suppressed if purposefully suppressed
 	breaks: "jenks", // can be "equal", "jenks", or a custom array of breaks - number of values in palette determines number of breaks
 	valueFormat: ",.0f", // d3 format for values
 	valuePrefix: "£",

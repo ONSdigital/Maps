@@ -333,12 +333,7 @@ function drawMap() {
 		const bottomPad = getKeyOverlayHeight() + 10; // 10px extra for spacing
 
 		// Fit map to bounds if provided, with bottom padding
-		if (config.mapBounds) {
-			map.fitBounds(config.mapBounds, { padding: { top: 10, left: 10, right: 10, bottom: bottomPad }, animate: false });
-		} else if (config.mapCenter) {
-			map.setCenter(config.mapCenter);
-			if (config.zoom) map.setZoom(config.zoom);
-		}
+		map.fitBounds(config.mapBounds, { padding: { top: 10, left: 10, right: 10, bottom: bottomPad }, animate: false });
 
 		map.addSource('area', { type: 'geojson', data: areas });
 		map.addLayer({
@@ -354,7 +349,6 @@ function drawMap() {
 		}, 'place_city');
 
 		// Add hover layer
-		// Add hover border layer
 		map.addLayer({
 			id: 'area-hover',
 			type: 'line',
@@ -376,7 +370,7 @@ function drawMap() {
 			paint: {
 				'line-color': '#000',
 				'line-width': 2,
-				'line-opacity': 0.5
+				'line-opacity': 0.4
 			},
 			filter: ['==', 'AREACD', '']
 		}, 'area-hover');
@@ -537,10 +531,24 @@ function drawMap() {
 			}
 		});
 
+		// Provide a getPadding function to dynamically calculate padding (including keycontainer height)
+		const zoomhome = new MapLibreControlZoomHome({
+			resetBounds: config.mapBounds,
+			getPadding: function() {
+				let bottomPad = 10;
+				const keycontainer = document.getElementById('keycontainer');
+				if (keycontainer) {
+					bottomPad += keycontainer.getBoundingClientRect().height || 0;
+				}
+				return { top: 10, left: 10, right: 10, bottom: bottomPad };
+			}
+		});
+
 		// Add navigation and attribution controls after fitting bounds
 		map.addControl(new maplibregl.NavigationControl({ showCompass: false }));
 		map.dragRotate.disable();
 		map.touchZoomRotate.disableRotation();
+		map.addControl(zoomhome, 'top-right');
 		map.addControl(new maplibregl.AttributionControl({ compact: true }), 'bottom-right');
 
 		// Scroll zoom guard logic (unchanged)

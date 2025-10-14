@@ -53,5 +53,9 @@ class MapLibreControlZoomHome {
         } else if (this.options.resetLngLat) {
             this._map.setZoom(this.options.resetZoom).setCenter(this.options.resetLngLat);
         }
+        // Call onReset callback if provided
+        if (typeof this.options.onReset === 'function') {
+            this.options.onReset();
+        }
     }
 }

@@ -346,7 +346,7 @@ function drawMap() {
 				'fill-opacity': config.fillOpacity || 0.8,
 				// 'fill-outline-color': '#fff'
 			}
-		}, 'place_city');
+		}, 'place_town');
 
 		// Add hover layer
 		map.addLayer({
@@ -541,6 +541,16 @@ function drawMap() {
 					bottomPad += keycontainer.getBoundingClientRect().height || 0;
 				}
 				return { top: 10, left: 10, right: 10, bottom: bottomPad };
+			},
+			onReset: function() {
+				// Clear selected area and info
+				selectedAreaCode = null;
+				if (typeof map !== 'undefined' && map !== null) {
+					map.setFilter('area-selected', ['==', 'AREACD', '']);
+					if (window.moveKeyIndicator) window.moveKeyIndicator(undefined);
+					if (window.moveKeyIndicatorSelected) window.moveKeyIndicatorSelected(undefined);
+					if (window.updateKeyInfo) updateKeyInfo(undefined, undefined);
+				}
 			}
 		});
 

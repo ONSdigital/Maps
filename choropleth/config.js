@@ -4,8 +4,6 @@ config = {
 	mapHeight: "650px",
 	colourPalette: "YlGnBu", // can be preset colourbrewer palette or custom array of colours
 	colourUnavailable: "#ccc",
-	unavailablePrefix: "The value for",
-	unavailableSuffix: "is unavailable", //could change to suppressed if purposefully suppressed
 	breaks: "jenks", // can be "equal", "jenks", or a custom array of breaks - number of values in palette determines number of breaks
 	valueFormat: ",.0f", // d3 format for values
 	valuePrefix: "£",
@@ -16,6 +14,8 @@ config = {
 	explainerPlaceholder: "Mean monthly private rent price",
 	explainerPrefix: "is the mean monthly private rent price in ",
 	explainerSuffix: "",
+	unavailablePrefix: "The value for",
+	unavailableSuffix: "is unavailable", //could change to suppressed if purposefully suppressed
 	mapBounds: [[-8.62, 48.87], [1.77, 60.84]], // UK bounds (Shetland cut off a bit): [[-8.62, 48.87], [1.77, 60.84]] England and Wales: [[-6.43, 50], [1.77, 55.81]]
 	minZoom: 4.3,
 	maxZoom: 13,

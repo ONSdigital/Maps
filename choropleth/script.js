@@ -8,23 +8,23 @@ let selectedAreaCode = null; // Track selected area code
 
 // Listen for ESC key to clear selection
 document.addEventListener('keydown', function(e) {
-	if (e.key === 'Escape' || e.key === 'Esc') {
-		if (selectedAreaCode || hoveredAreaCode) {
-			// Clear both selection and hover, and call the mouseleave logic directly
-			selectedAreaCode = null;
-			hoveredAreaCode = null;
-			if (typeof map !== 'undefined' && map !== null) {
-				if (typeof window !== 'undefined') {
-					if (map.getCanvas) map.getCanvas().style.cursor = '';
-				}
-				if (map.setFilter) map.setFilter('area-hover', ['==', 'AREACD', '']);
-				map.setFilter('area-selected', ['==', 'AREACD', '']);
-				if (window.moveKeyIndicator) window.moveKeyIndicator(undefined);
-				if (window.moveKeyIndicatorSelected) window.moveKeyIndicatorSelected(undefined);
-				if (window.updateKeyInfo) updateKeyInfo(undefined, undefined);
-			}
-		}
-	}
+    if (e.key === 'Escape' || e.key === 'Esc') {
+        // Clear both selection and hover feature-state and info
+        if (typeof map !== 'undefined' && map !== null) {
+            if (hoveredAreaCode) {
+                map.setFeatureState({ source: 'area', id: hoveredAreaCode }, { hovered: false });
+            }
+            if (selectedAreaCode) {
+                map.setFeatureState({ source: 'area', id: selectedAreaCode }, { selected: false });
+            }
+            hoveredAreaCode = null;
+            selectedAreaCode = null;
+            if (map.getCanvas) map.getCanvas().style.cursor = '';
+            if (window.moveKeyIndicator) window.moveKeyIndicator(undefined);
+            if (window.moveKeyIndicatorSelected) window.moveKeyIndicatorSelected(undefined);
+            if (window.updateKeyInfo) updateKeyInfo(undefined, undefined);
+        }
+    }
 });
 
 // Helper to get the height of the overlay (keycontainer)
@@ -119,8 +119,8 @@ function selectAreaFeature(feature) {
 	const code = areacdKey ? feature.properties[areacdKey].toUpperCase() : undefined;
 	const areaName = areanmKey ? feature.properties[areanmKey] : '';
 	selectedAreaCode = code;
-	map.setFilter('area-selected', ['==', 'AREACD', code]);
-	map.setFilter('area-hover', ['==', 'AREACD', '']);
+	map.setFeatureState({ source: 'area', id: code }, { selected: true });
+	map.setFeatureState({ source: 'area', id: selectedAreaCode }, { hover: false });
 	const selectedVal = feature.properties.value;
 	window.moveKeyIndicator(undefined);
 	window.moveKeyIndicatorSelected(selectedVal);
@@ -546,7 +546,7 @@ function drawMap() {
 		// Fit map to bounds if provided, with bottom padding
 		map.fitBounds(config.mapBounds, { padding: { top: 10, left: 10, right: 10, bottom: bottomPad }, animate: false });
 
-		map.addSource('area', { type: 'geojson', data: areas });
+		map.addSource('area', { type: 'geojson', data: areas, promoteId: 'AREACD' });
 		map.addLayer({
 			id: 'area',
 			type: 'fill',
@@ -568,10 +568,12 @@ function drawMap() {
 			paint: {
 				'line-color': '#000',
 				'line-width': 2,
-				'line-opacity': 1
-			},
-			filter: ['==', 'AREACD', '']
+				'line-opacity': [
+					'case',
+						['==', ['feature-state', 'hovered'], true], 1, 0],
+			}
 		});
+
 		// Add selected border layer (below hover)
 		map.addLayer({
 			id: 'area-selected',
@@ -581,29 +583,10 @@ function drawMap() {
 			paint: {
 				'line-color': '#000',
 				'line-width': 2,
-				'line-opacity': 0.4
-			},
-			filter: ['==', 'AREACD', '']
+				'line-opacity': ['case', ['==', ['feature-state', 'selected'], true], 0.4,0],
+			}
 		}, 'area-hover');
 
-		// Add labels
-		map.addLayer({
-			id: 'area-labels',
-			type: 'symbol',
-			source: 'area',
-			minzoom: 10,
-			layout: {
-				'text-field': ['get', 'AREANM'],
-				'text-font': ['Open Sans', 'Arial Unicode MS Regular'],
-				'text-size': 14
-			},
-			paint: {
-				'text-color': '#666',
-				'text-halo-color': '#fff',
-				'text-halo-width': 1,
-				'text-halo-blur': 1
-			}
-		});
 
 		// Interactivity
 		map.on('mousemove', 'area', (e) => {
@@ -613,14 +596,20 @@ function drawMap() {
 			const areacdKey = propKeys.find(k => k.toLowerCase() === 'areacd');
 			const areanmKey = propKeys.find(k => k.toLowerCase() === 'areanm');
 			const code = areacdKey ? e.features[0].properties[areacdKey].toUpperCase() : undefined;
+
+			// Remove hover state from previous feature
+			if (hoveredAreaCode && hoveredAreaCode !== code) {
+				map.setFeatureState({ source: 'area', id: hoveredAreaCode }, { hovered: false });
+			}
 			hoveredAreaCode = code;
+			map.setFeatureState({ source: 'area', id: hoveredAreaCode }, { hovered: true });
+
 			const areaName = areanmKey ? e.features[0].properties[areanmKey] : '';
-			map.setFilter('area-hover', ['==', 'AREACD', code]);
-			// Show hover indicator and border
 			const value = e.features[0].properties.value;
+
+			// Always show hover info if hovering, but if an area is selected, show faded indicator for it
 			if (typeof value !== 'undefined' && value !== null && !isNaN(value)) {
-				window.moveKeyIndicator(e.features[0].properties.value);
-				// Show faded indicator for selected area if different
+				window.moveKeyIndicator(value);
 				if (selectedAreaCode && selectedAreaCode !== code) {
 					const selectedVal = rateById[selectedAreaCode];
 					window.moveKeyIndicatorSelected(selectedVal);
@@ -639,27 +628,20 @@ function drawMap() {
 				}
 				updateKeyInfo(undefined, areaName);
 			}
-			// Show selected border if different area is selected
-			if (selectedAreaCode && selectedAreaCode !== code) {
-				map.setFilter('area-selected', ['==', 'AREACD', selectedAreaCode]);
-			} else {
-				map.setFilter('area-selected', ['==', 'AREACD', '']);
-			}
 		});
 		map.on('mouseleave', 'area', () => {
 			map.getCanvas().style.cursor = '';
-			hoveredAreaCode = null;
-			map.setFilter('area-hover', ['==', 'AREACD', '']);
-			// Show selected border and indicator if any area is selected
+			if (hoveredAreaCode) {
+				map.setFeatureState({ source: 'area', id: hoveredAreaCode }, { hovered: false });
+				hoveredAreaCode = null;
+			}
+			// If an area is selected, show its info and indicator; otherwise clear
 			if (selectedAreaCode) {
-				map.setFilter('area-selected', ['==', 'AREACD', selectedAreaCode]);
 				const selectedVal = rateById[selectedAreaCode];
 				window.moveKeyIndicator(undefined);
 				window.moveKeyIndicatorSelected(selectedVal);
-				// Show explainer for selected area
 				updateKeyInfo(selectedVal, areaById[selectedAreaCode]);
 			} else {
-				map.setFilter('area-selected', ['==', 'AREACD', '']);
 				window.moveKeyIndicator(undefined);
 				window.moveKeyIndicatorSelected(undefined);
 				updateKeyInfo(undefined, undefined);
@@ -672,11 +654,18 @@ function drawMap() {
 			const areanmKey = propKeys.find(k => k.toLowerCase() === 'areanm');
 			const code = areacdKey ? e.features[0].properties[areacdKey].toUpperCase() : undefined;
 			const areaName = areanmKey ? e.features[0].properties[areanmKey] : '';
+
+			// Remove previous selected state
+			if (selectedAreaCode && selectedAreaCode !== code) {
+				map.setFeatureState({ source: 'area', id: selectedAreaCode }, { selected: false });
+			}
 			selectedAreaCode = code;
-			// Set selected border
-			map.setFilter('area-selected', ['==', 'AREACD', code]);
-			// Hide hover border
-			map.setFilter('area-hover', ['==', 'AREACD', '']);
+			map.setFeatureState({ source: 'area', id: selectedAreaCode }, { selected: true });
+			// Remove hover state (if any)
+			if (hoveredAreaCode) {
+				map.setFeatureState({ source: 'area', id: hoveredAreaCode }, { hovered: false });
+				hoveredAreaCode = null;
+			}
 			// Show faded indicator for selected, hide hover indicator
 			const selectedVal = e.features[0].properties.value;
 			window.moveKeyIndicator(undefined);
@@ -755,9 +744,11 @@ function drawMap() {
 			},
 			onReset: function() {
 				// Clear selected area and info
-				selectedAreaCode = null;
 				if (typeof map !== 'undefined' && map !== null) {
-					map.setFilter('area-selected', ['==', 'AREACD', '']);
+					if (selectedAreaCode) {
+						map.setFeatureState({ source: 'area', id: selectedAreaCode }, { selected: false });
+					}
+					selectedAreaCode = null;
 					if (window.moveKeyIndicator) window.moveKeyIndicator(undefined);
 					if (window.moveKeyIndicatorSelected) window.moveKeyIndicatorSelected(undefined);
 					if (window.updateKeyInfo) updateKeyInfo(undefined, undefined);

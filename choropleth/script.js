@@ -34,7 +34,214 @@ function getKeyOverlayHeight() {
 	return keycontainer.getBoundingClientRect().height || 0;
 }
 
+
+// --- Add search box above the map ---
+function addSearchBox() {
+	const mapWrapper = document.getElementById('mapwrapper') || document.body;
+	const searchDiv = document.createElement('div');
+	searchDiv.id = 'search-container';
+	searchDiv.style = 'margin: 10px 0; position: relative; z-index: 10; max-width: 800px;';
+	searchDiv.innerHTML = `
+		<input id="search-box" type="text" placeholder="Search postcode or area name..." autocomplete="off" style="width: 100%; padding: 8px; font-size: 16px; box-sizing: border-box;">
+		<ul id="search-suggestions" style="position: absolute; left: 0; right: 0; top: 36px; background: #fff; border: 1px solid #ccc; list-style: none; margin: 0; padding: 0; max-height: 180px; overflow-y: auto; display: none; z-index: 1000;"></ul>
+	`;
+	mapWrapper.parentNode.insertBefore(searchDiv, mapWrapper);
+}
+
+addSearchBox();
 const graphic = d3.select('#graphic');
+// --- Autocomplete and search logic ---
+let areaNames = [];
+let areaNameToCode = {};
+let areaCodeToFeature = {};
+
+function setupAreaSearchIndex() {
+	if (!areas || !areas.features) return;
+	areaNames = [];
+	areaNameToCode = {};
+	areaCodeToFeature = {};
+	areas.features.forEach(f => {
+		const propKeys = Object.keys(f.properties);
+		const areacdKey = propKeys.find(k => k.toLowerCase() === 'areacd');
+		const areanmKey = propKeys.find(k => k.toLowerCase() === 'areanm');
+		if (areacdKey && areanmKey) {
+			const code = f.properties[areacdKey].toUpperCase();
+			const name = f.properties[areanmKey];
+			areaNames.push(name);
+			areaNameToCode[name.toLowerCase()] = code;
+			areaCodeToFeature[code] = f;
+		}
+	});
+}
+
+function showSuggestions(query) {
+	const ul = document.getElementById('search-suggestions');
+	ul.innerHTML = '';
+	if (!query || query.length < 2) {
+		ul.style.display = 'none';
+		return;
+	}
+	const q = query.toLowerCase();
+	const matches = areaNames.filter(n => n.toLowerCase().includes(q)).slice(0, 10);
+	if (matches.length === 0) {
+		ul.style.display = 'none';
+		return;
+	}
+	matches.forEach(name => {
+		const li = document.createElement('li');
+		li.textContent = name;
+		li.style = 'padding: 6px 12px; cursor: pointer;';
+		li.addEventListener('mousedown', e => {
+			e.preventDefault();
+			selectAreaByName(name);
+			ul.style.display = 'none';
+			document.getElementById('search-box').value = name;
+		});
+		ul.appendChild(li);
+	});
+	ul.style.display = 'block';
+}
+
+function selectAreaByName(name) {
+	const code = areaNameToCode[name.toLowerCase()];
+	if (!code) return;
+	const feature = areaCodeToFeature[code];
+	if (!feature) return;
+	// Simulate click on area
+	selectAreaFeature(feature);
+}
+
+function selectAreaFeature(feature) {
+	// This mimics the click event logic
+	const propKeys = Object.keys(feature.properties);
+	const areacdKey = propKeys.find(k => k.toLowerCase() === 'areacd');
+	const areanmKey = propKeys.find(k => k.toLowerCase() === 'areanm');
+	const code = areacdKey ? feature.properties[areacdKey].toUpperCase() : undefined;
+	const areaName = areanmKey ? feature.properties[areanmKey] : '';
+	selectedAreaCode = code;
+	map.setFilter('area-selected', ['==', 'AREACD', code]);
+	map.setFilter('area-hover', ['==', 'AREACD', '']);
+	const selectedVal = feature.properties.value;
+	window.moveKeyIndicator(undefined);
+	window.moveKeyIndicatorSelected(selectedVal);
+	updateKeyInfo(selectedVal, areaName);
+	// Zoom to area bounds (same as click logic)
+	if (feature && feature.geometry) {
+		let allCoords = [];
+		function collectCoords(geom) {
+			if (geom.type === 'Polygon') {
+				allCoords.push(...geom.coordinates[0]);
+			} else if (geom.type === 'MultiPolygon') {
+				geom.coordinates.forEach(poly => {
+					allCoords.push(...poly[0]);
+				});
+			}
+		}
+		collectCoords(feature.geometry);
+		if (allCoords.length) {
+			let lons = allCoords.map(c => c[0]);
+			let lats = allCoords.map(c => c[1]);
+			let minLon = Math.min(...lons), maxLon = Math.max(...lons);
+			let minLat = Math.min(...lats), maxLat = Math.max(...lats);
+			let bounds = [[minLon, minLat], [maxLon, maxLat]];
+			const mapCanvas = map.getContainer();
+			const mapWidth = mapCanvas.offsetWidth;
+			const mapHeight = mapCanvas.offsetHeight;
+			const padX = Math.round(mapWidth * 0.3);
+			let padY = Math.round(mapHeight * 0.3);
+			const keycontainer = document.getElementById('keycontainer');
+			let keyPad = 0;
+			if (keycontainer) {
+				keyPad = keycontainer.getBoundingClientRect().height || 0;
+			}
+			const padding = { top: padY, bottom: padY + keyPad, left: padX, right: padX };
+			const currentZoom = map.getZoom();
+			const options = {
+				padding,
+				animate: true
+			};
+			const targetZoom = map.cameraForBounds(bounds, options)?.zoom;
+			if (targetZoom !== undefined && targetZoom > currentZoom) {
+				map.fitBounds(bounds, options);
+			}
+		}
+	}
+}
+
+function searchPostcode(query) {
+	// UK postcode regex (loose)
+	const postcodePattern = /^[A-Z]{1,2}[0-9][0-9A-Z]? ?[0-9][A-Z]{2}$/i;
+	if (!postcodePattern.test(query.trim())) return false;
+	fetch(`https://api.postcodes.io/postcodes/${encodeURIComponent(query.trim())}`)
+		.then(r => r.json())
+		.then(res => {
+			if (res.status === 200 && res.result && res.result.longitude && res.result.latitude) {
+				selectAreaByLatLng(res.result.longitude, res.result.latitude);
+			} else {
+				alert('Postcode not found');
+			}
+		})
+		.catch(() => alert('Error looking up postcode'));
+	return true;
+}
+
+function selectAreaByLatLng(lon, lat) {
+	// Find the area feature that contains this point
+	if (!areas || !areas.features) return;
+	const pt = [lon, lat];
+	const found = areas.features.find(f => {
+		if (!f.geometry) return false;
+		if (f.geometry.type === 'Polygon') {
+			return pointInPolygon(pt, f.geometry.coordinates[0]);
+		} else if (f.geometry.type === 'MultiPolygon') {
+			return f.geometry.coordinates.some(poly => pointInPolygon(pt, poly[0]));
+		}
+		return false;
+	});
+	if (found) {
+		selectAreaFeature(found);
+	} else {
+		alert('No area found for this postcode');
+	}
+}
+
+// Simple point-in-polygon test (ray casting)
+function pointInPolygon(point, vs) {
+	const x = point[0], y = point[1];
+	let inside = false;
+	for (let i = 0, j = vs.length - 1; i < vs.length; j = i++) {
+		const xi = vs[i][0], yi = vs[i][1];
+		const xj = vs[j][0], yj = vs[j][1];
+		const intersect = ((yi > y) !== (yj > y)) &&
+			(x < (xj - xi) * (y - yi) / (yj - yi + 1e-12) + xi);
+		if (intersect) inside = !inside;
+	}
+	return inside;
+}
+
+// --- Event listeners for search box ---
+const searchBox = document.getElementById('search-box');
+const suggestionsUl = document.getElementById('search-suggestions');
+searchBox.addEventListener('input', e => {
+	const val = e.target.value;
+	showSuggestions(val);
+});
+searchBox.addEventListener('keydown', e => {
+	if (e.key === 'Enter') {
+		const val = e.target.value.trim();
+		suggestionsUl.style.display = 'none';
+		if (!val) return;
+		// Try postcode search first
+		if (searchPostcode(val)) return;
+		// Otherwise, try area name
+		selectAreaByName(val);
+	}
+});
+document.addEventListener('click', e => {
+	if (!searchBox.contains(e.target) && !suggestionsUl.contains(e.target)) {
+		suggestionsUl.style.display = 'none';
+	}
+});
 
 // Use D3 to populate the info area above the keyscale
 const keyInfoSel = d3.select('#keyinfo')
@@ -131,6 +338,7 @@ function drawKeyScale() {
 		.range([config.keyScaleMargin.left, width + config.keyScaleMargin.left]);
 	tickData.forEach(d => { d.x = x(d.value); });
 
+	// This is all to do with working out if dropticks are needed (overlap)
 	// First, create the ticks (invisible) to measure their widths
 	const tempTicks = d3.select(document.createElementNS('http://www.w3.org/2000/svg', 'svg'))
 		.selectAll('text.keyscale-tick-temp')
@@ -284,7 +492,7 @@ function drawKeyScale() {
 }
 
 function drawMap() {
-	// Initialise chart size and accessibility
+	//Initialise for pym, not sure if it should go here, just copied from drawGraphic() on other templates
 	const size = initialise();
 
 	// Set up source text
@@ -324,8 +532,11 @@ function drawMap() {
 		}
 	});
 
+
 	// Draw the key scale
 	drawKeyScale();
+	// Build area search index after geojson is loaded
+	setupAreaSearchIndex();
 
 	// Add area source and layer, and fit bounds with bottom padding after map and overlay are rendered
 	map.on('load', () => {

@@ -129,6 +129,10 @@ function selectAreaFeature(feature) {
 	// This mimics the click event logic
 	const code = feature.properties[config.geoIdField];
 	const areaName = feature.properties[config.geoNameField];
+	// Clear previous selected state if different
+	if (selectedAreaCode && selectedAreaCode !== code) {
+		map.setFeatureState({ source: 'area', id: selectedAreaCode }, { selected: false });
+	}
 	selectedAreaCode = code;
 	map.setFeatureState({ source: 'area', id: code }, { selected: true });
 	map.setFeatureState({ source: 'area', id: selectedAreaCode }, { hover: false });

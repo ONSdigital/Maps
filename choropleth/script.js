@@ -25,10 +25,10 @@ document.addEventListener('keydown', function(e) {
         // Clear both selection and hover feature-state and info
         if (typeof map !== 'undefined' && map !== null) {
             if (hoveredAreaCode) {
-                map.setFeatureState({ source: 'area', id: hoveredAreaCode }, { hovered: false });
+                map.setFeatureState({ source: 'area', sourceLayer: (geographySource === "vector" ? config.geoLayer : ""), id: hoveredAreaCode }, { hovered: false });
             }
             if (selectedAreaCode) {
-                map.setFeatureState({ source: 'area', id: selectedAreaCode }, { selected: false });
+                map.setFeatureState({ source: 'area', sourceLayer: (geographySource === "vector" ? config.geoLayer : ""), id: selectedAreaCode }, { selected: false });
             }
             hoveredAreaCode = null;
             selectedAreaCode = null;
@@ -131,11 +131,11 @@ function selectAreaFeature(feature) {
 	const areaName = feature.properties[config.geoNameField];
 	// Clear previous selected state if different
 	if (selectedAreaCode && selectedAreaCode !== code) {
-		map.setFeatureState({ source: 'area', id: selectedAreaCode }, { selected: false });
+		map.setFeatureState({ source: 'area', sourceLayer: (geographySource === "vector" ? config.geoLayer : ""), id: selectedAreaCode }, { selected: false });
 	}
 	selectedAreaCode = code;
-	map.setFeatureState({ source: 'area', id: code }, { selected: true });
-	map.setFeatureState({ source: 'area', id: selectedAreaCode }, { hover: false });
+	map.setFeatureState({ source: 'area', sourceLayer: (geographySource === "vector" ? config.geoLayer : ""), id: code }, { selected: true });
+	map.setFeatureState({ source: 'area', sourceLayer: (geographySource === "vector" ? config.geoLayer : ""), id: selectedAreaCode }, { hover: false });
 	const selectedVal = feature.properties.value;
 	window.moveKeyIndicator(undefined);
 	window.moveKeyIndicatorSelected(selectedVal);
@@ -518,6 +518,9 @@ function drawMap() {
 	//Initialise for pym, not sure if it should go here, just copied from drawGraphic() on other templates
 	const size = initialise();
 
+	// Calculate bottom padding for overlay
+	const bottomPad = getKeyOverlayHeight() + 85; // extra for spacing
+
 	// Set up source text
 	addSource('source', config.sourceText || 'Office for National Statistics.');
 
@@ -528,34 +531,37 @@ function drawMap() {
 		cooperativeGestures: config.scrollZoomGuard || false,
 		minZoom: config.minZoom || 3.5,
 		maxZoom: config.maxZoom || 13,
+		bounds: config.mapBounds, // UK bounds
+		fitBoundsOptions: { padding: { top: 10, left: 10, right: 10, bottom: bottomPad }},
 		attributionControl: false
 	});
 
-	// Convert TopoJSON to GeoJSON
-	if (areas.type !== "FeatureCollection") {
-		const key = areas.objects[config.geoLayer] ? config.geoLayer : Object.keys(areas.objects)[0];
-		areas = topojson.feature(areas, areas.objects[key]);
-		if (geographySource === "topojson" && config.geoYear) {
-			areas.features = areas.features.filter(d => yearFilter(d.properties, config.geoYear));
+	if (geographySource !== "vector") {
+		// Convert TopoJSON to GeoJSON
+		if (areas.type !== "FeatureCollection") {
+			const key = areas.objects[config.geoLayer] ? config.geoLayer : Object.keys(areas.objects)[0];
+			areas = topojson.feature(areas, areas.objects[key]);
+			if (geographySource === "topojson" && config.geoYear) {
+				areas.features = areas.features.filter(d => yearFilter(d.properties, config.geoYear));
+			}
 		}
-	}
 
-	if (config.geoCountries.length < 4) {
-		areas.features = areas.features.filter(d => config.geoCountries.includes(d.properties[config.geoIdField][0]));
-	}
-
-	// Add data properties to geojson
-	areas.features.forEach((d) => {
-		const code = d.properties[config.geoIdField]
-		const value = code ? rateById[code] : undefined;
-		d.properties.value = value;
-		let fillColor = colour(value);
-		if (!fillColor || fillColor === null) {
-			fillColor = config.colourUnavailable; // fallback color for missing/invalid data
+		if (config.geoCountries.length < 4) {
+			areas.features = areas.features.filter(d => config.geoCountries.includes(d.properties[config.geoIdField][0]));
 		}
-		d.properties.fill = fillColor;
-	});
 
+		// Add data properties to geojson
+		// areas.features.forEach((d) => {
+		// 	const code = d.properties[config.geoIdField]
+		// 	const value = code ? rateById[code] : undefined;
+		// 	d.properties.value = value;
+		// 	let fillColor = colour(value);
+		// 	if (!fillColor || fillColor === null) {
+		// 		fillColor = config.colourUnavailable; // fallback color for missing/invalid data
+		// 	}
+		// 	d.properties.fill = fillColor;
+		// });
+	}
 
 	// Draw the key scale
 	drawKeyScale();
@@ -564,20 +570,30 @@ function drawMap() {
 
 	// Add area source and layer, and fit bounds with bottom padding after map and overlay are rendered
 	map.on('load', () => {
-		// Calculate bottom padding for overlay
-		const bottomPad = getKeyOverlayHeight() + 10; // 10px extra for spacing
 
-		// Fit map to bounds if provided, with bottom padding
-		map.fitBounds(config.mapBounds, { padding: { top: 10, left: 10, right: 10, bottom: bottomPad }, animate: false });
+		if (geographySource === "vector") {
 
-		map.addSource('area', { type: 'geojson', data: areas, promoteId: config.geoIdField });
+			map.addSource('area', { type: 'vector', tiles: [config.geoUrl], promoteId: {[config.geoLayer]: config.geoIdField}});
+
+		} else {
+
+			map.addSource('area', { type: 'geojson', data: areas, promoteId: config.geoIdField });
+
+		}
+
+			data.forEach(d => {
+				const fillColor = colour(d.value);
+				map.setFeatureState({ source: 'area', sourceLayer: (geographySource === "vector" ? config.geoLayer : ""), id: d[config.dataIdField] }, { value: d.value, color: fillColor });
+			})
+
 		map.addLayer({
 			id: 'area',
 			type: 'fill',
 			source: 'area',
+			"source-layer": geographySource === "vector" ? config.geoLayer : "",
 			layout: {},
 			paint: {
-				'fill-color': ['get', 'fill'],
+				'fill-color': ['feature-state', 'color'],
 				'fill-opacity': config.fillOpacity || 0.8,
 				'fill-outline-color': '#cccccc'
 			}
@@ -588,6 +604,7 @@ function drawMap() {
 			id: 'area-hover',
 			type: 'line',
 			source: 'area',
+			"source-layer": geographySource === "vector" ? config.geoLayer : "",
 			layout: {},
 			paint: {
 				'line-color': '#000',
@@ -603,6 +620,7 @@ function drawMap() {
 			id: 'area-selected',
 			type: 'line',
 			source: 'area',
+			"source-layer": geographySource === "vector" ? config.geoLayer : "",
 			layout: {},
 			paint: {
 				'line-color': '#000',
@@ -619,10 +637,11 @@ function drawMap() {
 
 			// Remove hover state from previous feature
 			if (hoveredAreaCode && hoveredAreaCode !== code) {
-				map.setFeatureState({ source: 'area', id: hoveredAreaCode }, { hovered: false });
+				map.setFeatureState({ source: 'area', sourceLayer: (geographySource === "vector" ? config.geoLayer : ""), id: hoveredAreaCode }, { hovered: false });
 			}
 			hoveredAreaCode = code;
-			map.setFeatureState({ source: 'area', id: hoveredAreaCode }, { hovered: true });
+
+			map.setFeatureState({ source: 'area', sourceLayer: (geographySource === "vector" ? config.geoLayer : ""), id: hoveredAreaCode }, { hovered: true });
 
 			const areaName = e.features[0].properties[config.geoNameField];
 			const value = e.features[0].properties.value;
@@ -652,7 +671,7 @@ function drawMap() {
 		map.on('mouseleave', 'area', () => {
 			map.getCanvas().style.cursor = '';
 			if (hoveredAreaCode) {
-				map.setFeatureState({ source: 'area', id: hoveredAreaCode }, { hovered: false });
+				map.setFeatureState({ source: 'area', sourceLayer: (geographySource === "vector" ? config.geoLayer : ""), id: hoveredAreaCode }, { hovered: false });
 				hoveredAreaCode = null;
 			}
 			// If an area is selected, show its info and indicator; otherwise clear
@@ -674,13 +693,13 @@ function drawMap() {
 
 			// Remove previous selected state
 			if (selectedAreaCode && selectedAreaCode !== code) {
-				map.setFeatureState({ source: 'area', id: selectedAreaCode }, { selected: false });
+				map.setFeatureState({ source: 'area', sourceLayer: (geographySource === "vector" ? config.geoLayer : ""), id: selectedAreaCode }, { selected: false });
 			}
 			selectedAreaCode = code;
-			map.setFeatureState({ source: 'area', id: selectedAreaCode }, { selected: true });
+			map.setFeatureState({ source: 'area', sourceLayer: (geographySource === "vector" ? config.geoLayer : ""), id: selectedAreaCode }, { selected: true });
 			// Remove hover state (if any)
 			if (hoveredAreaCode) {
-				map.setFeatureState({ source: 'area', id: hoveredAreaCode }, { hovered: false });
+				map.setFeatureState({ source: 'area', sourceLayer: (geographySource === "vector" ? config.geoLayer : ""), id: hoveredAreaCode }, { hovered: false });
 				hoveredAreaCode = null;
 			}
 			// Show faded indicator for selected, hide hover indicator
@@ -763,7 +782,7 @@ function drawMap() {
 				// Clear selected area and info
 				if (typeof map !== 'undefined' && map !== null) {
 					if (selectedAreaCode) {
-						map.setFeatureState({ source: 'area', id: selectedAreaCode }, { selected: false });
+						map.setFeatureState({ source: 'area', sourceLayer: (geographySource === "vector" ? config.geoLayer : ""), id: selectedAreaCode }, { selected: false });
 					}
 					selectedAreaCode = null;
 					if (window.moveKeyIndicator) window.moveKeyIndicator(undefined);
@@ -790,9 +809,10 @@ function drawMap() {
 }
 
 function setupData() {
+	
 	Promise.all([
 		d3.csv(config.dataUrl),
-		d3.json(config.geoUrl || "../lib-maps/master-topo.json")
+		geographySource === "vector" ? null :d3.json(config.geoUrl || "../lib-maps/master-topo.json")
 	]).then(([csv, geog]) => {
 			data = csv;
 			areas = geog;

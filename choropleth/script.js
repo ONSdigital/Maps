@@ -521,6 +521,7 @@ function drawMap() {
 	map = new maplibregl.Map({
 		container: 'graphic',
 		style: 'style.json',
+		cooperativeGestures: config.scrollZoomGuard || false,
 		minZoom: config.minZoom || 3.5,
 		maxZoom: config.maxZoom || 13,
 		attributionControl: false
@@ -772,69 +773,12 @@ function drawMap() {
 		map.addControl(new maplibregl.NavigationControl({ showCompass: false }));
 		map.dragRotate.disable();
 		map.touchZoomRotate.disableRotation();
+		// map.addControl(new maplibregl.GeolocateControl({
+		// 	positionOptions: {
+		// 		enableHighAccuracy: true
+		// 	}
+		// }));
 		map.addControl(zoomhome, 'top-right');
-		map.addControl(new maplibregl.AttributionControl({ compact: true }), 'bottom-right');
-
-		// Scroll zoom guard logic (unchanged)
-		if (config.scrollZoomGuard) {
-			const mapContainer = document.getElementById('graphic');
-			let scrollZoomGuardMsg = document.getElementById('map-scrollzoomguard-msg');
-			if (!scrollZoomGuardMsg) {
-				scrollZoomGuardMsg = document.createElement('div');
-				scrollZoomGuardMsg.id = 'map-scrollzoomguard-msg';
-				scrollZoomGuardMsg.textContent = 'Use Shift + scroll to zoom the map';
-				scrollZoomGuardMsg.style.position = 'absolute';
-				scrollZoomGuardMsg.style.left = '50%';
-				scrollZoomGuardMsg.style.top = '40%';
-				scrollZoomGuardMsg.style.transform = 'translate(-50%, -50%)';
-				scrollZoomGuardMsg.style.background = 'rgba(34,34,34,0.9)';
-				scrollZoomGuardMsg.style.color = '#fff';
-				scrollZoomGuardMsg.style.padding = '6px 16px';
-				scrollZoomGuardMsg.style.borderRadius = '6px';
-				scrollZoomGuardMsg.style.fontSize = '15px';
-				scrollZoomGuardMsg.style.zIndex = 1001;
-				scrollZoomGuardMsg.style.display = 'none';
-				scrollZoomGuardMsg.style.pointerEvents = 'none';
-				mapContainer.style.position = 'relative';
-				mapContainer.appendChild(scrollZoomGuardMsg);
-			}
-
-			map.scrollZoom.disable();
-
-			let wheelZoomTarget = null;
-			let wheelZoomTimeout = null;
-			mapContainer.addEventListener('wheel', function(e) {
-				if (e.shiftKey) {
-					e.preventDefault();
-					const zoomStep = 0.25;
-					let newZoom = (wheelZoomTarget !== null ? wheelZoomTarget : map.getZoom());
-					if (e.deltaY < 0) {
-						newZoom += zoomStep;
-					} else if (e.deltaY > 0) {
-						newZoom -= zoomStep;
-					}
-					newZoom = Math.max(map.getMinZoom(), Math.min(map.getMaxZoom(), newZoom));
-					wheelZoomTarget = newZoom;
-					map.setZoom(newZoom);
-					clearTimeout(wheelZoomTimeout);
-					const rect = mapContainer.getBoundingClientRect();
-					const mouseX = e.clientX - rect.left;
-					const mouseY = e.clientY - rect.top;
-					const around = map.unproject([mouseX, mouseY]);
-					wheelZoomTimeout = setTimeout(() => {
-						map.easeTo({ zoom: wheelZoomTarget, duration: 200, around });
-						wheelZoomTarget = null;
-					}, 160);
-				} else {
-					e.preventDefault();
-					scrollZoomGuardMsg.style.display = 'block';
-					clearTimeout(scrollZoomGuardMsg._hideTimeout);
-					scrollZoomGuardMsg._hideTimeout = setTimeout(() => {
-						scrollZoomGuardMsg.style.display = 'none';
-					}, 1600);
-				}
-			}, { passive: false });
-		}
 
 		// Send height for pym
 		if (pymChild) pymChild.sendHeight();

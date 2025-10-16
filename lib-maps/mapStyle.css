@@ -25,3 +25,14 @@
   box-sizing: border-box;
   padding: 10px 0 0 0;
 }
+
+.maplibregl-cooperative-gesture-screen {
+  height: 100px;
+  top: 40%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  /* background: rgba(34,34,34,0.9); */
+  padding: 6px 16px;
+  border-radius: 6px;
+  transition: opacity 0.4s ease 0.4s;
+}

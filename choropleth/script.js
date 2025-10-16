@@ -2,9 +2,22 @@ import { initialise, addSource } from "../lib/helpers.js";
 
 let pymChild = null;
 
-let map, areas, data, breaks, colour, rateById = {}, areaById = {};
+let map, areas, data, breaks, colour, geographySource, rateById = {}, areaById = {};
 let hoveredAreaCode = null; // Track hovered area code
 let selectedAreaCode = null; // Track selected area code
+
+// Determine if geoUrl is vector tile service or GeoJSON
+if (config.geoUrl && config.geoUrl.endsWith('.pbf')) {
+	geographySource = "vector";
+} else if (config.geoUrl && config.geoUrl.endsWith('.json')) {
+	geographySource = "json";
+} else if (config.geoUrl === null) {
+	geographySource = "topojson";
+} else {
+	console.error("Invalid geoUrl in config");
+}
+
+console.log('Geography source type:', geographySource);
 
 // Listen for ESC key to clear selection
 document.addEventListener('keydown', function(e) {
@@ -57,20 +70,21 @@ let areaCodeToFeature = {};
 
 function setupAreaSearchIndex() {
 	if (!areas || !areas.features) return;
+	if (!areas.features.length) return;
+	const firstProps = areas.features[0].properties;
+	if (!(config.geoIdField in firstProps) || !(config.geoNameField in firstProps)) {
+		console.error(`Mismatched geoIdField ('${config.geoIdField}') or geoNameField ('${config.geoNameField}') in config. Available keys:`, Object.keys(firstProps));
+		return;
+	}
 	areaNames = [];
 	areaNameToCode = {};
 	areaCodeToFeature = {};
 	areas.features.forEach(f => {
-		const propKeys = Object.keys(f.properties);
-		const areacdKey = propKeys.find(k => k.toLowerCase() === 'areacd');
-		const areanmKey = propKeys.find(k => k.toLowerCase() === 'areanm');
-		if (areacdKey && areanmKey) {
-			const code = f.properties[areacdKey].toUpperCase();
-			const name = f.properties[areanmKey];
-			areaNames.push(name);
-			areaNameToCode[name.toLowerCase()] = code;
-			areaCodeToFeature[code] = f;
-		}
+		const code = f.properties[config.geoIdField];
+		const name = f.properties[config.geoNameField];
+		areaNames.push(name);
+		areaNameToCode[name.toLowerCase()] = code;
+		areaCodeToFeature[code] = f;
 	});
 }
 
@@ -113,11 +127,8 @@ function selectAreaByName(name) {
 
 function selectAreaFeature(feature) {
 	// This mimics the click event logic
-	const propKeys = Object.keys(feature.properties);
-	const areacdKey = propKeys.find(k => k.toLowerCase() === 'areacd');
-	const areanmKey = propKeys.find(k => k.toLowerCase() === 'areanm');
-	const code = areacdKey ? feature.properties[areacdKey].toUpperCase() : undefined;
-	const areaName = areanmKey ? feature.properties[areanmKey] : '';
+	const code = feature.properties[config.geoIdField];
+	const areaName = feature.properties[config.geoNameField];
 	selectedAreaCode = code;
 	map.setFeatureState({ source: 'area', id: code }, { selected: true });
 	map.setFeatureState({ source: 'area', id: selectedAreaCode }, { hover: false });
@@ -183,6 +194,14 @@ function searchPostcode(query) {
 		})
 		.catch(() => alert('Error looking up postcode'));
 	return true;
+}
+
+// Filter topojson features by year
+function yearFilter(props, year) {
+    if (!props.start && !props.end) return true;
+    if (!props.start && props.end) return year <= props.end;
+    if (props.start && !props.end) return year >= props.start;
+    return year >= props.start && year <= props.end;
 }
 
 function selectAreaByLatLng(lon, lat) {
@@ -508,17 +527,21 @@ function drawMap() {
 	});
 
 	// Convert TopoJSON to GeoJSON
-	for (const key in areas.objects) {
+	if (areas.type !== "FeatureCollection") {
+		const key = areas.objects[config.geoLayer] ? config.geoLayer : Object.keys(areas.objects)[0];
 		areas = topojson.feature(areas, areas.objects[key]);
-		break;
+		if (geographySource === "topojson" && config.geoYear) {
+			areas.features = areas.features.filter(d => yearFilter(d.properties, config.geoYear));
+		}
+	}
+
+	if (config.geoCountries.length < 4) {
+		areas.features = areas.features.filter(d => config.geoCountries.includes(d.properties[config.geoIdField][0]));
 	}
 
 	// Add data properties to geojson
 	areas.features.forEach((d) => {
-		const propKeys = Object.keys(d.properties);
-		const areacdKey = propKeys.find(k => k.toLowerCase() === 'areacd');
-		const areanmKey = propKeys.find(k => k.toLowerCase() === 'areanm');
-		const code = areacdKey ? d.properties[areacdKey].toUpperCase() : undefined;
+		const code = d.properties[config.geoIdField]
 		const value = code ? rateById[code] : undefined;
 		d.properties.value = value;
 		let fillColor = colour(value);
@@ -526,10 +549,6 @@ function drawMap() {
 			fillColor = config.colourUnavailable; // fallback color for missing/invalid data
 		}
 		d.properties.fill = fillColor;
-		// Optionally, set AREANM to a consistent property for labels
-		if (areanmKey) {
-			d.properties.AREANM = d.properties[areanmKey];
-		}
 	});
 
 
@@ -546,7 +565,7 @@ function drawMap() {
 		// Fit map to bounds if provided, with bottom padding
 		map.fitBounds(config.mapBounds, { padding: { top: 10, left: 10, right: 10, bottom: bottomPad }, animate: false });
 
-		map.addSource('area', { type: 'geojson', data: areas, promoteId: 'AREACD' });
+		map.addSource('area', { type: 'geojson', data: areas, promoteId: config.geoIdField });
 		map.addLayer({
 			id: 'area',
 			type: 'fill',
@@ -591,11 +610,7 @@ function drawMap() {
 		// Interactivity
 		map.on('mousemove', 'area', (e) => {
 			map.getCanvas().style.cursor = 'pointer';
-			// Case-insensitive AREACD
-			const propKeys = Object.keys(e.features[0].properties);
-			const areacdKey = propKeys.find(k => k.toLowerCase() === 'areacd');
-			const areanmKey = propKeys.find(k => k.toLowerCase() === 'areanm');
-			const code = areacdKey ? e.features[0].properties[areacdKey].toUpperCase() : undefined;
+			const code = e.features[0].properties[config.geoIdField];
 
 			// Remove hover state from previous feature
 			if (hoveredAreaCode && hoveredAreaCode !== code) {
@@ -604,7 +619,7 @@ function drawMap() {
 			hoveredAreaCode = code;
 			map.setFeatureState({ source: 'area', id: hoveredAreaCode }, { hovered: true });
 
-			const areaName = areanmKey ? e.features[0].properties[areanmKey] : '';
+			const areaName = e.features[0].properties[config.geoNameField];
 			const value = e.features[0].properties.value;
 
 			// Always show hover info if hovering, but if an area is selected, show faded indicator for it
@@ -649,11 +664,8 @@ function drawMap() {
 		});
 		map.on('click', 'area', (e) => {
 			// On click, lock the info display to this area until mouse leaves
-			const propKeys = Object.keys(e.features[0].properties);
-			const areacdKey = propKeys.find(k => k.toLowerCase() === 'areacd');
-			const areanmKey = propKeys.find(k => k.toLowerCase() === 'areanm');
-			const code = areacdKey ? e.features[0].properties[areacdKey].toUpperCase() : undefined;
-			const areaName = areanmKey ? e.features[0].properties[areanmKey] : '';
+			const code = e.features[0].properties[config.geoIdField];
+			const areaName = e.features[0].properties[config.geoNameField];
 
 			// Remove previous selected state
 			if (selectedAreaCode && selectedAreaCode !== code) {
@@ -832,20 +844,15 @@ function drawMap() {
 function setupData() {
 	Promise.all([
 		d3.csv(config.dataUrl),
-		d3.json(config.geoUrl)
+		d3.json(config.geoUrl || "../lib-maps/master-topo.json")
 	]).then(([csv, geog]) => {
 			data = csv;
 			areas = geog;
 
-			// Set up value lookup and breaks (case-insensitive)
+			// Set up value lookup and breaks
 			data.forEach((d) => {
-				const keys = Object.keys(d);
-				const areacdKey = keys.find(k => k.toLowerCase() === 'areacd');
-				const areanmKey = keys.find(k => k.toLowerCase() === 'areanm');
-				if (areacdKey && areanmKey) {
-					rateById[d[areacdKey].toUpperCase()] = +d.value;
-					areaById[d[areacdKey].toUpperCase()] = d[areanmKey];
-				}
+					rateById[d[config.dataIdField]] = +d.value;
+					areaById[d[config.dataIdField]] = d[config.geoNameField];
 			});
 
 			// Calculate breaks and color scale

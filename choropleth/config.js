@@ -1,6 +1,12 @@
 config = {
 	dataUrl: "data.csv",
-	geoUrl: "geog.json",
+	geoUrl: "geog.json", //if null uses default topoJSON otherwise can be a .json file or vector tile service (e.g. 'https://cdn.ons.gov.uk/maptiles/administrative/2021/msoa/v2/boundaries/{z}/{x}/{y}.pbf')
+	geoYear: 2025, // only needed for default topoJSON
+	geoLayer: "ltla", // source layer within default topoJSON or vector tile source
+	geoCountries: ["E", "W", "S", "N"], // which countries to include from default topoJSON - E, W, S, N
+	geoIdField: "AREACD", // feature property in geo file that matches id field in data file
+	geoNameField: "AREANM", // feature property to use for area name
+	dataIdField: "areacd", // column in data file that matches geoIdField in geo file
 	mapHeight: "650px",
 	colourPalette: "YlGnBu", // can be preset colourbrewer palette or custom array of colours
 	colourUnavailable: "#ccc",

@@ -579,7 +579,7 @@ function drawMap() {
 			paint: {
 				'fill-color': ['get', 'fill'],
 				'fill-opacity': config.fillOpacity || 0.8,
-				// 'fill-outline-color': '#fff'
+				'fill-outline-color': '#cccccc'
 			}
 		}, 'place_town');
 

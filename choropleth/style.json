@@ -2051,7 +2051,7 @@
         ]
       ],
       "layout": {
-        "visibility": "visible",
+        "visibility": "none",
         "text-field": "{name:latin}",
         "text-font": [
           "Open Sans Italic"
@@ -2121,7 +2121,7 @@
         ]
       ],
       "layout": {
-        "visibility": "visible",
+        "visibility": "none",
         "text-field": "{name:latin}",
         "text-font": [
           "Open Sans Regular"
@@ -2191,7 +2191,7 @@
         ]
       ],
       "layout": {
-        "visibility": "visible",
+        "visibility": "none",
         "text-field": "{name:latin}",
         "text-font": [
           "Open Sans Regular"

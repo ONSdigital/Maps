@@ -54,8 +54,9 @@ function addSearchBox() {
 	const searchDiv = document.createElement('div');
 	searchDiv.id = 'search-container';
 	searchDiv.style = 'margin: 10px 0; position: relative; z-index: 10; max-width: 800px;';
+	const placeholder = (geographySource === 'vector') ? 'Search postcode...' : 'Search postcode or area name...';
 	searchDiv.innerHTML = `
-		<input id="search-box" type="text" placeholder="Search postcode or area name..." autocomplete="off" style="width: 100%; padding: 8px; font-size: 16px; box-sizing: border-box;">
+		<input id="search-box" type="text" placeholder="${placeholder}" autocomplete="off" style="width: 100%; padding: 8px; font-size: 16px; box-sizing: border-box;">
 		<ul id="search-suggestions" style="position: absolute; left: 0; right: 0; top: 36px; background: #fff; border: 1px solid #ccc; list-style: none; margin: 0; padding: 0; max-height: 180px; overflow-y: auto; display: none; z-index: 1000;"></ul>
 	`;
 	mapWrapper.parentNode.insertBefore(searchDiv, mapWrapper);
@@ -127,19 +128,23 @@ function selectAreaByName(name) {
 
 function selectAreaFeature(feature) {
 	// This mimics the click event logic
-	const code = feature.properties[config.geoIdField];
-	const areaName = feature.properties[config.geoNameField];
-	// Clear previous selected state if different
-	if (selectedAreaCode && selectedAreaCode !== code) {
-		map.setFeatureState({ source: 'area', sourceLayer: (geographySource === "vector" ? config.geoLayer : ""), id: selectedAreaCode }, { selected: false });
-	}
-	selectedAreaCode = code;
-	map.setFeatureState({ source: 'area', sourceLayer: (geographySource === "vector" ? config.geoLayer : ""), id: code }, { selected: true });
-	map.setFeatureState({ source: 'area', sourceLayer: (geographySource === "vector" ? config.geoLayer : ""), id: selectedAreaCode }, { hover: false });
-	const selectedVal = rateById[code];
-	window.moveKeyIndicator(undefined);
-	window.moveKeyIndicatorSelected(selectedVal);
-	updateKeyInfo(selectedVal, areaName);
+		const code = feature.properties[config.geoIdField];
+		const areaName = feature.properties[config.geoNameField];
+		// Always ensure areaById is set for this code
+		if (!areaById[code]) {
+			areaById[code] = areaName;
+		}
+		// Clear previous selected state if different
+		if (selectedAreaCode && selectedAreaCode !== code) {
+			map.setFeatureState({ source: 'area', sourceLayer: (geographySource === "vector" ? config.geoLayer : ""), id: selectedAreaCode }, { selected: false });
+		}
+		selectedAreaCode = code;
+		map.setFeatureState({ source: 'area', sourceLayer: (geographySource === "vector" ? config.geoLayer : ""), id: code }, { selected: true });
+		map.setFeatureState({ source: 'area', sourceLayer: (geographySource === "vector" ? config.geoLayer : ""), id: selectedAreaCode }, { hover: false });
+		const selectedVal = rateById[code];
+		window.moveKeyIndicator(undefined);
+		window.moveKeyIndicatorSelected(selectedVal);
+		updateKeyInfo(selectedVal, areaName);
 	
 	// Zoom to area bounds (same as click logic)
 	
@@ -210,7 +215,82 @@ function yearFilter(props, year) {
 }
 
 function selectAreaByLatLng(lon, lat) {
-	// Find the area feature that contains this point
+
+	console.log("position: long:", lon, " lat:",lat);
+
+	//Jank way of selecting area by postcode - don't think it works properly - need to see how energyefficiencyofhousing does it
+	if (geographySource === 'vector') {
+		// Project lat/lng to screen pixel
+		if (!map) return;
+		const point = map.project([lon, lat]);
+		// Query rendered features at this pixel
+		const features = map.queryRenderedFeatures(point, { layers: ['area'] });
+		if (features && features.length > 0) {
+			// Simulate click/select on the first feature
+			const feature = features[0];
+			// Defensive: ensure areaById is set for this code
+			const code = feature.properties[config.geoIdField];
+			const areaName = feature.properties[config.geoNameField];
+			if (!areaById[code]) areaById[code] = areaName;
+			// Use the same logic as click handler
+			if (selectedAreaCode && selectedAreaCode !== code) {
+				map.setFeatureState({ source: 'area', sourceLayer: config.geoLayer, id: selectedAreaCode }, { selected: false });
+			}
+			selectedAreaCode = code;
+			map.setFeatureState({ source: 'area', sourceLayer: config.geoLayer, id: selectedAreaCode }, { selected: true });
+			if (hoveredAreaCode) {
+				map.setFeatureState({ source: 'area', sourceLayer: config.geoLayer, id: hoveredAreaCode }, { hovered: false });
+				hoveredAreaCode = null;
+			}
+			const selectedVal = rateById[code];
+			window.moveKeyIndicator(undefined);
+			window.moveKeyIndicatorSelected(selectedVal);
+			updateKeyInfo(selectedVal, areaName);
+
+			// Zoom to area bounds (if geometry is available)
+			if (feature && feature.geometry) {
+				let allCoords = [];
+				function collectCoords(geom) {
+					if (geom.type === 'Polygon') {
+						allCoords.push(...geom.coordinates[0]);
+					} else if (geom.type === 'MultiPolygon') {
+						geom.coordinates.forEach(poly => {
+							allCoords.push(...poly[0]);
+						});
+					}
+				}
+				collectCoords(feature.geometry);
+				if (allCoords.length) {
+					let lons = allCoords.map(c => c[0]);
+					let lats = allCoords.map(c => c[1]);
+					let minLon = Math.min(...lons), maxLon = Math.max(...lons);
+					let minLat = Math.min(...lats), maxLat = Math.max(...lats);
+					let bounds = [[minLon, minLat], [maxLon, maxLat]];
+					const mapCanvas = map.getContainer();
+					const mapWidth = mapCanvas.offsetWidth;
+					const mapHeight = mapCanvas.offsetHeight;
+					const padX = Math.round(mapWidth * 0.3);
+					let padY = Math.round(mapHeight * 0.3);
+					const keycontainer = document.getElementById('keycontainer');
+					let keyPad = 0;
+					if (keycontainer) {
+						keyPad = keycontainer.getBoundingClientRect().height || 0;
+					}
+					const padding = { top: padY, bottom: padY + keyPad, left: padX, right: padX };
+					const options = {
+						padding,
+						animate: true
+					};
+					map.fitBounds(bounds, options);
+				}
+			}
+		} else {
+			alert('No area found for this postcode');
+		}
+		return;
+	}
+
+	// Fallback: GeoJSON/TopoJSON point-in-polygon
 	if (!areas || !areas.features) return;
 	const pt = [lon, lat];
 	const found = areas.features.find(f => {
@@ -248,7 +328,11 @@ const searchBox = document.getElementById('search-box');
 const suggestionsUl = document.getElementById('search-suggestions');
 searchBox.addEventListener('input', e => {
 	const val = e.target.value;
-	showSuggestions(val);
+	if (geographySource !== 'vector') {
+		showSuggestions(val);
+	} else {
+		suggestionsUl.style.display = 'none';
+	}
 });
 searchBox.addEventListener('keydown', e => {
 	if (e.key === 'Enter') {
@@ -257,8 +341,10 @@ searchBox.addEventListener('keydown', e => {
 		if (!val) return;
 		// Try postcode search first
 		if (searchPostcode(val)) return;
-		// Otherwise, try area name
-		selectAreaByName(val);
+		// Only allow area name search if not using vector tiles
+		if (geographySource !== 'vector') {
+			selectAreaByName(val);
+		}
 	}
 });
 document.addEventListener('click', e => {
@@ -692,6 +778,10 @@ function drawMap() {
 			const code = e.features[0].properties[config.geoIdField];
 			const areaName = e.features[0].properties[config.geoNameField];
 
+			// Always ensure areaById is set for this code
+			if (!areaById[code]) {
+				areaById[code] = areaName;
+			}
 			// Remove previous selected state
 			if (selectedAreaCode && selectedAreaCode !== code) {
 				map.setFeatureState({ source: 'area', sourceLayer: (geographySource === "vector" ? config.geoLayer : ""), id: selectedAreaCode }, { selected: false });

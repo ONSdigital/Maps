@@ -7,23 +7,23 @@ config = {
 	geoIdField: "areacd", // feature property in geo file that matches id field in data file
 	geoNameField: "areanm", // feature property to use for area name
 	dataIdField: "AREACD", // column in data file that matches geoIdField in geo file
-	mapHeight: "650px",
+	mapHeight: "850px",
 	colourPalette: ["#E92730","#f0702f","#f6ae35","#f1ec37","#95ca53","#2ea949","#0a8647"], // can be preset colourbrewer palette or custom array of colours
 	colourUnavailable: "#ccc",
 	breaks: [0,20,38,54,68,80,91,110], // can be "equal", "jenks", or a custom array of breaks - number of values in palette determines number of breaks
 	valueFormat: ",.0f", // d3 format for values
-	valuePrefix: "£",
+	valuePrefix: "",
 	valueSuffix: "",
 	legendFormat: ",.0f",
-	legendPrefix: "£",
+	legendPrefix: " ",
 	legendSuffix: "",
-	explainerPlaceholder: "Mean monthly private rent price",
-	explainerPrefix: "is the mean monthly private rent price in ",
+	explainerPlaceholder: "EPC energy efficiency score",
+	explainerPrefix: "average EPC energy efficiency score in ",
 	explainerSuffix: "",
 	unavailablePrefix: "The value for",
 	unavailableSuffix: "is unavailable", //could change to suppressed if purposefully suppressed
-	mapBounds: [[-8.62, 48.87], [1.77, 60.84]], // UK bounds (Shetland cut off a bit): [[-8.62, 48.87], [1.77, 60.84]] England and Wales: [[-6.43, 50], [1.77, 55.81]]
-	minZoom: 4.3,
+	mapBounds: [[-6, 50], [2.5, 55.5]],
+	minZoom: 6,
 	maxZoom: 13,
 	fillOpacity: 0.8,
 	sourceText: "Office for National Statistics",

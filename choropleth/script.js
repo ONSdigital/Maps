@@ -136,11 +136,13 @@ function selectAreaFeature(feature) {
 	selectedAreaCode = code;
 	map.setFeatureState({ source: 'area', sourceLayer: (geographySource === "vector" ? config.geoLayer : ""), id: code }, { selected: true });
 	map.setFeatureState({ source: 'area', sourceLayer: (geographySource === "vector" ? config.geoLayer : ""), id: selectedAreaCode }, { hover: false });
-	const selectedVal = feature.properties.value;
+	const selectedVal = rateById[code];
 	window.moveKeyIndicator(undefined);
 	window.moveKeyIndicatorSelected(selectedVal);
 	updateKeyInfo(selectedVal, areaName);
+	
 	// Zoom to area bounds (same as click logic)
+	
 	if (feature && feature.geometry) {
 		let allCoords = [];
 		function collectCoords(geom) {
@@ -175,10 +177,9 @@ function selectAreaFeature(feature) {
 				padding,
 				animate: true
 			};
-			const targetZoom = map.cameraForBounds(bounds, options)?.zoom;
-			if (targetZoom !== undefined && targetZoom > currentZoom) {
-				map.fitBounds(bounds, options);
-			}
+			// const targetZoom = map.cameraForBounds(bounds, options)?.zoom;
+			map.fitBounds(bounds, options);
+
 		}
 	}
 }
@@ -644,7 +645,7 @@ function drawMap() {
 			map.setFeatureState({ source: 'area', sourceLayer: (geographySource === "vector" ? config.geoLayer : ""), id: hoveredAreaCode }, { hovered: true });
 
 			const areaName = e.features[0].properties[config.geoNameField];
-			const value = e.features[0].properties.value;
+			const value = rateById[e.features[0].properties[config.geoIdField]];
 
 			// Always show hover info if hovering, but if an area is selected, show faded indicator for it
 			if (typeof value !== 'undefined' && value !== null && !isNaN(value)) {
@@ -703,7 +704,7 @@ function drawMap() {
 				hoveredAreaCode = null;
 			}
 			// Show faded indicator for selected, hide hover indicator
-			const selectedVal = e.features[0].properties.value;
+			const selectedVal = rateById[e.features[0].properties[config.geoIdField]];
 			window.moveKeyIndicator(undefined);
 			window.moveKeyIndicatorSelected(selectedVal);
 			// Show explainer for selected area
@@ -759,10 +760,10 @@ function drawMap() {
 						animate: true
 					};
 					// Calculate the zoom that would be used
-					const targetZoom = map.cameraForBounds(bounds, options)?.zoom;
-					if (targetZoom !== undefined && targetZoom > currentZoom) {
+					// const targetZoom = map.cameraForBounds(bounds, options)?.zoom;
+					// if (targetZoom !== undefined && targetZoom > currentZoom) {
 						map.fitBounds(bounds, options);
-					}
+					// }
 				}
 			}
 		});

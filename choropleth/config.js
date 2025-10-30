@@ -8,7 +8,7 @@ config = {
 	geoNameField: "AREANM", // feature property to use for area name
 	dataIdField: "areacd", // column in data file that matches geoIdField in geo file
 	mapHeight: "650px",
-	colourPalette: "YlGnBu", // can be preset colourbrewer palette or custom array of colours
+	colourPalette: ['#edf8b1','#c7e9b4','#7fcdbb','#41b6c4','#1d91c0','#225ea8','#0c2c84'], // can be preset colourbrewer palette (e.g. YlGnBu) or custom array of colours
 	colourUnavailable: "#ccc",
 	breaks: "jenks", // can be "equal", "jenks", or a custom array of breaks - number of values in palette determines number of breaks
 	valueFormat: ",.0f", // d3 format for values

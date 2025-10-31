@@ -63,7 +63,11 @@ function addSearchBox() {
 		<input id="search-box" type="text" placeholder="${placeholder}" autocomplete="off" style="width: 100%; padding: 8px; font-size: 16px; box-sizing: border-box;">
 		<ul id="search-suggestions" style="position: absolute; left: 0; right: 0; top: 36px; background: #fff; border: 1px solid #ccc; list-style: none; margin: 0; padding: 0; max-height: 180px; overflow-y: auto; display: none; z-index: 1000;"></ul>
 	`;
-	mapWrapper.parentNode.insertBefore(searchDiv, mapWrapper);
+	if (mapWrapper === document.body) {
+		document.body.appendChild(searchDiv);
+	} else {
+		mapWrapper.parentNode.insertBefore(searchDiv, mapWrapper);
+	}
 }
 
 addSearchBox();
@@ -770,6 +774,10 @@ function drawMap() {
 			}
 		}, 'area-hover');
 
+		//Get current year for attributions
+		let today = new Date();
+		let copyYear = today.getFullYear();
+		map.style.sourceCaches['area']._source.attribution = "Contains OS data &copy; Crown copyright and database right " + copyYear;
 
 		// Interactivity
 		map.on('mousemove', 'area', (e) => {
@@ -946,6 +954,12 @@ function drawMap() {
 		});
 
 		// Add navigation and attribution controls after fitting bounds
+
+		//add compact attribution
+		map.addControl(new maplibregl.AttributionControl({
+			compact: true
+		}), 'top-right');
+
 		map.addControl(new maplibregl.NavigationControl({ showCompass: false }));
 		map.dragRotate.disable();
 		map.touchZoomRotate.disableRotation();

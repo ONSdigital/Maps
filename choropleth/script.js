@@ -203,10 +203,30 @@ function searchPostcode(query) {
 			if (res.status === 200 && res.result && res.result.longitude && res.result.latitude) {
 				selectAreaByLatLng(res.result.longitude, res.result.latitude);
 			} else {
-				alert('Postcode not found');
+				const searchBox = document.getElementById('search-box');
+				if (searchBox) {
+					const prev = searchBox.value;
+					searchBox.value = 'Postcode not found';
+					searchBox.classList.add('error');
+					setTimeout(() => {
+						searchBox.value = '';
+						searchBox.classList.remove('error');
+					}, 2000);
+				}
 			}
 		})
-		.catch(() => alert('Error looking up postcode'));
+		.catch(() => {
+			const searchBox = document.getElementById('search-box');
+			if (searchBox) {
+				const prev = searchBox.value;
+				searchBox.value = 'Error looking up postcode';
+				searchBox.classList.add('error');
+				setTimeout(() => {
+					searchBox.value = '';
+					searchBox.classList.remove('error');
+				}, 2000);
+			}
+		});
 	return true;
 }
 
@@ -414,15 +434,17 @@ function updateKeyInfo(value, areaName) {
 		`<span style="font-size:0.6em;vertical-align:middle;">${valueSuffix}</span>`
 	);
 
-	// Explainer: explainerPrefix, area name (bold), explainerSuffix
+	// Explainer: explainerPrefix, area name (bold), explainerSuffix (all in one container, prefix/suffix can be HTML)
 	const explainerPrefix = config.explainerPrefix || '';
 	const explainerSuffix = config.explainerSuffix || '';
-	explainerLine1.html('');
-	explainerLine1.append('span').text(explainerPrefix);
+	let explainerHtml = '';
+	explainerHtml += explainerPrefix;
 	if (areaName) {
-		explainerLine1.append('strong').text(areaName);
+		explainerHtml += '<strong>' + d3.create('span').text(areaName).node().textContent + '</strong>';
 	}
-	explainerLine2.text(explainerSuffix);
+	explainerHtml += explainerSuffix;
+	explainerLine1.html(explainerHtml);
+	explainerLine2.text('');
 }
 
 // Clear info on load

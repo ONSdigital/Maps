@@ -17,6 +17,7 @@ config = {
 	legendFormat: ",.0f",
 	legendPrefix: " ",
 	legendSuffix: "",
+	explainerAlignment: "left", // left or right, defaults to left
 	explainerPlaceholder: "EPC energy efficiency score",
 	explainerPrefix: "average EPC energy efficiency score in ",
 	explainerSuffix: "",

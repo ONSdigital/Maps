@@ -17,6 +17,7 @@ config = {
 	legendFormat: ",.0f",
 	legendPrefix: "£",
 	legendSuffix: "",
+	explainerAlignment: "right", // left or right
 	explainerPlaceholder: "Mean monthly private rent price",
 	explainerPrefix: "Mean monthly private rent price in</br>", //can include HTML
 	explainerSuffix: "",

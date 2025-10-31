@@ -398,6 +398,29 @@ let explainerLine2 = explainerSel.select('span.line2');
 if (explainerLine2.empty()) explainerLine2 = explainerSel.append('span').classed('line2', true);
 
 function updateKeyInfo(value, areaName) {
+	// Alignment logic for explainer/value
+	const keyInfoNode = document.getElementById('keyinfo');
+	const valueNode = document.getElementById('keyinfo-value');
+	const explainerNode = document.getElementById('keyinfo-explainer');
+	if (keyInfoNode && valueNode && explainerNode) {
+		// Set right margin from config.keyScaleMargin.right
+		if (config.keyScaleMargin && typeof config.keyScaleMargin.right === 'number') {
+			keyInfoNode.style.marginRight = config.keyScaleMargin.right + 'px';
+		} else {
+			keyInfoNode.style.marginRight = '';
+		}
+		if (config.explainerAlignment === 'right') {
+			keyInfoNode.style.flexDirection = 'row-reverse';
+			keyInfoNode.style.justifyContent = 'flex-end';
+			valueNode.style.textAlign = 'left';
+			explainerNode.style.textAlign = 'right';
+		} else {
+			keyInfoNode.style.flexDirection = 'row';
+			keyInfoNode.style.justifyContent = '';
+			valueNode.style.textAlign = 'right';
+			explainerNode.style.textAlign = 'left';
+		}
+	}
 	if (typeof value === 'undefined' || value === null || isNaN(value)) {
 		// If areaName is provided, show unavailable message; else show placeholder
 		if (areaName) {

@@ -21,23 +21,27 @@ console.log('Geography source type:', geographySource);
 
 // Listen for ESC key to clear selection
 document.addEventListener('keydown', function(e) {
-    if (e.key === 'Escape' || e.key === 'Esc') {
-        // Clear both selection and hover feature-state and info
-        if (typeof map !== 'undefined' && map !== null) {
-            if (hoveredAreaCode) {
-                map.setFeatureState({ source: 'area', sourceLayer: (geographySource === "vector" ? config.geoLayer : ""), id: hoveredAreaCode }, { hovered: false });
-            }
-            if (selectedAreaCode) {
-                map.setFeatureState({ source: 'area', sourceLayer: (geographySource === "vector" ? config.geoLayer : ""), id: selectedAreaCode }, { selected: false });
-            }
-            hoveredAreaCode = null;
-            selectedAreaCode = null;
-            if (map.getCanvas) map.getCanvas().style.cursor = '';
-            if (window.moveKeyIndicator) window.moveKeyIndicator(undefined);
-            if (window.moveKeyIndicatorSelected) window.moveKeyIndicatorSelected(undefined);
-            if (window.updateKeyInfo) updateKeyInfo(undefined, undefined);
-        }
-    }
+	if (e.key === 'Escape' || e.key === 'Esc') {
+		// Clear both selection and hover feature-state and info
+		if (typeof map !== 'undefined' && map !== null) {
+			if (hoveredAreaCode) {
+				map.setFeatureState({ source: 'area', sourceLayer: (geographySource === "vector" ? config.geoLayer : ""), id: hoveredAreaCode }, { hovered: false });
+			}
+			if (selectedAreaCode) {
+				map.setFeatureState({ source: 'area', sourceLayer: (geographySource === "vector" ? config.geoLayer : ""), id: selectedAreaCode }, { selected: false });
+			}
+			hoveredAreaCode = null;
+			selectedAreaCode = null;
+			if (map.getCanvas) map.getCanvas().style.cursor = '';
+			if (window.moveKeyIndicator) window.moveKeyIndicator(undefined);
+			if (window.moveKeyIndicatorSelected) window.moveKeyIndicatorSelected(undefined);
+			// Always clear explainer and value immediately
+			updateKeyInfo(undefined, undefined);
+			// Reset search box to placeholder
+			const searchBox = document.getElementById('search-box');
+			if (searchBox) searchBox.value = '';
+		}
+	}
 });
 
 // Helper to get the height of the overlay (keycontainer)
@@ -390,6 +394,11 @@ function updateKeyInfo(value, areaName) {
 			// Show placeholder in valueSel, clear explainer
 			const placeholder = config.explainerPlaceholder || '';
 			valueSel.html(`<span class="keyinfo-placeholder">${placeholder}</span>`);
+			explainerLine1.html('');
+			explainerLine2.text('');
+		}
+		// Always clear explainer lines if both arguments are undefined
+		if (typeof value === 'undefined' && typeof areaName === 'undefined') {
 			explainerLine1.html('');
 			explainerLine2.text('');
 		}
@@ -778,6 +787,10 @@ function drawMap() {
 			const code = e.features[0].properties[config.geoIdField];
 			const areaName = e.features[0].properties[config.geoNameField];
 
+			// Reset search box to placeholder
+			const searchBox = document.getElementById('search-box');
+			if (searchBox) searchBox.value = '';
+
 			// Always ensure areaById is set for this code
 			if (!areaById[code]) {
 				areaById[code] = areaName;
@@ -878,7 +891,11 @@ function drawMap() {
 					selectedAreaCode = null;
 					if (window.moveKeyIndicator) window.moveKeyIndicator(undefined);
 					if (window.moveKeyIndicatorSelected) window.moveKeyIndicatorSelected(undefined);
-					if (window.updateKeyInfo) updateKeyInfo(undefined, undefined);
+					// Always clear explainer and value immediately
+					updateKeyInfo(undefined, undefined);
+					// Reset search box to placeholder
+					const searchBox = document.getElementById('search-box');
+					if (searchBox) searchBox.value = '';
 				}
 			}
 		});

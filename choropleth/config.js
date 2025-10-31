@@ -18,7 +18,7 @@ config = {
 	legendPrefix: "£",
 	legendSuffix: "",
 	explainerPlaceholder: "Mean monthly private rent price",
-	explainerPrefix: "is the mean monthly private rent price in ",
+	explainerPrefix: "Mean monthly private rent price in ",
 	explainerSuffix: "",
 	unavailablePrefix: "The value for",
 	unavailableSuffix: "is unavailable", //could change to suppressed if purposefully suppressed

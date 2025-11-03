@@ -677,8 +677,9 @@ function drawMap() {
 		minZoom: config.minZoom || 3.5,
 		maxZoom: config.maxZoom || 13,
 		bounds: config.mapBounds, // UK bounds
+		maxBounds: config.maxBounds || undefined,
 		fitBoundsOptions: { padding: { top: 10, left: 10, right: 10, bottom: bottomPad }},
-		attributionControl: false
+		attributionControl: false,
 	});
 
 	if (geographySource !== "vector") {

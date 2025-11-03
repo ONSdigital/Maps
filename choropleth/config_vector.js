@@ -24,6 +24,7 @@ config = {
 	unavailablePrefix: "The value for",
 	unavailableSuffix: "is unavailable", //could change to suppressed if purposefully suppressed
 	mapBounds: [[-6, 50], [2.5, 55.5]],
+	maxBounds: [[-14, 46], [8, 62]], // restrict panning to these bounds
 	minZoom: 6,
 	maxZoom: 13,
 	fillOpacity: 0.8,

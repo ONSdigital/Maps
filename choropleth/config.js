@@ -27,11 +27,11 @@ config = {
 	maxBounds: [[-14, 46], [8, 62]], // restrict panning to these bounds
 	minZoom: 4.3,
 	maxZoom: 13,
-	fillOpacity: 0.8,
+	fillOpacity: 1,
 	sourceText: "Office for National Statistics",
 	accessibleSummary: "Here is the screenreader text describing the chart.",
 	scrollZoomGuard: true, // if true, user has to hold shift key to zoom map with scroll
-	keyScaleMargin: { left: 20, right: 20, top: 10, bottom: 10 },
+	keyScaleMargin: { left: 20, right: 40, top: 10, bottom: 10 },
 	elements: { select: 1, nav: 1, legend: 1, titles: 0 },
 	chartBuild: {}
 };

@@ -384,7 +384,7 @@ function updateKeyInfo(value, areaName) {
 	if (keyInfoNode && valueNode && explainerNode) {
 		// Set right margin from config.keyScaleMargin.right
 		if (config.keyScaleMargin && typeof config.keyScaleMargin.right === 'number') {
-			keyInfoNode.style.marginRight = config.keyScaleMargin.right + 'px';
+			keyInfoNode.style.marginRight = 'calc('+config.keyScaleMargin.right + 'px - 1rem)';
 		} else {
 			keyInfoNode.style.marginRight = '';
 		}
@@ -718,7 +718,7 @@ function drawMap() {
 			paint: {
 				'fill-color': ['feature-state', 'color'],
 				'fill-opacity': config.fillOpacity || 0.8,
-				'fill-outline-color': '#cccccc'
+				'fill-outline-color': ONScolours.grey100
 			}
 		}, 'place_town');
 
@@ -754,9 +754,8 @@ function drawMap() {
 
 		//Get current year for attributions
 		let today = new Date();
-		let copyYear = today.getFullYear();
-		map.style.sourceCaches['area']._source.attribution = "Contains OS data &copy; Crown copyright and database right " + copyYear;
-
+		map.getSource('area').attribution = "Contains OS data &copy; Crown copyright and database right " + today.getFullYear();
+		
 		// Interactivity
 		map.on('mousemove', 'area', (e) => {
 			map.getCanvas().style.cursor = 'pointer';
@@ -935,8 +934,8 @@ function drawMap() {
 
 		//add compact attribution
 		map.addControl(new maplibregl.AttributionControl({
-			compact: true
-		}), 'top-right');
+			compact: false
+		}), 'bottom-right');
 
 		map.addControl(new maplibregl.NavigationControl({ showCompass: false }));
 		map.dragRotate.disable();

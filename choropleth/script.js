@@ -5,6 +5,7 @@ let pymChild = null;
 let map, areas, data, breaks, colour, geographySource, rateById = {}, areaById = {};
 let hoveredAreaCode = null; // Track hovered area code
 let selectedAreaCode = null; // Track selected area code
+let selectedAreaName = null; // Track selected area name
 
 // Determine if geoUrl is vector tile service or GeoJSON
 if (config.geoUrl && config.geoUrl.endsWith('.pbf')) {
@@ -32,14 +33,14 @@ document.addEventListener('keydown', function(e) {
 			}
 			hoveredAreaCode = null;
 			selectedAreaCode = null;
+			selectedAreaName = null;
 			if (map.getCanvas) map.getCanvas().style.cursor = '';
 			if (window.moveKeyIndicator) window.moveKeyIndicator(undefined);
 			if (window.moveKeyIndicatorSelected) window.moveKeyIndicatorSelected(undefined);
 			// Always clear explainer and value immediately
 			updateKeyInfo(undefined, undefined);
 			// Reset search box to placeholder
-			const searchBox = document.getElementById('search-box');
-			if (searchBox) searchBox.value = '';
+			setSearchText("");
 		}
 	}
 });
@@ -51,31 +52,87 @@ function getKeyOverlayHeight() {
 	return keycontainer.getBoundingClientRect().height || 0;
 }
 
-
-// --- Add search box above the map ---
-function addSearchBox() {
-	const mapWrapper = document.getElementById('mapwrapper') || document.body;
-	const searchDiv = document.createElement('div');
-	searchDiv.id = 'search-container';
-	searchDiv.style = 'margin: 10px 0; position: relative; z-index: 10; max-width: 800px;';
-	const placeholder = (geographySource === 'vector') ? 'Search postcode...' : 'Search postcode or area name...';
-	searchDiv.innerHTML = `
-		<input id="search-box" type="text" placeholder="${placeholder}" autocomplete="off" style="width: 100%; padding: 8px; font-size: 16px; box-sizing: border-box;">
-		<ul id="search-suggestions" style="position: absolute; left: 0; right: 0; top: 36px; background: #fff; border: 1px solid #ccc; list-style: none; margin: 0; padding: 0; max-height: 180px; overflow-y: auto; display: none; z-index: 1000;"></ul>
-	`;
-	if (mapWrapper === document.body) {
-		document.body.appendChild(searchDiv);
-	} else {
-		mapWrapper.parentNode.insertBefore(searchDiv, mapWrapper);
-	}
-}
-
-addSearchBox();
-const graphic = d3.select('#graphic');
 // --- Autocomplete and search logic ---
 let areaNames = [];
 let areaNameToCode = {};
 let areaCodeToFeature = {};
+
+// Function to get postcode list from postcodes.io autocomplete
+async function fetchPostcodes(query) {
+	const url = `https://api.postcodes.io/postcodes/${query}/autocomplete`;
+	try {
+		const json = await (await fetch(url)).json();
+		return json.result || [];
+	} catch {
+		console.log("Failed to fetch postcodes");
+	}
+}
+
+// Sleep function. Used to synchronise actions
+const sleep = (ms = 1000) => new Promise((resolve) => setTimeout(resolve, ms));
+
+// Function to set the value of the autocomplete input
+async function setSearchText(value) {
+	const searchBox = document.getElementById('search-box');
+	const searchDropdown = document.getElementById('search-box__listbox');
+	if (searchBox && searchDropdown) {
+		searchDropdown.style.visibility = "hidden";
+		searchBox.value = value || "";
+		await sleep(110);
+		searchBox.focus({ preventScroll: true });
+		searchBox.blur();
+		searchDropdown.style.visibility = "visible";
+	}
+}
+
+// Function to populate search results
+async function searchSuggest(query, populateResults) {
+	const safeQuery = query.replace(/[^\w\s]/gi, ""); // Remove special characters
+  let results = !safeQuery || query === selectedAreaName ? areaNames :
+		areaNames.filter((name) =>
+			name.match(new RegExp(`\\b${safeQuery}`, "i"))
+		);
+	if (results.length === 0) results = await fetchPostcodes(safeQuery);
+  populateResults(results);
+}
+
+// --- Add search box above the map ---
+function addSearchBox() {
+	const searchBoxId = 'search-box';
+	const mapWrapper = document.getElementById('mapwrapper') || document.body;
+	const searchDiv = document.createElement('div');
+	const searchLabel = document.createElement('label');
+	searchLabel.className = "visuallyhidden";
+	searchLabel.htmlFor = searchBoxId;
+	searchLabel.innerHTML = "Select an area";
+	searchDiv.id = 'search-container';
+
+	if (mapWrapper === document.body) {
+		document.body.appendChild(searchLabel);
+		document.body.appendChild(searchDiv);
+	} else {
+		mapWrapper.parentNode.insertBefore(searchLabel, mapWrapper);
+		mapWrapper.parentNode.insertBefore(searchDiv, mapWrapper);
+	}
+
+	// Initialise the accessible autocomplete
+	accessibleAutocomplete({
+		element: searchDiv,
+		id: searchBoxId,
+		source: searchSuggest,
+		placeholder: "Type a place name or postcode",
+		showAllValues: true,
+		autoselect: true,
+		confirmOnBlur: false,
+		displayMenu: "overlay",
+		onConfirm: (name) =>
+			name.match(/^[A-Z]{1,2}\d[A-Z\d]?\s?\d[A-Z]{2}$/) ? selectAreaByPostcode(name) : selectAreaByName(name),
+		dropdownArrow: (opts) =>
+			`<svg class="${opts?.className}" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" viewBox="0 0 11.75 7.7" width="18" style="z-index:1"><path fill="currentColor" d="m1.37.15 4.5 5.1 4.5-5.1a.37.37 0 0 1 .6 0l.7.7a.45.45 0 0 1 0 .5l-5.5 6.2a.37.37 0 0 1-.6 0l-5.5-6.1a.64.64 0 0 1 0-.6l.7-.7a.64.64 0 0 1 .6 0Z"></path></svg>`
+	});
+}
+
+const graphic = d3.select('#graphic');
 
 function setupAreaSearchIndex() {
 	if (!areas || !areas.features) return;
@@ -95,34 +152,7 @@ function setupAreaSearchIndex() {
 		areaNameToCode[name.toLowerCase()] = code;
 		areaCodeToFeature[code] = f;
 	});
-}
-
-function showSuggestions(query) {
-	const ul = document.getElementById('search-suggestions');
-	ul.innerHTML = '';
-	if (!query || query.length < 2) {
-		ul.style.display = 'none';
-		return;
-	}
-	const q = query.toLowerCase();
-	const matches = areaNames.filter(n => n.toLowerCase().includes(q)).slice(0, 10);
-	if (matches.length === 0) {
-		ul.style.display = 'none';
-		return;
-	}
-	matches.forEach(name => {
-		const li = document.createElement('li');
-		li.textContent = name;
-		li.style = 'padding: 6px 12px; cursor: pointer;';
-		li.addEventListener('mousedown', e => {
-			e.preventDefault();
-			selectAreaByName(name);
-			ul.style.display = 'none';
-			document.getElementById('search-box').value = name;
-		});
-		ul.appendChild(li);
-	});
-	ul.style.display = 'block';
+	areaNames.sort((a, b) => a.localeCompare(b));
 }
 
 function selectAreaByName(name) {
@@ -132,6 +162,17 @@ function selectAreaByName(name) {
 	if (!feature) return;
 	// Simulate click on area
 	selectAreaFeature(feature);
+}
+
+async function selectAreaByPostcode(code) {
+	const url = `https://api.postcodes.io/postcodes/${code}`;
+	try {
+		const json = await (await fetch(url)).json();
+		if (json.result) selectAreaByLngLat(json.result.longitude, json.result.latitude);
+		else console.log("Invalid postcode");
+	} catch {
+		console.log("Failed to fetch postcode");
+	}
 }
 
 function selectAreaFeature(feature) {
@@ -147,6 +188,7 @@ function selectAreaFeature(feature) {
 			map.setFeatureState({ source: 'area', sourceLayer: (geographySource === "vector" ? config.geoLayer : ""), id: selectedAreaCode }, { selected: false });
 		}
 		selectedAreaCode = code;
+		selectedAreaName = areaName;
 		map.setFeatureState({ source: 'area', sourceLayer: (geographySource === "vector" ? config.geoLayer : ""), id: code }, { selected: true });
 		map.setFeatureState({ source: 'area', sourceLayer: (geographySource === "vector" ? config.geoLayer : ""), id: selectedAreaCode }, { hover: false });
 		const selectedVal = rateById[code];
@@ -197,43 +239,6 @@ function selectAreaFeature(feature) {
 	}
 }
 
-function searchPostcode(query) {
-	// UK postcode regex (loose)
-	const postcodePattern = /^[A-Z]{1,2}[0-9][0-9A-Z]? ?[0-9][A-Z]{2}$/i;
-	if (!postcodePattern.test(query.trim())) return false;
-	fetch(`https://api.postcodes.io/postcodes/${encodeURIComponent(query.trim())}`)
-		.then(r => r.json())
-		.then(res => {
-			if (res.status === 200 && res.result && res.result.longitude && res.result.latitude) {
-				selectAreaByLatLng(res.result.longitude, res.result.latitude);
-			} else {
-				const searchBox = document.getElementById('search-box');
-				if (searchBox) {
-					const prev = searchBox.value;
-					searchBox.value = 'Postcode not found';
-					searchBox.classList.add('error');
-					setTimeout(() => {
-						searchBox.value = '';
-						searchBox.classList.remove('error');
-					}, 2000);
-				}
-			}
-		})
-		.catch(() => {
-			const searchBox = document.getElementById('search-box');
-			if (searchBox) {
-				const prev = searchBox.value;
-				searchBox.value = 'Error looking up postcode';
-				searchBox.classList.add('error');
-				setTimeout(() => {
-					searchBox.value = '';
-					searchBox.classList.remove('error');
-				}, 2000);
-			}
-		});
-	return true;
-}
-
 // Filter topojson features by year
 function yearFilter(props, year) {
     if (!props.start && !props.end) return true;
@@ -242,8 +247,7 @@ function yearFilter(props, year) {
     return year >= props.start && year <= props.end;
 }
 
-function selectAreaByLatLng(lon, lat) {
-
+function selectAreaByLngLat(lon, lat) {
 	console.log("position: long:", lon, " lat:",lat);
 
 	//Jank way of selecting area by postcode - don't think it works properly - need to see how energyefficiencyofhousing does it
@@ -265,6 +269,7 @@ function selectAreaByLatLng(lon, lat) {
 				map.setFeatureState({ source: 'area', sourceLayer: config.geoLayer, id: selectedAreaCode }, { selected: false });
 			}
 			selectedAreaCode = code;
+			selectedAreaName = areaName;
 			map.setFeatureState({ source: 'area', sourceLayer: config.geoLayer, id: selectedAreaCode }, { selected: true });
 			if (hoveredAreaCode) {
 				map.setFeatureState({ source: 'area', sourceLayer: config.geoLayer, id: hoveredAreaCode }, { hovered: false });
@@ -350,36 +355,6 @@ function pointInPolygon(point, vs) {
 	}
 	return inside;
 }
-
-// --- Event listeners for search box ---
-const searchBox = document.getElementById('search-box');
-const suggestionsUl = document.getElementById('search-suggestions');
-searchBox.addEventListener('input', e => {
-	const val = e.target.value;
-	if (geographySource !== 'vector') {
-		showSuggestions(val);
-	} else {
-		suggestionsUl.style.display = 'none';
-	}
-});
-searchBox.addEventListener('keydown', e => {
-	if (e.key === 'Enter') {
-		const val = e.target.value.trim();
-		suggestionsUl.style.display = 'none';
-		if (!val) return;
-		// Try postcode search first
-		if (searchPostcode(val)) return;
-		// Only allow area name search if not using vector tiles
-		if (geographySource !== 'vector') {
-			selectAreaByName(val);
-		}
-	}
-});
-document.addEventListener('click', e => {
-	if (!searchBox.contains(e.target) && !suggestionsUl.contains(e.target)) {
-		suggestionsUl.style.display = 'none';
-	}
-});
 
 // Use D3 to populate the info area above the keyscale
 const keyInfoSel = d3.select('#keyinfo')
@@ -713,6 +688,8 @@ function drawMap() {
 	drawKeyScale();
 	// Build area search index after geojson is loaded
 	setupAreaSearchIndex();
+	// Add search box (requires search index)
+	addSearchBox();
 
 	// Add area source and layer, and fit bounds with bottom padding after map and overlay are rendered
 	map.on('load', () => {
@@ -842,8 +819,7 @@ function drawMap() {
 			const areaName = e.features[0].properties[config.geoNameField];
 
 			// Reset search box to placeholder
-			const searchBox = document.getElementById('search-box');
-			if (searchBox) searchBox.value = '';
+			setSearchText(areaName);
 
 			// Always ensure areaById is set for this code
 			if (!areaById[code]) {
@@ -854,6 +830,7 @@ function drawMap() {
 				map.setFeatureState({ source: 'area', sourceLayer: (geographySource === "vector" ? config.geoLayer : ""), id: selectedAreaCode }, { selected: false });
 			}
 			selectedAreaCode = code;
+			selectedAreaName = areaName;
 			map.setFeatureState({ source: 'area', sourceLayer: (geographySource === "vector" ? config.geoLayer : ""), id: selectedAreaCode }, { selected: true });
 			// Remove hover state (if any)
 			if (hoveredAreaCode) {
@@ -943,13 +920,13 @@ function drawMap() {
 						map.setFeatureState({ source: 'area', sourceLayer: (geographySource === "vector" ? config.geoLayer : ""), id: selectedAreaCode }, { selected: false });
 					}
 					selectedAreaCode = null;
+					selectedAreaName = null;
 					if (window.moveKeyIndicator) window.moveKeyIndicator(undefined);
 					if (window.moveKeyIndicatorSelected) window.moveKeyIndicatorSelected(undefined);
 					// Always clear explainer and value immediately
 					updateKeyInfo(undefined, undefined);
 					// Reset search box to placeholder
-					const searchBox = document.getElementById('search-box');
-					if (searchBox) searchBox.value = '';
+					setSearchText("");
 				}
 			}
 		});

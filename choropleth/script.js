@@ -1,6 +1,6 @@
 import { initialise, addSource } from "../lib/helpers.js";
 import { detectGeographySource, fetchPostcodes, getElementHeightById, setSearchText, pointInPolygon, yearFilter, collectCoords, calculateBounds, calculateZoomPadding, getLegendDecimals, calculateBreaks, buildAreaLookups, setAreaFeatureState } from "../lib-maps/map-helpers.js";
-
+import { drawKeyScale } from "./legend.js";
 
 let pymChild = null;
 
@@ -11,6 +11,7 @@ let selectedAreaName = null; // Track selected area name
 let areaNames = [], areaNameToCode = {}, areaCodeToFeature = {};
 
 let geographySource = detectGeographySource(config.geoUrl);
+const keyscale = d3.select('#keyscale');
 
 console.log('Geography source type:', geographySource);
 
@@ -322,188 +323,187 @@ function updateKeyInfo(value, areaName) {
 
 // Clear info on load
 updateKeyInfo(undefined, undefined);
-const keyscale = d3.select('#keyscale');
 
 graphic.style('width', '100%')
 	.style('height', config.mapHeight || '650px')
 	.style('max-width', '800px');
 
-function drawKeyScale() {
-	keyscale.selectAll('*').remove();
-	// Get the actual rendered width of the map container
-	const mapWidth = graphic.node().getBoundingClientRect().width || 400;
-	const width = mapWidth - config.keyScaleMargin.left - config.keyScaleMargin.right;
-	let height = 39;
+// function drawKeyScale() {
+// 	keyscale.selectAll('*').remove();
+// 	// Get the actual rendered width of the map container
+// 	const mapWidth = graphic.node().getBoundingClientRect().width || 400;
+// 	const width = mapWidth - config.keyScaleMargin.left - config.keyScaleMargin.right;
+// 	let height = 39;
 
-	// Compute tick positions and implement dropticks (staggered labels)
-	const legendFmt = d3.format(config.legendFormat || ',.2f');
-	const legendPrefix = config.legendPrefix || '';
-	const legendSuffix = config.legendSuffix || '';
-	const tickData = breaks.map((d, i) => ({
-		value: d,
-		index: i,
-		label: legendPrefix + legendFmt(d) + legendSuffix,
-		x: null // will set after x scale is defined
-	}));
+// 	// Compute tick positions and implement dropticks (staggered labels)
+// 	const legendFmt = d3.format(config.legendFormat || ',.2f');
+// 	const legendPrefix = config.legendPrefix || '';
+// 	const legendSuffix = config.legendSuffix || '';
+// 	const tickData = breaks.map((d, i) => ({
+// 		value: d,
+// 		index: i,
+// 		label: legendPrefix + legendFmt(d) + legendSuffix,
+// 		x: null // will set after x scale is defined
+// 	}));
 
-	// x scale for the legend (define early for tickData)
-	const x = d3.scaleLinear()
-		.domain([breaks[0], breaks[breaks.length - 1]])
-		.range([config.keyScaleMargin.left, width + config.keyScaleMargin.left]);
-	tickData.forEach(d => { d.x = x(d.value); });
+// 	// x scale for the legend (define early for tickData)
+// 	const x = d3.scaleLinear()
+// 		.domain([breaks[0], breaks[breaks.length - 1]])
+// 		.range([config.keyScaleMargin.left, width + config.keyScaleMargin.left]);
+// 	tickData.forEach(d => { d.x = x(d.value); });
 
-	// This is all to do with working out if dropticks are needed (overlap)
-	// First, create the ticks (invisible) to measure their widths
-	const tempTicks = d3.select(document.createElementNS('http://www.w3.org/2000/svg', 'svg'))
-		.selectAll('text.keyscale-tick-temp')
-		.data(tickData)
-		.enter()
-		.append('text')
-		.attr('class', 'keyscale-tick-temp')
-		.attr('x', d => d.x)
-		.attr('y', height + config.keyScaleMargin.top - 2)
-		.attr('text-anchor', 'middle')
-		.attr('font-size', 13)
-		.attr('fill', '#707071')
-		.style('opacity', 0)
-		.text(d => d.label);
-	// Attach to DOM to measure
-	document.body.appendChild(tempTicks.node().ownerSVGElement);
-	tickData.forEach((d, i) => {
-		const node = tempTicks.nodes()[i];
-		d.width = node ? node.getBBox().width : 0;
-	});
-	// Remove temp SVG
-	tempTicks.node().ownerSVGElement.remove();
+// 	// This is all to do with working out if dropticks are needed (overlap)
+// 	// First, create the ticks (invisible) to measure their widths
+// 	const tempTicks = d3.select(document.createElementNS('http://www.w3.org/2000/svg', 'svg'))
+// 		.selectAll('text.keyscale-tick-temp')
+// 		.data(tickData)
+// 		.enter()
+// 		.append('text')
+// 		.attr('class', 'keyscale-tick-temp')
+// 		.attr('x', d => d.x)
+// 		.attr('y', height + config.keyScaleMargin.top - 2)
+// 		.attr('text-anchor', 'middle')
+// 		.attr('font-size', 13)
+// 		.attr('fill', '#707071')
+// 		.style('opacity', 0)
+// 		.text(d => d.label);
+// 	// Attach to DOM to measure
+// 	document.body.appendChild(tempTicks.node().ownerSVGElement);
+// 	tickData.forEach((d, i) => {
+// 		const node = tempTicks.nodes()[i];
+// 		d.width = node ? node.getBBox().width : 0;
+// 	});
+// 	// Remove temp SVG
+// 	tempTicks.node().ownerSVGElement.remove();
 
-	// Check for any overlaps
-	let lastRight = -Infinity;
-	let anyOverlap = false;
-	tickData.forEach((d) => {
-		const left = d.x - d.width / 2;
-		if (left < lastRight) {
-			anyOverlap = true;
-		}
-		lastRight = Math.max(lastRight, d.x + d.width / 2);
-	});
+// 	// Check for any overlaps
+// 	let lastRight = -Infinity;
+// 	let anyOverlap = false;
+// 	tickData.forEach((d) => {
+// 		const left = d.x - d.width / 2;
+// 		if (left < lastRight) {
+// 			anyOverlap = true;
+// 		}
+// 		lastRight = Math.max(lastRight, d.x + d.width / 2);
+// 	});
 
-	// Set y positions: alternate if any overlap, else all baseline
-	const yBase = height + config.keyScaleMargin.top - 2;
-	const yOffset = 13; // vertical offset for staggered ticks
-	tickData.forEach((d, i) => {
-		if (anyOverlap) {
-			d.stagger = (i % 2 === 1);
-			d.y = yBase + (d.stagger ? yOffset : 0);
-		} else {
-			d.stagger = false;
-			d.y = yBase;
-		}
-	});
+// 	// Set y positions: alternate if any overlap, else all baseline
+// 	const yBase = height + config.keyScaleMargin.top - 2;
+// 	const yOffset = 13; // vertical offset for staggered ticks
+// 	tickData.forEach((d, i) => {
+// 		if (anyOverlap) {
+// 			d.stagger = (i % 2 === 1);
+// 			d.y = yBase + (d.stagger ? yOffset : 0);
+// 		} else {
+// 			d.stagger = false;
+// 			d.y = yBase;
+// 		}
+// 	});
 
-	// If dropticks, increase bottom margin to fit lower row
-	let keyScaleMargin = { ...config.keyScaleMargin };
-	if (anyOverlap) {
-		keyScaleMargin = { ...keyScaleMargin, bottom: (config.keyScaleMargin.bottom || 0) + yOffset + 4 };
-	}
+// 	// If dropticks, increase bottom margin to fit lower row
+// 	let keyScaleMargin = { ...config.keyScaleMargin };
+// 	if (anyOverlap) {
+// 		keyScaleMargin = { ...keyScaleMargin, bottom: (config.keyScaleMargin.bottom || 0) + yOffset + 4 };
+// 	}
 
-	// Now create the SVG with possibly increased bottom margin
-	const scaleSvg = keyscale.append('svg')
-		.attr('width', width + keyScaleMargin.left + keyScaleMargin.right)
-		.attr('height', height + keyScaleMargin.top + keyScaleMargin.bottom)
-		.attr('class', 'keyscale-svg');
+// 	// Now create the SVG with possibly increased bottom margin
+// 	const scaleSvg = keyscale.append('svg')
+// 		.attr('width', width + keyScaleMargin.left + keyScaleMargin.right)
+// 		.attr('height', height + keyScaleMargin.top + keyScaleMargin.bottom)
+// 		.attr('class', 'keyscale-svg');
 
 
 
-	// Draw colored rectangles for each break interval
-	for (let i = 0; i < breaks.length - 1; i++) {
-		scaleSvg.append('rect')
-			.attr('x', x(breaks[i]))
-			.attr('y', keyScaleMargin.top)
-			.attr('width', x(breaks[i + 1]) - x(breaks[i]))
-			.attr('height', height - 16)
-			.attr('fill', colour((breaks[i] + breaks[i + 1]) / 2))
-			// .attr('stroke', '#fff')
-			// .attr('stroke-width', 1)
-			.attr('class', 'keyscale-rect');
-	}
+// 	// Draw colored rectangles for each break interval
+// 	for (let i = 0; i < breaks.length - 1; i++) {
+// 		scaleSvg.append('rect')
+// 			.attr('x', x(breaks[i]))
+// 			.attr('y', keyScaleMargin.top)
+// 			.attr('width', x(breaks[i + 1]) - x(breaks[i]))
+// 			.attr('height', height - 16)
+// 			.attr('fill', colour((breaks[i] + breaks[i + 1]) / 2))
+// 			// .attr('stroke', '#fff')
+// 			// .attr('stroke-width', 1)
+// 			.attr('class', 'keyscale-rect');
+// 	}
 
-	// Draw leader lines for dropped ticks if anyOverlap
-	if (anyOverlap) {
-		const colorBarTop = keyScaleMargin.top + height - 16;
-		scaleSvg.selectAll('line.keyscale-tick-leader')
-			.data(tickData.filter(d => d.stagger))
-			.enter()
-			.append('line')
-			.attr('class', 'keyscale-tick-leader')
-			.attr('x1', d => d.x)
-			.attr('x2', d => d.x)
-			.attr('y1', colorBarTop)
-			.attr('y2', d => d.y - 11)
-			.attr('stroke', '#707071')
-			.attr('stroke-width', 1.1)
-			.attr('stroke-dasharray', '2,2');
-	}
+// 	// Draw leader lines for dropped ticks if anyOverlap
+// 	if (anyOverlap) {
+// 		const colorBarTop = keyScaleMargin.top + height - 16;
+// 		scaleSvg.selectAll('line.keyscale-tick-leader')
+// 			.data(tickData.filter(d => d.stagger))
+// 			.enter()
+// 			.append('line')
+// 			.attr('class', 'keyscale-tick-leader')
+// 			.attr('x1', d => d.x)
+// 			.attr('x2', d => d.x)
+// 			.attr('y1', colorBarTop)
+// 			.attr('y2', d => d.y - 11)
+// 			.attr('stroke', '#707071')
+// 			.attr('stroke-width', 1.1)
+// 			.attr('stroke-dasharray', '2,2');
+// 	}
 
-	// Draw the ticks with staggered positions
-	scaleSvg.selectAll('text.keyscale-tick')
-		.data(tickData)
-		.enter()
-		.append('text')
-		.attr('class', d => 'keyscale-tick' + (d.stagger ? ' keyscale-tick-stagger' : ''))
-		.attr('x', d => d.x)
-		.attr('y', d => d.y)
-		.attr('text-anchor', 'middle')
-		.attr('font-size', 13)
-		.attr('fill', '#707071')
-		.text(d => d.label);
+// 	// Draw the ticks with staggered positions
+// 	scaleSvg.selectAll('text.keyscale-tick')
+// 		.data(tickData)
+// 		.enter()
+// 		.append('text')
+// 		.attr('class', d => 'keyscale-tick' + (d.stagger ? ' keyscale-tick-stagger' : ''))
+// 		.attr('x', d => d.x)
+// 		.attr('y', d => d.y)
+// 		.attr('text-anchor', 'middle')
+// 		.attr('font-size', 13)
+// 		.attr('fill', '#707071')
+// 		.text(d => d.label);
 
-	// Add indicator(s): main (hover), and faded (selected)
-	const triangleWidth = 18;
-	const triangleHeight = 14;
-	// Main indicator (for hover)
-	scaleSvg.append('polygon')
-		.attr('id', 'key-indicator')
-		.attr('points', `0,0 ${triangleWidth},0 ${triangleWidth / 2},${triangleHeight}`)
-		.attr('fill', '#fff')
-		.attr('stroke', '#222')
-		.attr('stroke-width', 2.4)
-		.attr('stroke-linejoin', 'round')
-		.attr('transform', `translate(${x(breaks[0]) - triangleWidth / 2},${keyScaleMargin.top + (height / 2) - triangleHeight - 10})`)
-		.style('display', 'none');
-	// Faded indicator (for selected area)
-	scaleSvg.append('polygon')
-		.attr('id', 'key-indicator-selected')
-		.attr('points', `0,0 ${triangleWidth},0 ${triangleWidth / 2},${triangleHeight}`)
-		.attr('fill', '#fff')
-		.attr('stroke', '#222')
-		.attr('stroke-width', 2.4)
-		.attr('stroke-linejoin', 'round')
-		.attr('opacity', 0.5)
-		.attr('transform', `translate(${x(breaks[0]) - triangleWidth / 2},${keyScaleMargin.top + (height / 2) - triangleHeight - 10})`)
-		.style('display', 'none');
+// 	// Add indicator(s): main (hover), and faded (selected)
+// 	const triangleWidth = 18;
+// 	const triangleHeight = 14;
+// 	// Main indicator (for hover)
+// 	scaleSvg.append('polygon')
+// 		.attr('id', 'key-indicator')
+// 		.attr('points', `0,0 ${triangleWidth},0 ${triangleWidth / 2},${triangleHeight}`)
+// 		.attr('fill', '#fff')
+// 		.attr('stroke', '#222')
+// 		.attr('stroke-width', 2.4)
+// 		.attr('stroke-linejoin', 'round')
+// 		.attr('transform', `translate(${x(breaks[0]) - triangleWidth / 2},${keyScaleMargin.top + (height / 2) - triangleHeight - 10})`)
+// 		.style('display', 'none');
+// 	// Faded indicator (for selected area)
+// 	scaleSvg.append('polygon')
+// 		.attr('id', 'key-indicator-selected')
+// 		.attr('points', `0,0 ${triangleWidth},0 ${triangleWidth / 2},${triangleHeight}`)
+// 		.attr('fill', '#fff')
+// 		.attr('stroke', '#222')
+// 		.attr('stroke-width', 2.4)
+// 		.attr('stroke-linejoin', 'round')
+// 		.attr('opacity', 0.5)
+// 		.attr('transform', `translate(${x(breaks[0]) - triangleWidth / 2},${keyScaleMargin.top + (height / 2) - triangleHeight - 10})`)
+// 		.style('display', 'none');
 
-	// Expose functions to move indicators
-	window.moveKeyIndicator = function (val) {
-		if (val === undefined || val === null || isNaN(val)) {
-			scaleSvg.select('#key-indicator').style('display', 'none');
-		} else {
-			scaleSvg.select('#key-indicator')
-				.attr('transform', `translate(${x(val) - triangleWidth / 2},${keyScaleMargin.top + (height / 2) - triangleHeight - 10})`)
-				.raise()
-				.style('display', null);
-		}
-	};
-	window.moveKeyIndicatorSelected = function (val) {
-		if (val === undefined || val === null || isNaN(val)) {
-			scaleSvg.select('#key-indicator-selected').style('display', 'none');
-		} else {
-			scaleSvg.select('#key-indicator-selected')
-				.attr('transform', `translate(${x(val) - triangleWidth / 2},${keyScaleMargin.top + (height / 2) - triangleHeight - 10})`)
-				.raise()
-				.style('display', null);
-		}
-	};
-}
+// 	// Expose functions to move indicators
+// 	window.moveKeyIndicator = function (val) {
+// 		if (val === undefined || val === null || isNaN(val)) {
+// 			scaleSvg.select('#key-indicator').style('display', 'none');
+// 		} else {
+// 			scaleSvg.select('#key-indicator')
+// 				.attr('transform', `translate(${x(val) - triangleWidth / 2},${keyScaleMargin.top + (height / 2) - triangleHeight - 10})`)
+// 				.raise()
+// 				.style('display', null);
+// 		}
+// 	};
+// 	window.moveKeyIndicatorSelected = function (val) {
+// 		if (val === undefined || val === null || isNaN(val)) {
+// 			scaleSvg.select('#key-indicator-selected').style('display', 'none');
+// 		} else {
+// 			scaleSvg.select('#key-indicator-selected')
+// 				.attr('transform', `translate(${x(val) - triangleWidth / 2},${keyScaleMargin.top + (height / 2) - triangleHeight - 10})`)
+// 				.raise()
+// 				.style('display', null);
+// 		}
+// 	};
+// }
 
 function drawMap() {
 	//Initialise for pym, not sure if it should go here, just copied from drawGraphic() on other templates
@@ -566,7 +566,7 @@ function drawMap() {
 	setupAreaSearchIndex();
 
 	// Draw the key scale
-	drawKeyScale();
+	drawKeyScale({keyscale, breaks, colour, config, window});
 
 	// Add search box (requires search index)
 	addSearchBox();
@@ -853,8 +853,6 @@ function setupData() {
 
 	});
 }
-
-
 
 // Initialise pym and load data
 window.onload = () => {

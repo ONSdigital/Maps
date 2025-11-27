@@ -1,5 +1,5 @@
 import { initialise, addSource } from "../lib/helpers.js";
-import { detectGeographySource, fetchPostcodes, getElementHeightById, setSearchText, pointInPolygon, yearFilter, collectCoords, calculateBounds, calculateZoomPadding, getLegendDecimals, calculateBreaks } from "../lib-maps/map-helpers.js";
+import { detectGeographySource, fetchPostcodes, getElementHeightById, setSearchText, pointInPolygon, yearFilter, collectCoords, calculateBounds, calculateZoomPadding, getLegendDecimals, calculateBreaks, buildAreaLookups, setAreaFeatureState } from "../lib-maps/map-helpers.js";
 
 
 let pymChild = null;
@@ -8,28 +8,21 @@ let map, areas, data, breaks, colour, rateById = {}, areaById = {};
 let hoveredAreaCode = null; // Track hovered area code
 let selectedAreaCode = null; // Track selected area code
 let selectedAreaName = null; // Track selected area name
+let areaNames = [], areaNameToCode = {}, areaCodeToFeature = {};
 
 let geographySource = detectGeographySource(config.geoUrl);
 
 console.log('Geography source type:', geographySource);
 
 // Listen for ESC key to clear selection
-document.addEventListener('keydown', function(e) {
+document.addEventListener('keydown', function (e) {
 	if (e.key === 'Escape' || e.key === 'Esc') {
 		// Clear both selection and hover feature-state and info
 		if (typeof map !== 'undefined' && map !== null) {
-			if (hoveredAreaCode) {
-				map.setFeatureState({ source: 'area', sourceLayer: (geographySource === "vector" ? config.geoLayer : ""), id: hoveredAreaCode }, { hovered: false });
-			}
-			if (selectedAreaCode) {
-				map.setFeatureState({ source: 'area', sourceLayer: (geographySource === "vector" ? config.geoLayer : ""), id: selectedAreaCode }, { selected: false });
-			}
+			clearAreaSelection(map, geographySource, config.geoLayer, hoveredAreaCode, selectedAreaCode);
 			hoveredAreaCode = null;
 			selectedAreaCode = null;
 			selectedAreaName = null;
-			if (map.getCanvas) map.getCanvas().style.cursor = '';
-			if (window.moveKeyIndicator) window.moveKeyIndicator(undefined);
-			if (window.moveKeyIndicatorSelected) window.moveKeyIndicatorSelected(undefined);
 			// Always clear explainer and value immediately
 			updateKeyInfo(undefined, undefined);
 			// Reset search box to placeholder
@@ -39,20 +32,16 @@ document.addEventListener('keydown', function(e) {
 });
 
 // --- Autocomplete and search logic ---
-let areaNames = [];
-let areaNameToCode = {};
-let areaCodeToFeature = {};
-
 
 // Function to populate search results
 async function searchSuggest(query, populateResults) {
 	const safeQuery = query.replace(/[^\w\s]/gi, ""); // Remove special characters
-  let results = !safeQuery || query === selectedAreaName ? areaNames :
+	let results = !safeQuery || query === selectedAreaName ? areaNames :
 		areaNames.filter((name) =>
 			name.match(new RegExp(`\\b${safeQuery}`, "i"))
 		);
 	if (results.length === 0) results = await fetchPostcodes(safeQuery);
-  populateResults(results);
+	populateResults(results);
 }
 
 // --- Add search box above the map ---
@@ -101,17 +90,8 @@ function setupAreaSearchIndex() {
 		console.error(`Mismatched geoIdField ('${config.geoIdField}') or geoNameField ('${config.geoNameField}') in config. Available keys:`, Object.keys(firstProps));
 		return;
 	}
-	areaNames = [];
-	areaNameToCode = {};
-	areaCodeToFeature = {};
-	areas.features.forEach(f => {
-		const code = f.properties[config.geoIdField];
-		const name = f.properties[config.geoNameField];
-		areaNames.push(name);
-		areaNameToCode[name.toLowerCase()] = code;
-		areaCodeToFeature[code] = f;
-	});
-	areaNames.sort((a, b) => a.localeCompare(b));
+
+	({ areaNames, areaNameToCode, areaCodeToFeature } = buildAreaLookups(areas.features, config.geoIdField, config.geoNameField))
 }
 
 function selectAreaByName(name) {
@@ -136,27 +116,27 @@ async function selectAreaByPostcode(code) {
 
 function selectAreaFeature(feature) {
 	// This mimics the click event logic
-		const code = feature.properties[config.geoIdField];
-		const areaName = feature.properties[config.geoNameField];
-		// Always ensure areaById is set for this code
-		if (!areaById[code]) {
-			areaById[code] = areaName;
-		}
-		// Clear previous selected state if different
-		if (selectedAreaCode && selectedAreaCode !== code) {
-			map.setFeatureState({ source: 'area', sourceLayer: (geographySource === "vector" ? config.geoLayer : ""), id: selectedAreaCode }, { selected: false });
-		}
-		selectedAreaCode = code;
-		selectedAreaName = areaName;
-		map.setFeatureState({ source: 'area', sourceLayer: (geographySource === "vector" ? config.geoLayer : ""), id: code }, { selected: true });
-		map.setFeatureState({ source: 'area', sourceLayer: (geographySource === "vector" ? config.geoLayer : ""), id: selectedAreaCode }, { hover: false });
-		const selectedVal = rateById[code];
-		window.moveKeyIndicator(undefined);
-		window.moveKeyIndicatorSelected(selectedVal);
-		updateKeyInfo(selectedVal, areaName);
-	
+	const code = feature.properties[config.geoIdField];
+	const areaName = feature.properties[config.geoNameField];
+	// Always ensure areaById is set for this code
+	if (!areaById[code]) {
+		areaById[code] = areaName;
+	}
+	// Clear previous selected state if different
+	if (selectedAreaCode && selectedAreaCode !== code) {
+		updateAreaFeatureState(selectedAreaCode, { selected: false })
+	}
+	selectedAreaCode = code;
+	selectedAreaName = areaName;
+	updateAreaFeatureState(code, { selected: true })
+	updateAreaFeatureState(selectedAreaCode, { hovered: false })
+	const selectedVal = rateById[code];
+	window.moveKeyIndicator(undefined);
+	window.moveKeyIndicatorSelected(selectedVal);
+	updateKeyInfo(selectedVal, areaName);
+
 	// Zoom to area bounds (same as click logic)
-	
+
 	if (feature && feature.geometry) {
 		let allCoords = collectCoords(feature.geometry);
 		if (allCoords.length) {
@@ -174,7 +154,7 @@ function selectAreaFeature(feature) {
 }
 
 function selectAreaByLngLat(lon, lat) {
-	console.log("position: long:", lon, " lat:",lat);
+	console.log("position: long:", lon, " lat:", lat);
 
 	//Jank way of selecting area by postcode - don't think it works properly - need to see how energyefficiencyofhousing does it
 	if (geographySource === 'vector') {
@@ -192,13 +172,14 @@ function selectAreaByLngLat(lon, lat) {
 			if (!areaById[code]) areaById[code] = areaName;
 			// Use the same logic as click handler
 			if (selectedAreaCode && selectedAreaCode !== code) {
-				map.setFeatureState({ source: 'area', sourceLayer: config.geoLayer, id: selectedAreaCode }, { selected: false });
+				updateAreaFeatureState(selectedAreaCode, { selected: false })
 			}
 			selectedAreaCode = code;
 			selectedAreaName = areaName;
-			map.setFeatureState({ source: 'area', sourceLayer: config.geoLayer, id: selectedAreaCode }, { selected: true });
+			updateAreaFeatureState(selectedAreaCode, { selected: true })
+
 			if (hoveredAreaCode) {
-				map.setFeatureState({ source: 'area', sourceLayer: config.geoLayer, id: hoveredAreaCode }, { hovered: false });
+				updateAreaFeatureState(hoveredAreaCode, { hovered: false })
 				hoveredAreaCode = null;
 			}
 			const selectedVal = rateById[code];
@@ -208,7 +189,7 @@ function selectAreaByLngLat(lon, lat) {
 
 			// Zoom to area bounds (if geometry is available)
 			if (feature && feature.geometry) {
-				let allCoords = collectCoords(feature.geometry);				
+				let allCoords = collectCoords(feature.geometry);
 				if (allCoords.length) {
 					let bounds = calculateBounds(allCoords)
 					const padding = calculateZoomPadding(map);
@@ -274,7 +255,7 @@ function updateKeyInfo(value, areaName) {
 	if (keyInfoNode && valueNode && explainerNode) {
 		// Set right margin from config.keyScaleMargin.right
 		if (config.keyScaleMargin && typeof config.keyScaleMargin.right === 'number') {
-			keyInfoNode.style.marginRight = 'calc('+config.keyScaleMargin.right + 'px - 1rem)';
+			keyInfoNode.style.marginRight = 'calc(' + config.keyScaleMargin.right + 'px - 1rem)';
 		} else {
 			keyInfoNode.style.marginRight = '';
 		}
@@ -344,8 +325,8 @@ updateKeyInfo(undefined, undefined);
 const keyscale = d3.select('#keyscale');
 
 graphic.style('width', '100%')
-    .style('height', config.mapHeight || '650px')
-    .style('max-width', '800px');
+	.style('height', config.mapHeight || '650px')
+	.style('max-width', '800px');
 
 function drawKeyScale() {
 	keyscale.selectAll('*').remove();
@@ -482,42 +463,42 @@ function drawKeyScale() {
 	// Main indicator (for hover)
 	scaleSvg.append('polygon')
 		.attr('id', 'key-indicator')
-		.attr('points', `0,0 ${triangleWidth},0 ${triangleWidth/2},${triangleHeight}`)
+		.attr('points', `0,0 ${triangleWidth},0 ${triangleWidth / 2},${triangleHeight}`)
 		.attr('fill', '#fff')
 		.attr('stroke', '#222')
 		.attr('stroke-width', 2.4)
 		.attr('stroke-linejoin', 'round')
-		.attr('transform', `translate(${x(breaks[0]) - triangleWidth/2},${keyScaleMargin.top + (height/2) - triangleHeight - 10})`)
+		.attr('transform', `translate(${x(breaks[0]) - triangleWidth / 2},${keyScaleMargin.top + (height / 2) - triangleHeight - 10})`)
 		.style('display', 'none');
 	// Faded indicator (for selected area)
 	scaleSvg.append('polygon')
 		.attr('id', 'key-indicator-selected')
-		.attr('points', `0,0 ${triangleWidth},0 ${triangleWidth/2},${triangleHeight}`)
+		.attr('points', `0,0 ${triangleWidth},0 ${triangleWidth / 2},${triangleHeight}`)
 		.attr('fill', '#fff')
 		.attr('stroke', '#222')
 		.attr('stroke-width', 2.4)
 		.attr('stroke-linejoin', 'round')
 		.attr('opacity', 0.5)
-		.attr('transform', `translate(${x(breaks[0]) - triangleWidth/2},${keyScaleMargin.top + (height/2) - triangleHeight - 10})`)
+		.attr('transform', `translate(${x(breaks[0]) - triangleWidth / 2},${keyScaleMargin.top + (height / 2) - triangleHeight - 10})`)
 		.style('display', 'none');
 
 	// Expose functions to move indicators
-	window.moveKeyIndicator = function(val) {
+	window.moveKeyIndicator = function (val) {
 		if (val === undefined || val === null || isNaN(val)) {
 			scaleSvg.select('#key-indicator').style('display', 'none');
 		} else {
 			scaleSvg.select('#key-indicator')
-				.attr('transform', `translate(${x(val) - triangleWidth/2},${keyScaleMargin.top + (height/2) - triangleHeight - 10})`)
+				.attr('transform', `translate(${x(val) - triangleWidth / 2},${keyScaleMargin.top + (height / 2) - triangleHeight - 10})`)
 				.raise()
 				.style('display', null);
 		}
 	};
-	window.moveKeyIndicatorSelected = function(val) {
+	window.moveKeyIndicatorSelected = function (val) {
 		if (val === undefined || val === null || isNaN(val)) {
 			scaleSvg.select('#key-indicator-selected').style('display', 'none');
 		} else {
 			scaleSvg.select('#key-indicator-selected')
-				.attr('transform', `translate(${x(val) - triangleWidth/2},${keyScaleMargin.top + (height/2) - triangleHeight - 10})`)
+				.attr('transform', `translate(${x(val) - triangleWidth / 2},${keyScaleMargin.top + (height / 2) - triangleHeight - 10})`)
 				.raise()
 				.style('display', null);
 		}
@@ -543,9 +524,17 @@ function drawMap() {
 		maxZoom: config.maxZoom || 13,
 		bounds: config.mapBounds, // UK bounds
 		maxBounds: config.maxBounds || undefined,
-		fitBoundsOptions: { padding: { top: 10, left: 10, right: 10, bottom: bottomPad }},
+		fitBoundsOptions: { padding: { top: 10, left: 10, right: 10, bottom: bottomPad } },
 		attributionControl: false,
 	});
+
+	function updateAreaFeatureState(areaCode, state) {
+		if (!map) {
+			console.warn('Map not initialized yet');
+			return;
+		}
+		setAreaFeatureState(map, geographySource, config.geoLayer, areaCode, state);
+	}
 
 	if (geographySource !== "vector") {
 		// Convert TopoJSON to GeoJSON
@@ -573,11 +562,12 @@ function drawMap() {
 		// 	d.properties.fill = fillColor;
 		// });
 	}
+	// Build area search index after geojson is loaded
+	setupAreaSearchIndex();
 
 	// Draw the key scale
 	drawKeyScale();
-	// Build area search index after geojson is loaded
-	setupAreaSearchIndex();
+
 	// Add search box (requires search index)
 	addSearchBox();
 
@@ -586,7 +576,7 @@ function drawMap() {
 
 		if (geographySource === "vector") {
 
-			map.addSource('area', { type: 'vector', tiles: [config.geoUrl], promoteId: {[config.geoLayer]: config.geoIdField}});
+			map.addSource('area', { type: 'vector', tiles: [config.geoUrl], promoteId: { [config.geoLayer]: config.geoIdField } });
 
 		} else {
 
@@ -594,10 +584,10 @@ function drawMap() {
 
 		}
 
-			data.forEach(d => {
-				const fillColor = colour(d.value);
-				map.setFeatureState({ source: 'area', sourceLayer: (geographySource === "vector" ? config.geoLayer : ""), id: d[config.dataIdField] }, { value: d.value, color: fillColor });
-			})
+		data.forEach(d => {
+			const fillColor = colour(d.value);
+			map.setFeatureState({ source: 'area', sourceLayer: (geographySource === "vector" ? config.geoLayer : ""), id: d[config.dataIdField] }, { value: d.value, color: fillColor });
+		})
 
 		map.addLayer({
 			id: 'area',
@@ -624,7 +614,7 @@ function drawMap() {
 				'line-width': 2,
 				'line-opacity': [
 					'case',
-						['==', ['feature-state', 'hovered'], true], 1, 0],
+					['==', ['feature-state', 'hovered'], true], 1, 0],
 			}
 		});
 
@@ -638,14 +628,14 @@ function drawMap() {
 			paint: {
 				'line-color': '#000',
 				'line-width': 2,
-				'line-opacity': ['case', ['==', ['feature-state', 'selected'], true], 0.4,0],
+				'line-opacity': ['case', ['==', ['feature-state', 'selected'], true], 0.4, 0],
 			}
 		}, 'area-hover');
 
 		//Get current year for attributions
 		let today = new Date();
 		map.getSource('area').attribution = "Contains OS data &copy; Crown copyright and database right " + today.getFullYear();
-		
+
 		// Interactivity
 		map.on('mousemove', 'area', (e) => {
 			map.getCanvas().style.cursor = 'pointer';
@@ -653,12 +643,11 @@ function drawMap() {
 
 			// Remove hover state from previous feature
 			if (hoveredAreaCode && hoveredAreaCode !== code) {
-				map.setFeatureState({ source: 'area', sourceLayer: (geographySource === "vector" ? config.geoLayer : ""), id: hoveredAreaCode }, { hovered: false });
+				setAreaFeatureState(hoveredAreaCode, { hovered: false })
 			}
 			hoveredAreaCode = code;
 
-			map.setFeatureState({ source: 'area', sourceLayer: (geographySource === "vector" ? config.geoLayer : ""), id: hoveredAreaCode }, { hovered: true });
-
+			setAreaFeatureState(hoveredAreaCode, { hovered: true })
 			const areaName = e.features[0].properties[config.geoNameField];
 			const value = rateById[e.features[0].properties[config.geoIdField]];
 
@@ -687,7 +676,7 @@ function drawMap() {
 		map.on('mouseleave', 'area', () => {
 			map.getCanvas().style.cursor = '';
 			if (hoveredAreaCode) {
-				map.setFeatureState({ source: 'area', sourceLayer: (geographySource === "vector" ? config.geoLayer : ""), id: hoveredAreaCode }, { hovered: false });
+				setAreaFeatureState(hoveredAreaCode, { hovered: false })
 				hoveredAreaCode = null;
 			}
 			// If an area is selected, show its info and indicator; otherwise clear
@@ -716,14 +705,14 @@ function drawMap() {
 			}
 			// Remove previous selected state
 			if (selectedAreaCode && selectedAreaCode !== code) {
-				map.setFeatureState({ source: 'area', sourceLayer: (geographySource === "vector" ? config.geoLayer : ""), id: selectedAreaCode }, { selected: false });
+				setAreaFeatureState(selectedAreaCode, { selected: false })
 			}
 			selectedAreaCode = code;
 			selectedAreaName = areaName;
-			map.setFeatureState({ source: 'area', sourceLayer: (geographySource === "vector" ? config.geoLayer : ""), id: selectedAreaCode }, { selected: true });
+			setAreaFeatureState(selectedAreaCode, { selected: true })
 			// Remove hover state (if any)
 			if (hoveredAreaCode) {
-				map.setFeatureState({ source: 'area', sourceLayer: (geographySource === "vector" ? config.geoLayer : ""), id: hoveredAreaCode }, { hovered: false });
+				setAreaFeatureState(hoveredAreaCode, { hovered: false })
 				hoveredAreaCode = null;
 			}
 			// Show faded indicator for selected, hide hover indicator
@@ -758,9 +747,9 @@ function drawMap() {
 						padding,
 						animate: true
 					};
-					
+
 					map.fitBounds(bounds, options);
-					
+
 				}
 			}
 		});
@@ -768,7 +757,7 @@ function drawMap() {
 		// Provide a getPadding function to dynamically calculate padding (including keycontainer height)
 		const zoomhome = new MapLibreControlZoomHome({
 			resetBounds: config.mapBounds,
-			getPadding: function() {
+			getPadding: function () {
 				let bottomPad = 10;
 				const keycontainer = document.getElementById('keycontainer');
 				if (keycontainer) {
@@ -776,11 +765,11 @@ function drawMap() {
 				}
 				return { top: 10, left: 10, right: 10, bottom: bottomPad };
 			},
-			onReset: function() {
+			onReset: function () {
 				// Clear selected area and info
 				if (typeof map !== 'undefined' && map !== null) {
 					if (selectedAreaCode) {
-						map.setFeatureState({ source: 'area', sourceLayer: (geographySource === "vector" ? config.geoLayer : ""), id: selectedAreaCode }, { selected: false });
+						setAreaFeatureState(selectedAreaCode, { selected: false })
 					}
 					selectedAreaCode = null;
 					selectedAreaName = null;
@@ -811,53 +800,61 @@ function drawMap() {
 		// }));
 		map.addControl(zoomhome, 'top-right');
 
+
+
 		// Send height for pym
 		if (pymChild) pymChild.sendHeight();
 	});
 }
 
+function updateAreaFeatureState(areaCode, state) {
+	setAreaFeatureState(map, geographySource, config.geoLayer, areaCode, state);
+}
+
 function setupData() {
-	
+
 	Promise.all([
 		d3.csv(config.dataUrl),
 		geographySource === "vector" ? null : d3.json(config.geoUrl || "../lib-maps/master-topo.json")
 	]).then(([csv, geog]) => {
-			data = csv;
-			areas = geog;
+		data = csv;
+		areas = geog;
 
-			// Set up value lookup and breaks
-			data.forEach((d) => {
-					rateById[d[config.dataIdField]] = +d.value;
-					areaById[d[config.dataIdField]] = d[config.geoNameField];
-			});
-
-			// Calculate breaks and color scale
-			let palette;
-			if (Array.isArray(config.colourPalette) && config.colourPalette.length > 0) {
-				palette = config.colourPalette;
-			} else if (typeof config.colourPalette === 'string' && d3[`scheme${config.colourPalette}`]) {
-				palette = d3[`scheme${config.colourPalette}`][7]; // default to 7 classes
-			} else {
-				palette = d3.schemeBlues[7];
-			}
-
-			const legendDecimals = getLegendDecimals(config.legendFormat || ',.2f');
-
-			// Calculate breaks
-			if (Array.isArray(config.breaks)) {
-				breaks = config.breaks;
-			} else {
-				breaks = calculateBreaks(data.map(d => +d.value).filter(v => !isNaN(v)).sort(d3.ascending),config.breaks,palette.length,legendDecimals)
-			}
-
-			colour = d3.scaleThreshold()
-				.domain(breaks.slice(1))
-				.range(palette);
-
-			drawMap();
-
+		// Set up value lookup and breaks
+		data.forEach((d) => {
+			rateById[d[config.dataIdField]] = +d.value;
+			areaById[d[config.dataIdField]] = d[config.geoNameField];
 		});
+
+		// Calculate breaks and color scale
+		let palette;
+		if (Array.isArray(config.colourPalette) && config.colourPalette.length > 0) {
+			palette = config.colourPalette;
+		} else if (typeof config.colourPalette === 'string' && d3[`scheme${config.colourPalette}`]) {
+			palette = d3[`scheme${config.colourPalette}`][7]; // default to 7 classes
+		} else {
+			palette = d3.schemeBlues[7];
+		}
+
+		const legendDecimals = getLegendDecimals(config.legendFormat || ',.2f');
+
+		// Calculate breaks
+		if (Array.isArray(config.breaks)) {
+			breaks = config.breaks;
+		} else {
+			breaks = calculateBreaks(data.map(d => +d.value).filter(v => !isNaN(v)).sort(d3.ascending), config.breaks, palette.length, legendDecimals)
+		}
+
+		colour = d3.scaleThreshold()
+			.domain(breaks.slice(1))
+			.range(palette);
+
+		drawMap();
+
+	});
 }
+
+
 
 // Initialise pym and load data
 window.onload = () => {

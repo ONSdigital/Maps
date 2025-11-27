@@ -175,6 +175,52 @@ export function calculateBreaks(values, method, numClasses, decimals) {
     return null;
 }
 
+export function buildAreaLookups(features, geoIdField, geoNameField) {
+    const areaNames = [];
+    const areaNameToCode = {};
+    const areaCodeToFeature = {};
+
+    features.forEach(f => {
+        const code = f.properties[geoIdField];
+        const name = f.properties[geoNameField];
+        areaNames.push(name);
+        areaNameToCode[name.toLowerCase()] = code;
+        areaCodeToFeature[code] = f;
+    });
+    
+    areaNames.sort((a, b) => a.localeCompare(b));
+    
+    return { areaNames, areaNameToCode, areaCodeToFeature };
+}
+
+export function clearAreaSelection(map, geographySource, geoLayer, hoveredAreaCode, selectedAreaCode) {
+    if (hoveredAreaCode) {
+        map.setFeatureState({ 
+            source: 'area', 
+            sourceLayer: (geographySource === "vector" ? geoLayer : ""), 
+            id: hoveredAreaCode 
+        }, { hovered: false });
+    }
+    if (selectedAreaCode) {
+        map.setFeatureState({ 
+            source: 'area', 
+            sourceLayer: (geographySource === "vector" ? geoLayer : ""), 
+            id: selectedAreaCode 
+        }, { selected: false });
+    }
+    if (map.getCanvas) map.getCanvas().style.cursor = '';
+    if (window.moveKeyIndicator) window.moveKeyIndicator(undefined);
+    if (window.moveKeyIndicatorSelected) window.moveKeyIndicatorSelected(undefined);
+}
+
+export function setAreaFeatureState(map, geographySource, geoLayer, areaCode, state) {
+    if (!map || !map.setFeatureState) return;
+    map.setFeatureState({ 
+        source: 'area', 
+        sourceLayer: (geographySource === "vector" ? geoLayer : ""), 
+        id: areaCode 
+    }, state);
+}
 
 // export function loadGeography(url) { ... }
 // export function loadData(url) { ... }

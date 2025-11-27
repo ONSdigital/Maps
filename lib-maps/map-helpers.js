@@ -1,5 +1,3 @@
-// helpers.js (example structure)
-
 /**
  * Fetches data from a URL and detects if it is GeoJSON, TopoJSON, or general JSON.
  * It also handles the vector tile (.pbf) case.
@@ -222,25 +220,22 @@ export function setAreaFeatureState(map, geographySource, geoLayer, areaCode, st
     }, state);
 }
 
-// export function loadGeography(url) { ... }
-// export function loadData(url) { ... }
+export function buildValueAndAreaLookups(data, config) {
+    const rateById = {};
+    const areaById = {};
+    data.forEach((d) => {
+        rateById[d[config.dataIdField]] = +d.value;
+        areaById[d[config.dataIdField]] = d[config.geoNameField];
+    });
+    return { rateById, areaById };
+}
 
-// export function computeEqualBreaks(values, n, decimals) { ... }
-// export function computeJenksBreaks(values, n) { ... }
-// export function getBreaks(config, data, field, palette, decimals) { ... }
-// export function createColourScale(palette, breaks) { ... }
-
-// export function buildLookup(data, keyField, valueField) { ... }
-// export function buildAreaNameIndex(data, idField, nameField) { ... }
-// export function buildValueIndex(data, idField, valueField) { ... }
-
-// export function getKeyOverlayHeight() { ... }
-// export function updateKeyInfo(name, value) { ... }
-// export function setSearchText(text) { ... }
-// export function debounce(fn, ms) { ... }
-
-// export function addMapHoverEvents(map, layerName, handlers) { ... }
-// export function addMapClickEvents(map, layerName, handlers) { ... }
-
-// export function formatNumber(value, decimals) { ... }
-// export function formatPercentage(value) { ... }
+export function getPalette(config) {
+    if (Array.isArray(config.colourPalette) && config.colourPalette.length > 0) {
+        return config.colourPalette;
+    } else if (typeof config.colourPalette === 'string' && d3[`scheme${config.colourPalette}`]) {
+        return d3[`scheme${config.colourPalette}`][7]; // default to 7 classes
+    } else {
+        return d3.schemeBlues[7];
+    }
+}

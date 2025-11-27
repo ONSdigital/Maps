@@ -146,6 +146,35 @@ export function calculateZoomPadding(map, keyOverlayId = 'keycontainer', padPerc
     return { top: padY, bottom: padY + keyPad, left: padX, right: padX };
 }
 
+export function getLegendDecimals(format) {
+    const match = format && format.match(/\.([0-9]+)/);
+    return match ? parseInt(match[1], 10) : 0;
+}
+
+export function calculateBreaks(values, method, numClasses, decimals) {
+    if (method === 'equal') {
+        const min = d3.min(values), max = d3.max(values);
+        return Array.from({length: numClasses + 1}, (_, i) => {
+            const val = min + i * (max - min) / numClasses;
+            return +val.toFixed(decimals);
+        });
+    } else if (method === 'jenks' && typeof ss !== 'undefined') {
+        const sorted = values.filter(v => !isNaN(v)).sort(d3.ascending);
+        let clusters = ss.ckmeans(sorted, numClasses);
+        let breaks = [];
+        clusters.forEach((cluster, i) => {
+            if (i < numClasses - 1) {
+                breaks.push(+cluster[0].toFixed(decimals));
+            } else {
+                breaks.push(+cluster[0].toFixed(decimals));
+                breaks.push(+cluster[cluster.length - 1].toFixed(decimals));
+            }
+        });
+        return breaks;
+    }
+    return null;
+}
+
 
 // export function loadGeography(url) { ... }
 // export function loadData(url) { ... }

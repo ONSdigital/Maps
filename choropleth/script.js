@@ -1,5 +1,6 @@
 import { initialise, addSource } from "../lib/helpers.js";
-import { detectGeographySource, fetchPostcodes, getElementHeightById, setSearchText, pointInPolygon, yearFilter, collectCoords, calculateBounds, calculateZoomPadding } from "../lib-maps/map-helpers.js";
+import { detectGeographySource, fetchPostcodes, getElementHeightById, setSearchText, pointInPolygon, yearFilter, collectCoords, calculateBounds, calculateZoomPadding, getLegendDecimals, calculateBreaks } from "../lib-maps/map-helpers.js";
+
 
 let pymChild = null;
 
@@ -207,17 +208,7 @@ function selectAreaByLngLat(lon, lat) {
 
 			// Zoom to area bounds (if geometry is available)
 			if (feature && feature.geometry) {
-				let allCoords = [];
-				function collectCoords(geom) {
-					if (geom.type === 'Polygon') {
-						allCoords.push(...geom.coordinates[0]);
-					} else if (geom.type === 'MultiPolygon') {
-						geom.coordinates.forEach(poly => {
-							allCoords.push(...poly[0]);
-						});
-					}
-				}
-				collectCoords(feature.geometry);
+				let allCoords = collectCoords(feature.geometry);				
 				if (allCoords.length) {
 					let bounds = calculateBounds(allCoords)
 					const padding = calculateZoomPadding(map);
@@ -850,53 +841,13 @@ function setupData() {
 				palette = d3.schemeBlues[7];
 			}
 
-			// Helper to get decimal places from legendFormat
-			function getLegendDecimals(fmt) {
-				// e.g. ',.2f' => 2
-				const m = fmt && fmt.match(/\.([0-9]+)/);
-				return m ? parseInt(m[1], 10) : 0;
-			}
 			const legendDecimals = getLegendDecimals(config.legendFormat || ',.2f');
 
 			// Calculate breaks
 			if (Array.isArray(config.breaks)) {
 				breaks = config.breaks;
-			} else if (config.breaks === 'equal') {
-				// Equal interval breaks
-				const values = data.map(d => +d.value).filter(v => !isNaN(v));
-				const min = d3.min(values), max = d3.max(values);
-				const n = palette.length;
-				const step = (max - min) / n;
-				breaks = Array.from({length: n+1}, (_, i) => {
-					const val = min + i * step;
-					return +val.toFixed(legendDecimals);
-				});
-			} else if (config.breaks === 'jenks' && typeof ss !== 'undefined') {
-				// Jenks breaks (using ckmeans, like old map)
-				const values = data.map(d => +d.value).filter(v => !isNaN(v)).sort(d3.ascending);
-				const n = palette.length;
-				let clusters = ss.ckmeans(values, n);
-				breaks = [];
-				clusters.forEach((cluster, i) => {
-					if (i < n - 1) {
-						breaks.push(+cluster[0].toFixed(legendDecimals));
-					} else {
-						breaks.push(+cluster[0].toFixed(legendDecimals));
-						// last cluster: push its max value as the upper bound
-						breaks.push(+cluster[cluster.length - 1].toFixed(legendDecimals));
-					}
-				});
 			} else {
-				// fallback: auto - which is equal interval
-				console.warn('Invalid config.breaks, defaulting to equal interval');
-				const values = data.map(d => +d.value).filter(v => !isNaN(v));
-				const min = d3.min(values), max = d3.max(values);
-				const n = palette.length;
-				const step = (max - min) / n;
-				breaks = Array.from({length: n+1}, (_, i) => {
-					const val = min + i * step;
-					return +val.toFixed(legendDecimals);
-				});
+				breaks = calculateBreaks(data.map(d => +d.value).filter(v => !isNaN(v)).sort(d3.ascending),config.breaks,palette.length,legendDecimals)
 			}
 
 			colour = d3.scaleThreshold()

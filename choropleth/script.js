@@ -4,7 +4,7 @@ import { drawKeyScale } from "./legend.js";
 
 let pymChild = null;
 
-let map, areas, data, breaks, colour;
+let map;
 let hoveredAreaCode = null; // Track hovered area code
 let selectedAreaCode = null; // Track selected area code
 let selectedAreaName = null; // Track selected area name
@@ -83,7 +83,7 @@ function addSearchBox() {
 
 const graphic = d3.select('#graphic');
 
-function setupAreaSearchIndex() {
+function setupAreaSearchIndex(areas) {
 	if (!areas || !areas.features) return;
 	if (!areas.features.length) return;
 	const firstProps = areas.features[0].properties;
@@ -328,7 +328,7 @@ graphic.style('width', '100%')
 	.style('height', config.mapHeight || '650px')
 	.style('max-width', '800px');
 
-function drawMap(rateById,areaById) {
+function drawMap(rateById,areaById, colour, data, breaks, areas) {
 	//Initialise for pym, not sure if it should go here, just copied from drawGraphic() on other templates
 	const size = initialise();
 
@@ -350,14 +350,6 @@ function drawMap(rateById,areaById) {
 		fitBoundsOptions: { padding: { top: 10, left: 10, right: 10, bottom: bottomPad } },
 		attributionControl: false,
 	});
-
-	function updateAreaFeatureState(areaCode, state) {
-		if (!map) {
-			console.warn('Map not initialized yet');
-			return;
-		}
-		setAreaFeatureState(map, geographySource, config.geoLayer, areaCode, state);
-	}
 
 	if (geographySource !== "vector") {
 		// Convert TopoJSON to GeoJSON
@@ -386,7 +378,7 @@ function drawMap(rateById,areaById) {
 		// });
 	}
 	// Build area search index after geojson is loaded
-	setupAreaSearchIndex();
+	setupAreaSearchIndex(areas);
 
 	// Draw the key scale
 	drawKeyScale({keyscale, breaks, colour, config, window});
@@ -640,29 +632,26 @@ function setupData() {
 		d3.csv(config.dataUrl),
 		geographySource === "vector" ? null : d3.json(config.geoUrl || "../lib-maps/master-topo.json")
 	]).then(([csv, geog]) => {
-		data = csv;
-		areas = geog;
+		const data = csv;
+		const areas = geog;
 
 		// Set up value lookup and breaks
 		const {rateById, areaById } = buildValueAndAreaLookups(data,config)
-
-		// Calculate breaks and color scale
+	
+		// Calculate breaks and colour scale
+		let breaks;
 		let palette = getPalette(config);
-		
 		const legendDecimals = getLegendDecimals(config.legendFormat || ',.2f');
-
-		// Calculate breaks
 		if (Array.isArray(config.breaks)) {
 			breaks = config.breaks;
 		} else {
 			breaks = calculateBreaks(data.map(d => +d.value).filter(v => !isNaN(v)).sort(d3.ascending), config.breaks, palette.length, legendDecimals)
 		}
-
-		colour = d3.scaleThreshold()
+		const colour = d3.scaleThreshold()
 			.domain(breaks.slice(1))
 			.range(palette);
 
-		drawMap(rateById,areaById);
+		drawMap(rateById,areaById, colour, data, breaks, areas);
 
 	});
 }

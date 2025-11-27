@@ -7,9 +7,9 @@
  */
 export async function detectGeographySource(url) {
     if (!url) {
-        return "error: invalid url"; 
+        return "error: invalid url";
     }
-    
+
     if (url.endsWith('.pbf')) {
         return "vector"; // Mapbox Vector Tile format
     }
@@ -20,7 +20,7 @@ export async function detectGeographySource(url) {
         if (!response.ok) {
             throw new Error(`HTTP error! Status: ${response.status}`);
         }
-        
+
         data = await response.json();
     } catch (e) {
         if (e.message.includes('HTTP error')) {
@@ -52,18 +52,18 @@ export async function detectGeographySource(url) {
     return "json";
 }
 
- // Function to get postcode list from postcodes.io autocomplete
+// Function to get postcode list from postcodes.io autocomplete
 export async function fetchPostcodes(query) {
-	const url = `https://api.postcodes.io/postcodes/${query}/autocomplete`;
-	try {
-		const json = await (await fetch(url)).json();
-		return json.result || [];
-	} catch {
-		console.log("Failed to fetch postcodes");
-	}
+    const url = `https://api.postcodes.io/postcodes/${query}/autocomplete`;
+    try {
+        const json = await (await fetch(url)).json();
+        return json.result || [];
+    } catch {
+        console.log("Failed to fetch postcodes");
+    }
 }
 
-export function getElementHeightById(id){
+export function getElementHeightById(id) {
     const element = document.getElementById(id);
     return element ? element.getBoundingClientRect().height : 0;
 }
@@ -73,16 +73,16 @@ export function getElementHeightById(id){
  * @param {string} value - The text to set.
  */
 export async function setSearchText(value) {
-	const searchBox = document.getElementById('search-box');
-	const searchDropdown = document.getElementById('search-box__listbox');
-	if (searchBox && searchDropdown) {
-		searchDropdown.style.visibility = "hidden";
-		searchBox.value = value || "";
-		await sleep(110);
-		searchBox.focus({ preventScroll: true });
-		searchBox.blur();
-		searchDropdown.style.visibility = "visible";
-	}
+    const searchBox = document.getElementById('search-box');
+    const searchDropdown = document.getElementById('search-box__listbox');
+    if (searchBox && searchDropdown) {
+        searchDropdown.style.visibility = "hidden";
+        searchBox.value = value || "";
+        await sleep(110);
+        searchBox.focus({ preventScroll: true });
+        searchBox.blur();
+        searchDropdown.style.visibility = "visible";
+    }
 }
 
 // Sleep function. Used to synchronise actions
@@ -90,16 +90,16 @@ const sleep = (ms = 1000) => new Promise((resolve) => setTimeout(resolve, ms));
 
 // Simple point-in-polygon test (ray casting)
 export function pointInPolygon(point, vs) {
-	const x = point[0], y = point[1];
-	let inside = false;
-	for (let i = 0, j = vs.length - 1; i < vs.length; j = i++) {
-		const xi = vs[i][0], yi = vs[i][1];
-		const xj = vs[j][0], yj = vs[j][1];
-		const intersect = ((yi > y) !== (yj > y)) &&
-			(x < (xj - xi) * (y - yi) / (yj - yi + 1e-12) + xi);
-		if (intersect) inside = !inside;
-	}
-	return inside;
+    const x = point[0], y = point[1];
+    let inside = false;
+    for (let i = 0, j = vs.length - 1; i < vs.length; j = i++) {
+        const xi = vs[i][0], yi = vs[i][1];
+        const xj = vs[j][0], yj = vs[j][1];
+        const intersect = ((yi > y) !== (yj > y)) &&
+            (x < (xj - xi) * (y - yi) / (yj - yi + 1e-12) + xi);
+        if (intersect) inside = !inside;
+    }
+    return inside;
 }
 
 export function yearFilter(props, year) {
@@ -152,7 +152,7 @@ export function getLegendDecimals(format) {
 export function calculateBreaks(values, method, numClasses, decimals) {
     if (method === 'equal') {
         const min = d3.min(values), max = d3.max(values);
-        return Array.from({length: numClasses + 1}, (_, i) => {
+        return Array.from({ length: numClasses + 1 }, (_, i) => {
             const val = min + i * (max - min) / numClasses;
             return +val.toFixed(decimals);
         });
@@ -185,25 +185,25 @@ export function buildAreaLookups(features, geoIdField, geoNameField) {
         areaNameToCode[name.toLowerCase()] = code;
         areaCodeToFeature[code] = f;
     });
-    
+
     areaNames.sort((a, b) => a.localeCompare(b));
-    
+
     return { areaNames, areaNameToCode, areaCodeToFeature };
 }
 
 export function clearAreaSelection(map, geographySource, geoLayer, hoveredAreaCode, selectedAreaCode) {
     if (hoveredAreaCode) {
-        map.setFeatureState({ 
-            source: 'area', 
-            sourceLayer: (geographySource === "vector" ? geoLayer : ""), 
-            id: hoveredAreaCode 
+        map.setFeatureState({
+            source: 'area',
+            sourceLayer: (geographySource === "vector" ? geoLayer : ""),
+            id: hoveredAreaCode
         }, { hovered: false });
     }
     if (selectedAreaCode) {
-        map.setFeatureState({ 
-            source: 'area', 
-            sourceLayer: (geographySource === "vector" ? geoLayer : ""), 
-            id: selectedAreaCode 
+        map.setFeatureState({
+            source: 'area',
+            sourceLayer: (geographySource === "vector" ? geoLayer : ""),
+            id: selectedAreaCode
         }, { selected: false });
     }
     if (map.getCanvas) map.getCanvas().style.cursor = '';
@@ -213,10 +213,10 @@ export function clearAreaSelection(map, geographySource, geoLayer, hoveredAreaCo
 
 export function setAreaFeatureState(map, geographySource, geoLayer, areaCode, state) {
     if (!map || !map.setFeatureState) return;
-    map.setFeatureState({ 
-        source: 'area', 
-        sourceLayer: (geographySource === "vector" ? geoLayer : ""), 
-        id: areaCode 
+    map.setFeatureState({
+        source: 'area',
+        sourceLayer: (geographySource === "vector" ? geoLayer : ""),
+        id: areaCode
     }, state);
 }
 
@@ -237,5 +237,19 @@ export function getPalette(config) {
         return d3[`scheme${config.colourPalette}`][7]; // default to 7 classes
     } else {
         return d3.schemeBlues[7];
+    }
+}
+
+export function convertTopoJSONtoGeojson(areas, geographySource) {
+    if (areas.type !== "FeatureCollection") {
+        const key = areas.objects[config.geoLayer] ? config.geoLayer : Object.keys(areas.objects)[0];
+        areas = topojson.feature(areas, areas.objects[key]);
+        if (geographySource === "topojson" && config.geoYear) {
+            areas.features = areas.features.filter(d => yearFilter(d.properties, config.geoYear));
+        }
+    }
+
+    if (config.geoCountries.length < 4) {
+        areas.features = areas.features.filter(d => config.geoCountries.includes(d.properties[config.geoIdField][0]));
     }
 }

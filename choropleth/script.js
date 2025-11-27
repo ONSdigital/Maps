@@ -1,22 +1,14 @@
 import { initialise, addSource } from "../lib/helpers.js";
+import { detectGeographySource } from "../lib-maps/map-helpers.js";
 
 let pymChild = null;
 
-let map, areas, data, breaks, colour, geographySource, rateById = {}, areaById = {};
+let map, areas, data, breaks, colour, rateById = {}, areaById = {};
 let hoveredAreaCode = null; // Track hovered area code
 let selectedAreaCode = null; // Track selected area code
 let selectedAreaName = null; // Track selected area name
 
-// Determine if geoUrl is vector tile service or GeoJSON
-if (config.geoUrl && config.geoUrl.endsWith('.pbf')) {
-	geographySource = "vector";
-} else if (config.geoUrl && config.geoUrl.endsWith('.json')) {
-	geographySource = "json";
-} else if (config.geoUrl === null) {
-	geographySource = "topojson";
-} else {
-	console.error("Invalid geoUrl in config");
-}
+let geographySource = detectGeographySource(config.geoUrl);
 
 console.log('Geography source type:', geographySource);
 

@@ -1,5 +1,5 @@
 import { initialise, addSource } from "../lib/helpers.js";
-import { detectGeographySource } from "../lib-maps/map-helpers.js";
+import { detectGeographySource, fetchPostcodes, getElementHeightById, setSearchText, pointInPolygon, yearFilter, collectCoords, calculateBounds, calculateZoomPadding } from "../lib-maps/map-helpers.js";
 
 let pymChild = null;
 
@@ -37,45 +37,11 @@ document.addEventListener('keydown', function(e) {
 	}
 });
 
-// Helper to get the height of the overlay (keycontainer)
-function getKeyOverlayHeight() {
-	const keycontainer = document.getElementById('keycontainer');
-	if (!keycontainer) return 0;
-	return keycontainer.getBoundingClientRect().height || 0;
-}
-
 // --- Autocomplete and search logic ---
 let areaNames = [];
 let areaNameToCode = {};
 let areaCodeToFeature = {};
 
-// Function to get postcode list from postcodes.io autocomplete
-async function fetchPostcodes(query) {
-	const url = `https://api.postcodes.io/postcodes/${query}/autocomplete`;
-	try {
-		const json = await (await fetch(url)).json();
-		return json.result || [];
-	} catch {
-		console.log("Failed to fetch postcodes");
-	}
-}
-
-// Sleep function. Used to synchronise actions
-const sleep = (ms = 1000) => new Promise((resolve) => setTimeout(resolve, ms));
-
-// Function to set the value of the autocomplete input
-async function setSearchText(value) {
-	const searchBox = document.getElementById('search-box');
-	const searchDropdown = document.getElementById('search-box__listbox');
-	if (searchBox && searchDropdown) {
-		searchDropdown.style.visibility = "hidden";
-		searchBox.value = value || "";
-		await sleep(110);
-		searchBox.focus({ preventScroll: true });
-		searchBox.blur();
-		searchDropdown.style.visibility = "visible";
-	}
-}
 
 // Function to populate search results
 async function searchSuggest(query, populateResults) {
@@ -191,35 +157,10 @@ function selectAreaFeature(feature) {
 	// Zoom to area bounds (same as click logic)
 	
 	if (feature && feature.geometry) {
-		let allCoords = [];
-		function collectCoords(geom) {
-			if (geom.type === 'Polygon') {
-				allCoords.push(...geom.coordinates[0]);
-			} else if (geom.type === 'MultiPolygon') {
-				geom.coordinates.forEach(poly => {
-					allCoords.push(...poly[0]);
-				});
-			}
-		}
-		collectCoords(feature.geometry);
+		let allCoords = collectCoords(feature.geometry);
 		if (allCoords.length) {
-			let lons = allCoords.map(c => c[0]);
-			let lats = allCoords.map(c => c[1]);
-			let minLon = Math.min(...lons), maxLon = Math.max(...lons);
-			let minLat = Math.min(...lats), maxLat = Math.max(...lats);
-			let bounds = [[minLon, minLat], [maxLon, maxLat]];
-			const mapCanvas = map.getContainer();
-			const mapWidth = mapCanvas.offsetWidth;
-			const mapHeight = mapCanvas.offsetHeight;
-			const padX = Math.round(mapWidth * 0.3);
-			let padY = Math.round(mapHeight * 0.3);
-			const keycontainer = document.getElementById('keycontainer');
-			let keyPad = 0;
-			if (keycontainer) {
-				keyPad = keycontainer.getBoundingClientRect().height || 0;
-			}
-			const padding = { top: padY, bottom: padY + keyPad, left: padX, right: padX };
-			const currentZoom = map.getZoom();
+			let bounds = calculateBounds(allCoords)
+			const padding = calculateZoomPadding(map);
 			const options = {
 				padding,
 				animate: true
@@ -229,14 +170,6 @@ function selectAreaFeature(feature) {
 
 		}
 	}
-}
-
-// Filter topojson features by year
-function yearFilter(props, year) {
-    if (!props.start && !props.end) return true;
-    if (!props.start && props.end) return year <= props.end;
-    if (props.start && !props.end) return year >= props.start;
-    return year >= props.start && year <= props.end;
 }
 
 function selectAreaByLngLat(lon, lat) {
@@ -286,22 +219,8 @@ function selectAreaByLngLat(lon, lat) {
 				}
 				collectCoords(feature.geometry);
 				if (allCoords.length) {
-					let lons = allCoords.map(c => c[0]);
-					let lats = allCoords.map(c => c[1]);
-					let minLon = Math.min(...lons), maxLon = Math.max(...lons);
-					let minLat = Math.min(...lats), maxLat = Math.max(...lats);
-					let bounds = [[minLon, minLat], [maxLon, maxLat]];
-					const mapCanvas = map.getContainer();
-					const mapWidth = mapCanvas.offsetWidth;
-					const mapHeight = mapCanvas.offsetHeight;
-					const padX = Math.round(mapWidth * 0.3);
-					let padY = Math.round(mapHeight * 0.3);
-					const keycontainer = document.getElementById('keycontainer');
-					let keyPad = 0;
-					if (keycontainer) {
-						keyPad = keycontainer.getBoundingClientRect().height || 0;
-					}
-					const padding = { top: padY, bottom: padY + keyPad, left: padX, right: padX };
+					let bounds = calculateBounds(allCoords)
+					const padding = calculateZoomPadding(map);
 					const options = {
 						padding,
 						animate: true
@@ -334,19 +253,7 @@ function selectAreaByLngLat(lon, lat) {
 	}
 }
 
-// Simple point-in-polygon test (ray casting)
-function pointInPolygon(point, vs) {
-	const x = point[0], y = point[1];
-	let inside = false;
-	for (let i = 0, j = vs.length - 1; i < vs.length; j = i++) {
-		const xi = vs[i][0], yi = vs[i][1];
-		const xj = vs[j][0], yj = vs[j][1];
-		const intersect = ((yi > y) !== (yj > y)) &&
-			(x < (xj - xi) * (y - yi) / (yj - yi + 1e-12) + xi);
-		if (intersect) inside = !inside;
-	}
-	return inside;
-}
+
 
 // Use D3 to populate the info area above the keyscale
 const keyInfoSel = d3.select('#keyinfo')
@@ -631,7 +538,7 @@ function drawMap() {
 	const size = initialise();
 
 	// Calculate bottom padding for overlay
-	const bottomPad = getKeyOverlayHeight() + 85; // extra for spacing
+	const bottomPad = getElementHeightById('keycontainer') + 85; // extra for spacing
 
 	// Set up source text
 	addSource('source', config.sourceText || 'Office for National Statistics.');
@@ -854,41 +761,15 @@ function drawMap() {
 				collectCoords(feature.geometry);
 				// If geometry has more than one part (e.g., MultiPolygon), ensure all are included
 				if (allCoords.length) {
-					let lons = allCoords.map(c => c[0]);
-					let lats = allCoords.map(c => c[1]);
-					let minLon = Math.min(...lons), maxLon = Math.max(...lons);
-					let minLat = Math.min(...lats), maxLat = Math.max(...lats);
-					let bounds = [[minLon, minLat], [maxLon, maxLat]];
-
-					// Calculate required zoom to make bounds ~40% of map viewport
-					const mapCanvas = map.getContainer();
-					const mapWidth = mapCanvas.offsetWidth;
-					const mapHeight = mapCanvas.offsetHeight;
-					// Padding: 30% on each side = 40% visible
-					const padX = Math.round(mapWidth * 0.3);
-					let padY = Math.round(mapHeight * 0.3);
-
-					// Add extra bottom padding for keycontainer overlay
-					const keycontainer = document.getElementById('keycontainer');
-					let keyPad = 0;
-					if (keycontainer) {
-						keyPad = keycontainer.getBoundingClientRect().height || 0;
-					}
-					// Add the overlay height to the bottom padding
-					const padding = { top: padY, bottom: padY + keyPad, left: padX, right: padX };
-
-					// Get current zoom for comparison
-					const currentZoom = map.getZoom();
-					// Fit bounds with padding, but only zoom in (not out)
+					let bounds = calculateBounds(allCoords)
+					const padding = calculateZoomPadding(map);
 					const options = {
 						padding,
 						animate: true
 					};
-					// Calculate the zoom that would be used
-					// const targetZoom = map.cameraForBounds(bounds, options)?.zoom;
-					// if (targetZoom !== undefined && targetZoom > currentZoom) {
-						map.fitBounds(bounds, options);
-					// }
+					
+					map.fitBounds(bounds, options);
+					
 				}
 			}
 		});
@@ -948,7 +829,7 @@ function setupData() {
 	
 	Promise.all([
 		d3.csv(config.dataUrl),
-		geographySource === "vector" ? null :d3.json(config.geoUrl || "../lib-maps/master-topo.json")
+		geographySource === "vector" ? null : d3.json(config.geoUrl || "../lib-maps/master-topo.json")
 	]).then(([csv, geog]) => {
 			data = csv;
 			areas = geog;

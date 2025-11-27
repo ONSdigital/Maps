@@ -1,5 +1,5 @@
 import { initialise, addSource } from "../lib/helpers.js";
-import { detectGeographySource, fetchPostcodes, getElementHeightById, setSearchText, pointInPolygon, yearFilter, collectCoords, calculateBounds, calculateZoomPadding, getLegendDecimals, calculateBreaks, buildAreaLookups, setAreaFeatureState, buildValueAndAreaLookups, getPalette } from "../lib-maps/map-helpers.js";
+import { detectGeographySource, fetchPostcodes, getElementHeightById, setSearchText, pointInPolygon, yearFilter, collectCoords, calculateBounds, calculateZoomPadding, getLegendDecimals, calculateBreaks, buildAreaLookups, buildValueAndAreaLookups, getPalette } from "../lib-maps/map-helpers.js";
 import { drawKeyScale } from "./legend.js";
 
 let pymChild = null;
@@ -125,12 +125,27 @@ function selectAreaFeature(feature) {
 	}
 	// Clear previous selected state if different
 	if (selectedAreaCode && selectedAreaCode !== code) {
-		updateAreaFeatureState(selectedAreaCode, { selected: false })
+		map.setFeatureState({
+			source: 'area',
+			sourceLayer: (geographySource === "vector" ? geoLayer : ""),
+			id: selectedAreaCode
+		}, { selected: false });
+
 	}
 	selectedAreaCode = code;
 	selectedAreaName = areaName;
-	updateAreaFeatureState(code, { selected: true })
-	updateAreaFeatureState(selectedAreaCode, { hovered: false })
+
+	map.setFeatureState({
+		source: 'area',
+		sourceLayer: (geographySource === "vector" ? geoLayer : ""),
+		id: code
+	}, { selected: true });
+
+	map.setFeatureState({
+		source: 'area',
+		sourceLayer: (geographySource === "vector" ? geoLayer : ""),
+		id: selectedAreaCode
+	}, { hovered: false });
 	const selectedVal = rateById[code];
 	window.moveKeyIndicator(undefined);
 	window.moveKeyIndicatorSelected(selectedVal);
@@ -173,14 +188,25 @@ function selectAreaByLngLat(lon, lat) {
 			if (!areaById[code]) areaById[code] = areaName;
 			// Use the same logic as click handler
 			if (selectedAreaCode && selectedAreaCode !== code) {
-				updateAreaFeatureState(selectedAreaCode, { selected: false })
+				map.setFeatureState({
+					source: 'area',
+					sourceLayer: (geographySource === "vector" ? geoLayer : ""),
+					id: selectedAreaCode
+				}, { selected: false });
 			}
 			selectedAreaCode = code;
 			selectedAreaName = areaName;
-			updateAreaFeatureState(selectedAreaCode, { selected: true })
-
+			map.setFeatureState({
+				source: 'area',
+				sourceLayer: (geographySource === "vector" ? geoLayer : ""),
+				id: selectedAreaCode
+			}, { selected: true });
 			if (hoveredAreaCode) {
-				updateAreaFeatureState(hoveredAreaCode, { hovered: false })
+				map.setFeatureState({
+					source: 'area',
+					sourceLayer: (geographySource === "vector" ? geoLayer : ""),
+					id: hoveredAreaCode
+				}, { hovered: false });
 				hoveredAreaCode = null;
 			}
 			const selectedVal = rateById[code];
@@ -328,7 +354,7 @@ graphic.style('width', '100%')
 	.style('height', config.mapHeight || '650px')
 	.style('max-width', '800px');
 
-function drawMap(rateById,areaById, colour, data, breaks, areas) {
+function drawMap(rateById, areaById, colour, data, breaks, areas) {
 	//Initialise for pym, not sure if it should go here, just copied from drawGraphic() on other templates
 	const size = initialise();
 
@@ -381,7 +407,7 @@ function drawMap(rateById,areaById, colour, data, breaks, areas) {
 	setupAreaSearchIndex(areas);
 
 	// Draw the key scale
-	drawKeyScale({keyscale, breaks, colour, config, window});
+	drawKeyScale({ keyscale, breaks, colour, config, window });
 
 	// Add search box (requires search index)
 	addSearchBox();
@@ -458,11 +484,19 @@ function drawMap(rateById,areaById, colour, data, breaks, areas) {
 
 			// Remove hover state from previous feature
 			if (hoveredAreaCode && hoveredAreaCode !== code) {
-				setAreaFeatureState(hoveredAreaCode, { hovered: false })
+				map.setFeatureState({
+					source: 'area',
+					sourceLayer: (geographySource === "vector" ? geoLayer : ""),
+					id: hoveredAreaCode
+				}, { hovered: false });
 			}
 			hoveredAreaCode = code;
 
-			setAreaFeatureState(hoveredAreaCode, { hovered: true })
+			map.setFeatureState({
+				source: 'area',
+				sourceLayer: (geographySource === "vector" ? geoLayer : ""),
+				id: hoveredAreaCode
+			}, { hovered: true });
 			const areaName = e.features[0].properties[config.geoNameField];
 			const value = rateById[e.features[0].properties[config.geoIdField]];
 
@@ -491,7 +525,11 @@ function drawMap(rateById,areaById, colour, data, breaks, areas) {
 		map.on('mouseleave', 'area', () => {
 			map.getCanvas().style.cursor = '';
 			if (hoveredAreaCode) {
-				setAreaFeatureState(hoveredAreaCode, { hovered: false })
+				map.setFeatureState({
+					source: 'area',
+					sourceLayer: (geographySource === "vector" ? geoLayer : ""),
+					id: hoveredAreaCode
+				}, { hovered: false });
 				hoveredAreaCode = null;
 			}
 			// If an area is selected, show its info and indicator; otherwise clear
@@ -520,14 +558,25 @@ function drawMap(rateById,areaById, colour, data, breaks, areas) {
 			}
 			// Remove previous selected state
 			if (selectedAreaCode && selectedAreaCode !== code) {
-				setAreaFeatureState(selectedAreaCode, { selected: false })
+				map.setFeatureState({
+					source: 'area',
+					sourceLayer: (geographySource === "vector" ? geoLayer : ""),
+					id: selectedAreaCode
+				}, { selected: false });
 			}
 			selectedAreaCode = code;
 			selectedAreaName = areaName;
-			setAreaFeatureState(selectedAreaCode, { selected: true })
-			// Remove hover state (if any)
+			map.setFeatureState({
+				source: 'area',
+				sourceLayer: (geographySource === "vector" ? geoLayer : ""),
+				id: selectedAreaCode
+			}, { selected: true });			// Remove hover state (if any)
 			if (hoveredAreaCode) {
-				setAreaFeatureState(hoveredAreaCode, { hovered: false })
+				map.setFeatureState({
+					source: 'area',
+					sourceLayer: (geographySource === "vector" ? geoLayer : ""),
+					id: hoveredAreaCode
+				}, { hovered: false });
 				hoveredAreaCode = null;
 			}
 			// Show faded indicator for selected, hide hover indicator
@@ -584,7 +633,11 @@ function drawMap(rateById,areaById, colour, data, breaks, areas) {
 				// Clear selected area and info
 				if (typeof map !== 'undefined' && map !== null) {
 					if (selectedAreaCode) {
-						setAreaFeatureState(selectedAreaCode, { selected: false })
+						map.setFeatureState({
+							source: 'area',
+							sourceLayer: (geographySource === "vector" ? geoLayer : ""),
+							id: selectedAreaCode
+						}, { selected: false });
 					}
 					selectedAreaCode = null;
 					selectedAreaName = null;
@@ -622,10 +675,6 @@ function drawMap(rateById,areaById, colour, data, breaks, areas) {
 	});
 }
 
-function updateAreaFeatureState(areaCode, state) {
-	setAreaFeatureState(map, geographySource, config.geoLayer, areaCode, state);
-}
-
 function setupData() {
 
 	Promise.all([
@@ -636,8 +685,8 @@ function setupData() {
 		const areas = geog;
 
 		// Set up value lookup and breaks
-		const {rateById, areaById } = buildValueAndAreaLookups(data,config)
-	
+		const { rateById, areaById } = buildValueAndAreaLookups(data, config)
+
 		// Calculate breaks and colour scale
 		let breaks;
 		let palette = getPalette(config);
@@ -651,7 +700,7 @@ function setupData() {
 			.domain(breaks.slice(1))
 			.range(palette);
 
-		drawMap(rateById,areaById, colour, data, breaks, areas);
+		drawMap(rateById, areaById, colour, data, breaks, areas);
 
 	});
 }

@@ -82,6 +82,8 @@ function setupData() {
 
 		drawMap(rateById, areaById, colour, data, breaks, areas);
 
+	}).catch(error => {
+		console.error("Fatal error loading map data or geography:", error);
 	});
 }
 

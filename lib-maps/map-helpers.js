@@ -173,23 +173,357 @@ export function calculateBreaks(values, method, numClasses, decimals) {
     return null;
 }
 
-export function buildAreaLookups(features, geoIdField, geoNameField) {
-    const areaNames = [];
-    const areaNameToCode = {};
-    const areaCodeToFeature = {};
+export function setupSearch(areas, config, hoveredAreaCode, selectedAreaName, selectedAreaCode, rateById, areaById, map, geographySource) {
+    const { areaNames, areaNameToCode, areaCodeToFeature } = setupAreaSearchIndex(areas);
 
-    features.forEach(f => {
-        const code = f.properties[geoIdField];
-        const name = f.properties[geoNameField];
-        areaNames.push(name);
-        areaNameToCode[name.toLowerCase()] = code;
-        areaCodeToFeature[code] = f;
-    });
+    addSearchBox(areaNames, selectedAreaName)
 
-    areaNames.sort((a, b) => a.localeCompare(b));
+    function setupAreaSearchIndex(areas) {
+        if (!areas || !areas.features) return {};
+        if (!areas.features.length) return {};
+        const firstProps = areas.features[0].properties;
+        if (!(config.geoIdField in firstProps) || !(config.geoNameField in firstProps)) {
+            console.error(`Mismatched geoIdField ('${config.geoIdField}') or geoNameField ('${config.geoNameField}') in config. Available keys:`, Object.keys(firstProps));
+            return;
+        }
 
-    return { areaNames, areaNameToCode, areaCodeToFeature };
+        return buildAreaLookups(areas.features, config.geoIdField, config.geoNameField)
+    }
+
+    function buildAreaLookups(features, geoIdField, geoNameField) {
+        let areaNames = [];
+        let areaNameToCode = {};
+        let areaCodeToFeature = {};
+
+        features.forEach(f => {
+            const code = f.properties[geoIdField];
+            const name = f.properties[geoNameField];
+            areaNames.push(name);
+            areaNameToCode[name.toLowerCase()] = code;
+            areaCodeToFeature[code] = f;
+        });
+
+        areaNames.sort((a, b) => a.localeCompare(b));
+        return { areaNames, areaNameToCode, areaCodeToFeature };
+    }
+
+    function addSearchBox(areaNames, selectedAreaName) {
+        const searchBoxId = 'search-box';
+        const mapWrapper = document.getElementById('mapwrapper') || document.body;
+        const searchDiv = document.createElement('div');
+        const searchLabel = document.createElement('label');
+        searchLabel.className = "visuallyhidden";
+        searchLabel.htmlFor = searchBoxId;
+        searchLabel.innerHTML = "Select an area";
+        searchDiv.id = 'search-container';
+
+        if (mapWrapper === document.body) {
+            document.body.appendChild(searchLabel);
+            document.body.appendChild(searchDiv);
+        } else {
+            mapWrapper.parentNode.insertBefore(searchLabel, mapWrapper);
+            mapWrapper.parentNode.insertBefore(searchDiv, mapWrapper);
+        }
+
+        // Initialise the accessible autocomplete
+        accessibleAutocomplete({
+            element: searchDiv,
+            id: searchBoxId,
+            source: searchSuggest,
+            placeholder: "Type a place name or postcode",
+            showAllValues: true,
+            autoselect: true,
+            confirmOnBlur: false,
+            displayMenu: "overlay",
+            onConfirm: (name) =>
+                name.match(/^[A-Z]{1,2}\d[A-Z\d]?\s?\d[A-Z]{2}$/) ? selectAreaByPostcode(name) : selectAreaByName(name),
+            dropdownArrow: (opts) =>
+                `<svg class="${opts?.className}" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" viewBox="0 0 11.75 7.7" width="18" style="z-index:1"><path fill="currentColor" d="m1.37.15 4.5 5.1 4.5-5.1a.37.37 0 0 1 .6 0l.7.7a.45.45 0 0 1 0 .5l-5.5 6.2a.37.37 0 0 1-.6 0l-5.5-6.1a.64.64 0 0 1 0-.6l.7-.7a.64.64 0 0 1 .6 0Z"></path></svg>`
+        });
+
+        // Function to populate search results
+        async function searchSuggest(query, populateResults) {
+            const safeQuery = query.replace(/[^\w\s]/gi, ""); // Remove special characters
+            let results = !safeQuery || query === selectedAreaName ? areaNames :
+                areaNames.filter((name) =>
+                    name.match(new RegExp(`\\b${safeQuery}`, "i"))
+                );
+
+            if (results.length === 0) results = await fetchPostcodes(safeQuery);
+            populateResults(results);
+        }
+
+        async function selectAreaByPostcode(code) {
+            const url = `https://api.postcodes.io/postcodes/${code}`;
+            try {
+                const json = await (await fetch(url)).json();
+                if (json.result) selectAreaByLngLat(json.result.longitude, json.result.latitude);
+                else console.log("Invalid postcode");
+            } catch {
+                console.log("Failed to fetch postcode");
+            }
+        }
+
+        function selectAreaByLngLat(lon, lat) {
+            console.log("position: long:", lon, " lat:", lat);
+
+            //Jank way of selecting area by postcode - don't think it works properly - need to see how energyefficiencyofhousing does it
+            if (geographySource === 'vector') {
+                // Project lat/lng to screen pixel
+                if (!map) return;
+                const point = map.project([lon, lat]);
+                // Query rendered features at this pixel
+                const features = map.queryRenderedFeatures(point, { layers: ['area'] });
+                if (features && features.length > 0) {
+                    // Simulate click/select on the first feature
+                    const feature = features[0];
+                    // Defensive: ensure areaById is set for this code
+                    const code = feature.properties[config.geoIdField];
+                    const areaName = feature.properties[config.geoNameField];
+                    if (!areaById[code]) areaById[code] = areaName;
+                    // Use the same logic as click handler
+                    if (selectedAreaCode && selectedAreaCode !== code) {
+                        map.setFeatureState({
+                            source: 'area',
+                            sourceLayer: (geographySource === "vector" ? geoLayer : ""),
+                            id: selectedAreaCode
+                        }, { selected: false });
+                    }
+                    selectedAreaCode = code;
+                    selectedAreaName = areaName;
+                    map.setFeatureState({
+                        source: 'area',
+                        sourceLayer: (geographySource === "vector" ? geoLayer : ""),
+                        id: selectedAreaCode
+                    }, { selected: true });
+                    if (hoveredAreaCode) {
+                        map.setFeatureState({
+                            source: 'area',
+                            sourceLayer: (geographySource === "vector" ? geoLayer : ""),
+                            id: hoveredAreaCode
+                        }, { hovered: false });
+                        hoveredAreaCode = null;
+                    }
+                    const selectedVal = rateById[code];
+                    window.moveKeyIndicator(undefined);
+                    window.moveKeyIndicatorSelected(selectedVal);
+                    updateKeyInfo(selectedVal, areaName);
+
+                    // Zoom to area bounds (if geometry is available)
+                    if (feature && feature.geometry) {
+                        let allCoords = collectCoords(feature.geometry);
+                        if (allCoords.length) {
+                            let bounds = calculateBounds(allCoords)
+                            const padding = calculateZoomPadding(map);
+                            const options = {
+                                padding,
+                                animate: true
+                            };
+                            map.fitBounds(bounds, options);
+                        }
+                    }
+                } else {
+                    alert('No area found for this postcode');
+                }
+                return;
+            }
+
+            // Fallback: GeoJSON/TopoJSON point-in-polygon
+            if (!areas || !areas.features) return;
+            const pt = [lon, lat];
+            const found = areas.features.find(f => {
+                if (!f.geometry) return false;
+                if (f.geometry.type === 'Polygon') {
+                    return pointInPolygon(pt, f.geometry.coordinates[0]);
+                } else if (f.geometry.type === 'MultiPolygon') {
+                    return f.geometry.coordinates.some(poly => pointInPolygon(pt, poly[0]));
+                }
+                return false;
+            });
+            if (found) {
+                selectAreaFeature(found);
+            } else {
+                alert('No area found for this postcode');
+            }
+        }
+
+        function selectAreaByName(name) {
+            const code = areaNameToCode[name.toLowerCase()];
+            if (!code) return;
+            const feature = areaCodeToFeature[code];
+            if (!feature) return;
+            // Simulate click on area
+            selectAreaFeature(feature);
+        }
+
+        function selectAreaFeature(feature) {
+            // This mimics the click event logic
+            const code = feature.properties[config.geoIdField];
+            const areaName = feature.properties[config.geoNameField];
+            // Always ensure areaById is set for this code
+            if (!areaById[code]) {
+                areaById[code] = areaName;
+            }
+            // Clear previous selected state if different
+            if (selectedAreaCode && selectedAreaCode !== code) {
+                map.setFeatureState({
+                    source: 'area',
+                    sourceLayer: (geographySource === "vector" ? geoLayer : ""),
+                    id: selectedAreaCode
+                }, { selected: false });
+
+            }
+            selectedAreaCode = code;
+            selectedAreaName = areaName;
+
+            map.setFeatureState({
+                source: 'area',
+                sourceLayer: (geographySource === "vector" ? geoLayer : ""),
+                id: code
+            }, { selected: true });
+
+            map.setFeatureState({
+                source: 'area',
+                sourceLayer: (geographySource === "vector" ? geoLayer : ""),
+                id: selectedAreaCode
+            }, { hovered: false });
+            const selectedVal = rateById[code];
+            window.moveKeyIndicator(undefined);
+            window.moveKeyIndicatorSelected(selectedVal);
+            updateKeyInfo(selectedVal, areaName);
+
+            // Zoom to area bounds (same as click logic)
+
+            if (feature && feature.geometry) {
+                let allCoords = collectCoords(feature.geometry);
+                if (allCoords.length) {
+                    let bounds = calculateBounds(allCoords)
+                    const padding = calculateZoomPadding(map);
+                    const options = {
+                        padding,
+                        animate: true
+                    };
+                    // const targetZoom = map.cameraForBounds(bounds, options)?.zoom;
+                    map.fitBounds(bounds, options);
+
+                }
+            }
+        }
+
+        // Listen for ESC key to clear selection
+        document.addEventListener('keydown', function (e) {
+            if (e.key === 'Escape' || e.key === 'Esc') {
+                // Clear both selection and hover feature-state and info
+                if (typeof map !== 'undefined' && map !== null) {
+                    clearAreaSelection(map, geographySource, config.geoLayer, hoveredAreaCode, selectedAreaCode);
+                    hoveredAreaCode = null;
+                    selectedAreaCode = null;
+                    selectedAreaName = null;
+                    // Always clear explainer and value immediately
+                    updateKeyInfo(undefined, undefined);
+                    // Reset search box to placeholder
+                    setSearchText("");
+                }
+            }
+        });
+
+    }
 }
+
+// Use D3 to populate the info area above the keyscale
+const keyInfoSel = d3.select('#keyinfo')
+    .classed('keyinfo', true)
+    .style('margin-left', (config.keyScaleMargin && typeof config.keyScaleMargin.left === 'number') ? config.keyScaleMargin.left + 'px' : null);
+// Value
+let valueSel = keyInfoSel.select('#keyinfo-value');
+if (valueSel.empty()) {
+    valueSel = keyInfoSel.append('div').attr('id', 'keyinfo-value');
+}
+// Explainer
+let explainerSel = keyInfoSel.select('#keyinfo-explainer');
+if (explainerSel.empty()) {
+    explainerSel = keyInfoSel.append('div').attr('id', 'keyinfo-explainer');
+}
+// Two lines for explainer
+let explainerLine1 = explainerSel.select('span.line1');
+if (explainerLine1.empty()) explainerLine1 = explainerSel.append('span').classed('line1', true);
+let explainerLine2 = explainerSel.select('span.line2');
+if (explainerLine2.empty()) explainerLine2 = explainerSel.append('span').classed('line2', true);
+
+
+export function updateKeyInfo(value, areaName) {
+    // Alignment logic for explainer/value
+    const keyInfoNode = document.getElementById('keyinfo');
+    const valueNode = document.getElementById('keyinfo-value');
+    const explainerNode = document.getElementById('keyinfo-explainer');
+    if (keyInfoNode && valueNode && explainerNode) {
+        // Set right margin from config.keyScaleMargin.right
+        if (config.keyScaleMargin && typeof config.keyScaleMargin.right === 'number') {
+            keyInfoNode.style.marginRight = 'calc(' + config.keyScaleMargin.right + 'px - 1rem)';
+        } else {
+            keyInfoNode.style.marginRight = '';
+        }
+        if (config.explainerAlignment === 'right') {
+            keyInfoNode.style.flexDirection = 'row-reverse';
+            keyInfoNode.style.justifyContent = 'flex-end';
+            valueNode.style.textAlign = 'left';
+            explainerNode.style.textAlign = 'right';
+        } else {
+            keyInfoNode.style.flexDirection = 'row';
+            keyInfoNode.style.justifyContent = '';
+            valueNode.style.textAlign = 'right';
+            explainerNode.style.textAlign = 'left';
+        }
+    }
+    if (typeof value === 'undefined' || value === null || isNaN(value)) {
+        // If areaName is provided, show unavailable message; else show placeholder
+        if (areaName) {
+            const unavailablePrefix = config.unavailablePrefix || 'The value for';
+            const unavailableSuffix = config.unavailableSuffix || 'is unavailable';
+            const areaLabel = areaName || 'this area';
+            valueSel.html(`<span class="keyinfo-placeholder"></span>`); // No value shown
+            explainerLine1.html('');
+            explainerLine1.append('span').text(`${unavailablePrefix} `);
+            explainerLine1.append('strong').text(areaLabel);
+            explainerLine1.append('span').text(` ${unavailableSuffix}`);
+            explainerLine2.text('');
+        } else {
+            // Show placeholder in valueSel, clear explainer
+            const placeholder = config.explainerPlaceholder || '';
+            valueSel.html(`<span class="keyinfo-placeholder">${placeholder}</span>`);
+            explainerLine1.html('');
+            explainerLine2.text('');
+        }
+        // Always clear explainer lines if both arguments are undefined
+        if (typeof value === 'undefined' && typeof areaName === 'undefined') {
+            explainerLine1.html('');
+            explainerLine2.text('');
+        }
+        return;
+    }
+    // Format value with prefix/suffix for value display
+    let fmt = d3.format(config.valueFormat || ',.0f');
+    let valuePrefix = config.valuePrefix || '';
+    let valueSuffix = config.valueSuffix || '';
+    valueSel.html(
+        `<span style="font-size:0.6em;vertical-align:middle;">${valuePrefix}</span>` +
+        `<span style="font-size:1em;">${fmt(value)}</span>` +
+        `<span style="font-size:0.6em;vertical-align:middle;">${valueSuffix}</span>`
+    );
+
+    // Explainer: explainerPrefix, area name (bold), explainerSuffix (all in one container, prefix/suffix can be HTML)
+    const explainerPrefix = config.explainerPrefix || '';
+    const explainerSuffix = config.explainerSuffix || '';
+    let explainerHtml = '';
+    explainerHtml += explainerPrefix;
+    if (areaName) {
+        explainerHtml += '<strong>' + d3.create('span').text(areaName).node().textContent + '</strong>';
+    }
+    explainerHtml += explainerSuffix;
+    explainerLine1.html(explainerHtml);
+    explainerLine2.text('');
+}
+
 
 export function clearAreaSelection(map, geographySource, geoLayer, hoveredAreaCode, selectedAreaCode) {
     if (hoveredAreaCode) {
@@ -211,15 +545,7 @@ export function clearAreaSelection(map, geographySource, geoLayer, hoveredAreaCo
     if (window.moveKeyIndicatorSelected) window.moveKeyIndicatorSelected(undefined);
 }
 
-export function buildValueAndAreaLookups(data, config) {
-    const rateById = {};
-    const areaById = {};
-    data.forEach((d) => {
-        rateById[d[config.dataIdField]] = +d.value;
-        areaById[d[config.dataIdField]] = d[config.geoNameField];
-    });
-    return { rateById, areaById };
-}
+
 
 export function getPalette(config) {
     if (Array.isArray(config.colourPalette) && config.colourPalette.length > 0) {
@@ -246,4 +572,22 @@ export function convertTopoJSONtoGeojson(areas, geographySource) {
             areas.features = areas.features.filter(d => config.geoCountries.includes(d.properties[config.geoIdField][0]));
         }
     }
+    return areas;
 }
+
+export function buildValueAndAreaLookups(data, config) {
+    const rateById = {};
+    const areaById = {};
+    data.forEach((d) => {
+        rateById[d[config.dataIdField]] = +d.value;
+        areaById[d[config.dataIdField]] = d[config.geoNameField];
+    });
+    return { rateById, areaById };
+}
+
+
+
+// --- Add search box above the map ---
+
+
+

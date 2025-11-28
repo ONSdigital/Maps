@@ -173,10 +173,10 @@ export function calculateBreaks(values, method, numClasses, decimals) {
     return null;
 }
 
-export function setupSearch(areas, config, hoveredAreaCode, selectedAreaName, selectedAreaCode, rateById, areaById, map, geographySource) {
+export function setupSearch(areas, config, state, rateById, areaById) {
     const { areaNames, areaNameToCode, areaCodeToFeature } = setupAreaSearchIndex(areas);
 
-    addSearchBox(areaNames, selectedAreaName)
+    addSearchBox(areaNames, state)
 
     function setupAreaSearchIndex(areas) {
         if (!areas || !areas.features) return {};
@@ -207,7 +207,7 @@ export function setupSearch(areas, config, hoveredAreaCode, selectedAreaName, se
         return { areaNames, areaNameToCode, areaCodeToFeature };
     }
 
-    function addSearchBox(areaNames, selectedAreaName) {
+    function addSearchBox(areaNames, state) {
         const searchBoxId = 'search-box';
         const mapWrapper = document.getElementById('mapwrapper') || document.body;
         const searchDiv = document.createElement('div');
@@ -244,7 +244,7 @@ export function setupSearch(areas, config, hoveredAreaCode, selectedAreaName, se
         // Function to populate search results
         async function searchSuggest(query, populateResults) {
             const safeQuery = query.replace(/[^\w\s]/gi, ""); // Remove special characters
-            let results = !safeQuery || query === selectedAreaName ? areaNames :
+            let results = !safeQuery || query === state.selectedAreaName ? areaNames :
                 areaNames.filter((name) =>
                     name.match(new RegExp(`\\b${safeQuery}`, "i"))
                 );
@@ -265,15 +265,13 @@ export function setupSearch(areas, config, hoveredAreaCode, selectedAreaName, se
         }
 
         function selectAreaByLngLat(lon, lat) {
-            console.log("position: long:", lon, " lat:", lat);
-
             //Jank way of selecting area by postcode - don't think it works properly - need to see how energyefficiencyofhousing does it
-            if (geographySource === 'vector') {
+            if (state.geographySource === 'vector') {
                 // Project lat/lng to screen pixel
-                if (!map) return;
-                const point = map.project([lon, lat]);
+                if (!state.map) return;
+                const point = state.map.project([lon, lat]);
                 // Query rendered features at this pixel
-                const features = map.queryRenderedFeatures(point, { layers: ['area'] });
+                const features = state.map.queryRenderedFeatures(point, { layers: ['area'] });
                 if (features && features.length > 0) {
                     // Simulate click/select on the first feature
                     const feature = features[0];
@@ -282,27 +280,27 @@ export function setupSearch(areas, config, hoveredAreaCode, selectedAreaName, se
                     const areaName = feature.properties[config.geoNameField];
                     if (!areaById[code]) areaById[code] = areaName;
                     // Use the same logic as click handler
-                    if (selectedAreaCode && selectedAreaCode !== code) {
-                        map.setFeatureState({
+                    if (state.selectedAreaCode && state.selectedAreaCode !== code) {
+                        state.map.setFeatureState({
                             source: 'area',
-                            sourceLayer: (geographySource === "vector" ? geoLayer : ""),
-                            id: selectedAreaCode
+                            sourceLayer: (state.geographySource === "vector" ? geoLayer : ""),
+                            id: state.selectedAreaCode
                         }, { selected: false });
                     }
-                    selectedAreaCode = code;
-                    selectedAreaName = areaName;
-                    map.setFeatureState({
+                    state.selectedAreaCode = code;
+                    state.selectedAreaName = areaName;
+                    state.map.setFeatureState({
                         source: 'area',
-                        sourceLayer: (geographySource === "vector" ? geoLayer : ""),
-                        id: selectedAreaCode
+                        sourceLayer: (state.geographySource === "vector" ? geoLayer : ""),
+                        id: state.selectedAreaCode
                     }, { selected: true });
-                    if (hoveredAreaCode) {
-                        map.setFeatureState({
+                    if (state.hoveredAreaCode) {
+                        state.map.setFeatureState({
                             source: 'area',
-                            sourceLayer: (geographySource === "vector" ? geoLayer : ""),
-                            id: hoveredAreaCode
+                            sourceLayer: (state.geographySource === "vector" ? geoLayer : ""),
+                            id: state.hoveredAreaCode
                         }, { hovered: false });
-                        hoveredAreaCode = null;
+                        state.hoveredAreaCode = null;
                     }
                     const selectedVal = rateById[code];
                     window.moveKeyIndicator(undefined);
@@ -319,7 +317,7 @@ export function setupSearch(areas, config, hoveredAreaCode, selectedAreaName, se
                                 padding,
                                 animate: true
                             };
-                            map.fitBounds(bounds, options);
+                            state.map.fitBounds(bounds, options);
                         }
                     }
                 } else {
@@ -365,27 +363,27 @@ export function setupSearch(areas, config, hoveredAreaCode, selectedAreaName, se
                 areaById[code] = areaName;
             }
             // Clear previous selected state if different
-            if (selectedAreaCode && selectedAreaCode !== code) {
-                map.setFeatureState({
+            if (state.selectedAreaCode && state.selectedAreaCode !== code) {
+                state.map.setFeatureState({
                     source: 'area',
-                    sourceLayer: (geographySource === "vector" ? geoLayer : ""),
-                    id: selectedAreaCode
+                    sourceLayer: (state.geographySource === "vector" ? geoLayer : ""),
+                    id: state.selectedAreaCode
                 }, { selected: false });
 
             }
-            selectedAreaCode = code;
-            selectedAreaName = areaName;
+            state.selectedAreaCode = code;
+            state.selectedAreaName = areaName;
 
-            map.setFeatureState({
+            state.map.setFeatureState({
                 source: 'area',
-                sourceLayer: (geographySource === "vector" ? geoLayer : ""),
+                sourceLayer: (state.geographySource === "vector" ? geoLayer : ""),
                 id: code
             }, { selected: true });
 
-            map.setFeatureState({
+            state.map.setFeatureState({
                 source: 'area',
-                sourceLayer: (geographySource === "vector" ? geoLayer : ""),
-                id: selectedAreaCode
+                sourceLayer: (state.geographySource === "vector" ? geoLayer : ""),
+                id: state.selectedAreaCode
             }, { hovered: false });
             const selectedVal = rateById[code];
             window.moveKeyIndicator(undefined);
@@ -398,13 +396,13 @@ export function setupSearch(areas, config, hoveredAreaCode, selectedAreaName, se
                 let allCoords = collectCoords(feature.geometry);
                 if (allCoords.length) {
                     let bounds = calculateBounds(allCoords)
-                    const padding = calculateZoomPadding(map);
+                    const padding = calculateZoomPadding(state.map);
                     const options = {
                         padding,
                         animate: true
                     };
                     // const targetZoom = map.cameraForBounds(bounds, options)?.zoom;
-                    map.fitBounds(bounds, options);
+                    state.map.fitBounds(bounds, options);
 
                 }
             }
@@ -414,11 +412,11 @@ export function setupSearch(areas, config, hoveredAreaCode, selectedAreaName, se
         document.addEventListener('keydown', function (e) {
             if (e.key === 'Escape' || e.key === 'Esc') {
                 // Clear both selection and hover feature-state and info
-                if (typeof map !== 'undefined' && map !== null) {
-                    clearAreaSelection(map, geographySource, config.geoLayer, hoveredAreaCode, selectedAreaCode);
-                    hoveredAreaCode = null;
-                    selectedAreaCode = null;
-                    selectedAreaName = null;
+                if (typeof state.map !== 'undefined' && state.map !== null) {
+                    clearAreaSelection(state, config.geoLayer);
+                    state.hoveredAreaCode = null;
+                    state.selectedAreaCode = null;
+                    state.selectedAreaName = null;
                     // Always clear explainer and value immediately
                     updateKeyInfo(undefined, undefined);
                     // Reset search box to placeholder
@@ -525,22 +523,22 @@ export function updateKeyInfo(value, areaName) {
 }
 
 
-export function clearAreaSelection(map, geographySource, geoLayer, hoveredAreaCode, selectedAreaCode) {
-    if (hoveredAreaCode) {
-        map.setFeatureState({
+export function clearAreaSelection(state, geoLayer) {
+    if (state.hoveredAreaCode) {
+        state.map.setFeatureState({
             source: 'area',
-            sourceLayer: (geographySource === "vector" ? geoLayer : ""),
-            id: hoveredAreaCode
+            sourceLayer: (state.geographySource === "vector" ? geoLayer : ""),
+            id: state.hoveredAreaCode
         }, { hovered: false });
     }
-    if (selectedAreaCode) {
-        map.setFeatureState({
+    if (state.selectedAreaCode) {
+        state.map.setFeatureState({
             source: 'area',
-            sourceLayer: (geographySource === "vector" ? geoLayer : ""),
-            id: selectedAreaCode
+            sourceLayer: (state.geographySource === "vector" ? geoLayer : ""),
+            id: state.selectedAreaCode
         }, { selected: false });
     }
-    if (map.getCanvas) map.getCanvas().style.cursor = '';
+    if (state.map.getCanvas) state.map.getCanvas().style.cursor = '';
     if (window.moveKeyIndicator) window.moveKeyIndicator(undefined);
     if (window.moveKeyIndicatorSelected) window.moveKeyIndicatorSelected(undefined);
 }
@@ -586,29 +584,29 @@ export function buildValueAndAreaLookups(data, config) {
 }
 
 
-export function setupMap(map, geographySource, config, data, rateById, areaById, areas, colour, hoveredAreaCode,selectedAreaCode, selectedAreaName, pymChild) {
-    map.on('load', () => {
+export function setupMap(config, data, rateById, areaById, areas, colour, state) {
+    state.map.on('load', () => {
 
-        if (geographySource === "vector") {
+        if (state.geographySource === "vector") {
 
-            map.addSource('area', { type: 'vector', tiles: [config.geoUrl], promoteId: { [config.geoLayer]: config.geoIdField } });
+            state.map.addSource('area', { type: 'vector', tiles: [config.geoUrl], promoteId: { [config.geoLayer]: config.geoIdField } });
 
         } else {
 
-            map.addSource('area', { type: 'geojson', data: areas, promoteId: config.geoIdField });
+            state.map.addSource('area', { type: 'geojson', data: areas, promoteId: config.geoIdField });
 
         }
 
         data.forEach(d => {
             const fillColor = colour(d.value);
-            map.setFeatureState({ source: 'area', sourceLayer: (geographySource === "vector" ? config.geoLayer : ""), id: d[config.dataIdField] }, { value: d.value, color: fillColor });
+            state.map.setFeatureState({ source: 'area', sourceLayer: (state.geographySource === "vector" ? config.geoLayer : ""), id: d[config.dataIdField] }, { value: d.value, color: fillColor });
         })
 
-        map.addLayer({
+        state.map.addLayer({
             id: 'area',
             type: 'fill',
             source: 'area',
-            "source-layer": geographySource === "vector" ? config.geoLayer : "",
+            "source-layer": state.geographySource === "vector" ? config.geoLayer : "",
             layout: {},
             paint: {
                 'fill-color': ['feature-state', 'color'],
@@ -618,11 +616,11 @@ export function setupMap(map, geographySource, config, data, rateById, areaById,
         }, 'place_town');
 
         // Add hover layer
-        map.addLayer({
+        state.map.addLayer({
             id: 'area-hover',
             type: 'line',
             source: 'area',
-            "source-layer": geographySource === "vector" ? config.geoLayer : "",
+            "source-layer": state.geographySource === "vector" ? config.geoLayer : "",
             layout: {},
             paint: {
                 'line-color': '#000',
@@ -634,11 +632,11 @@ export function setupMap(map, geographySource, config, data, rateById, areaById,
         });
 
         // Add selected border layer (below hover)
-        map.addLayer({
+        state.map.addLayer({
             id: 'area-selected',
             type: 'line',
             source: 'area',
-            "source-layer": geographySource === "vector" ? config.geoLayer : "",
+            "source-layer": state.geographySource === "vector" ? config.geoLayer : "",
             layout: {},
             paint: {
                 'line-color': '#000',
@@ -649,16 +647,16 @@ export function setupMap(map, geographySource, config, data, rateById, areaById,
 
         //Get current year for attributions
         let today = new Date();
-        map.getSource('area').attribution = "Contains OS data &copy; Crown copyright and database right " + today.getFullYear();
+        state.map.getSource('area').attribution = "Contains OS data &copy; Crown copyright and database right " + today.getFullYear();
 
         //add compact attribution
-        map.addControl(new maplibregl.AttributionControl({
+        state.map.addControl(new maplibregl.AttributionControl({
             compact: false
         }), 'bottom-right');
 
-        map.addControl(new maplibregl.NavigationControl({ showCompass: false }));
-        map.dragRotate.disable();
-        map.touchZoomRotate.disableRotation();
+        state.map.addControl(new maplibregl.NavigationControl({ showCompass: false }));
+        state.map.dragRotate.disable();
+        state.map.touchZoomRotate.disableRotation();
         // map.addControl(new maplibregl.GeolocateControl({
         // 	positionOptions: {
         // 		enableHighAccuracy: true
@@ -677,16 +675,16 @@ export function setupMap(map, geographySource, config, data, rateById, areaById,
             },
             onReset: function () {
                 // Clear selected area and info
-                if (typeof map !== 'undefined' && map !== null) {
-                    if (selectedAreaCode) {
-                        map.setFeatureState({
+                if (typeof state.map !== 'undefined' && state.map !== null) {
+                    if (state.selectedAreaCode) {
+                        state.map.setFeatureState({
                             source: 'area',
-                            sourceLayer: (geographySource === "vector" ? geoLayer : ""),
-                            id: selectedAreaCode
+                            sourceLayer: (state.geographySource === "vector" ? geoLayer : ""),
+                            id: state.selectedAreaCode
                         }, { selected: false });
                     }
-                    selectedAreaCode = null;
-                    selectedAreaName = null;
+                    state.selectedAreaCode = null;
+                    state.selectedAreaName = null;
                     if (window.moveKeyIndicator) window.moveKeyIndicator(undefined);
                     if (window.moveKeyIndicatorSelected) window.moveKeyIndicatorSelected(undefined);
                     // Always clear explainer and value immediately
@@ -697,27 +695,27 @@ export function setupMap(map, geographySource, config, data, rateById, areaById,
             }
         });
 
-        map.addControl(zoomhome, 'top-right');
+        state.map.addControl(zoomhome, 'top-right');
 
         // Interactivity
-        map.on('mousemove', 'area', (e) => {
-            map.getCanvas().style.cursor = 'pointer';
+        state.map.on('mousemove', 'area', (e) => {
+            state.map.getCanvas().style.cursor = 'pointer';
             const code = e.features[0].properties[config.geoIdField];
 
             // Remove hover state from previous feature
-            if (hoveredAreaCode && hoveredAreaCode !== code) {
-                map.setFeatureState({
+            if (state.hoveredAreaCode && state.hoveredAreaCode !== code) {
+                state.map.setFeatureState({
                     source: 'area',
-                    sourceLayer: (geographySource === "vector" ? geoLayer : ""),
-                    id: hoveredAreaCode
+                    sourceLayer: (state.geographySource === "vector" ? geoLayer : ""),
+                    id: state.hoveredAreaCode
                 }, { hovered: false });
             }
-            hoveredAreaCode = code;
+            state.hoveredAreaCode = code;
 
-            map.setFeatureState({
+            state.map.setFeatureState({
                 source: 'area',
-                sourceLayer: (geographySource === "vector" ? geoLayer : ""),
-                id: hoveredAreaCode
+                sourceLayer: (state.geographySource === "vector" ? geoLayer : ""),
+                id: state.hoveredAreaCode
             }, { hovered: true });
             const areaName = e.features[0].properties[config.geoNameField];
             const value = rateById[e.features[0].properties[config.geoIdField]];
@@ -725,8 +723,8 @@ export function setupMap(map, geographySource, config, data, rateById, areaById,
             // Always show hover info if hovering, but if an area is selected, show faded indicator for it
             if (typeof value !== 'undefined' && value !== null && !isNaN(value)) {
                 window.moveKeyIndicator(value);
-                if (selectedAreaCode && selectedAreaCode !== code) {
-                    const selectedVal = rateById[selectedAreaCode];
+                if (state.selectedAreaCode && state.selectedAreaCode !== code) {
+                    const selectedVal = rateById[state.selectedAreaCode];
                     window.moveKeyIndicatorSelected(selectedVal);
                 } else {
                     window.moveKeyIndicatorSelected(undefined);
@@ -735,8 +733,8 @@ export function setupMap(map, geographySource, config, data, rateById, areaById,
             } else {
                 // Value is missing, show unavailable message
                 window.moveKeyIndicator(undefined);
-                if (selectedAreaCode && selectedAreaCode !== code) {
-                    const selectedVal = rateById[selectedAreaCode];
+                if (state.selectedAreaCode && state.selectedAreaCode !== code) {
+                    const selectedVal = rateById[state.selectedAreaCode];
                     window.moveKeyIndicatorSelected(selectedVal);
                 } else {
                     window.moveKeyIndicatorSelected(undefined);
@@ -744,29 +742,29 @@ export function setupMap(map, geographySource, config, data, rateById, areaById,
                 updateKeyInfo(undefined, areaName);
             }
         });
-        map.on('mouseleave', 'area', () => {
-            map.getCanvas().style.cursor = '';
-            if (hoveredAreaCode) {
-                map.setFeatureState({
+        state.map.on('mouseleave', 'area', () => {
+            state.map.getCanvas().style.cursor = '';
+            if (state.hoveredAreaCode) {
+                state.map.setFeatureState({
                     source: 'area',
-                    sourceLayer: (geographySource === "vector" ? geoLayer : ""),
-                    id: hoveredAreaCode
+                    sourceLayer: (state.geographySource === "vector" ? geoLayer : ""),
+                    id: state.hoveredAreaCode
                 }, { hovered: false });
-                hoveredAreaCode = null;
+                state.hoveredAreaCode = null;
             }
             // If an area is selected, show its info and indicator; otherwise clear
-            if (selectedAreaCode) {
-                const selectedVal = rateById[selectedAreaCode];
+            if (state.selectedAreaCode) {
+                const selectedVal = rateById[state.selectedAreaCode];
                 window.moveKeyIndicator(undefined);
                 window.moveKeyIndicatorSelected(selectedVal);
-                updateKeyInfo(selectedVal, areaById[selectedAreaCode]);
+                updateKeyInfo(selectedVal, areaById[state.selectedAreaCode]);
             } else {
                 window.moveKeyIndicator(undefined);
                 window.moveKeyIndicatorSelected(undefined);
                 updateKeyInfo(undefined, undefined);
             }
         });
-        map.on('click', 'area', (e) => {
+        state.map.on('click', 'area', (e) => {
             // On click, lock the info display to this area until mouse leaves
             const code = e.features[0].properties[config.geoIdField];
             const areaName = e.features[0].properties[config.geoNameField];
@@ -779,27 +777,27 @@ export function setupMap(map, geographySource, config, data, rateById, areaById,
                 areaById[code] = areaName;
             }
             // Remove previous selected state
-            if (selectedAreaCode && selectedAreaCode !== code) {
-                map.setFeatureState({
+            if (state.selectedAreaCode && state.selectedAreaCode !== code) {
+                state.map.setFeatureState({
                     source: 'area',
-                    sourceLayer: (geographySource === "vector" ? geoLayer : ""),
-                    id: selectedAreaCode
+                    sourceLayer: (state.geographySource === "vector" ? geoLayer : ""),
+                    id: state.selectedAreaCode
                 }, { selected: false });
             }
-            selectedAreaCode = code;
-            selectedAreaName = areaName;
-            map.setFeatureState({
+            state.selectedAreaCode = code;
+            state.selectedAreaName = areaName;
+            state.map.setFeatureState({
                 source: 'area',
-                sourceLayer: (geographySource === "vector" ? geoLayer : ""),
-                id: selectedAreaCode
+                sourceLayer: (state.geographySource === "vector" ? geoLayer : ""),
+                id: state.selectedAreaCode
             }, { selected: true });			// Remove hover state (if any)
-            if (hoveredAreaCode) {
-                map.setFeatureState({
+            if (state.hoveredAreaCode) {
+                state.map.setFeatureState({
                     source: 'area',
-                    sourceLayer: (geographySource === "vector" ? geoLayer : ""),
-                    id: hoveredAreaCode
+                    sourceLayer: (state.geographySource === "vector" ? geoLayer : ""),
+                    id: state.hoveredAreaCode
                 }, { hovered: false });
-                hoveredAreaCode = null;
+                state.hoveredAreaCode = null;
             }
             // Show faded indicator for selected, hide hover indicator
             const selectedVal = rateById[e.features[0].properties[config.geoIdField]];
@@ -828,19 +826,19 @@ export function setupMap(map, geographySource, config, data, rateById, areaById,
                 // If geometry has more than one part (e.g., MultiPolygon), ensure all are included
                 if (allCoords.length) {
                     let bounds = calculateBounds(allCoords)
-                    const padding = calculateZoomPadding(map);
+                    const padding = calculateZoomPadding(state.map);
                     const options = {
                         padding,
                         animate: true
                     };
 
-                    map.fitBounds(bounds, options);
+                    state.map.fitBounds(bounds, options);
 
                 }
             }
         });
 
-        if(pymChild) pymChild.sendHeight();
+        if(state.pymChild) state.pymChild.sendHeight();
 
     })
 }

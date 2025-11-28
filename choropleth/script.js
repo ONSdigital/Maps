@@ -2,14 +2,14 @@ import { initialise, addSource } from "../lib/helpers.js";
 import { detectGeographySource, getElementHeightById, getLegendDecimals, calculateBreaks, buildValueAndAreaLookups, getPalette, convertTopoJSONtoGeojson, setupSearch, updateKeyInfo, setupMap } from "../lib-maps/map-helpers.js";
 import { drawKeyScale } from "./legend.js";
 
-let pymChild = null;
-
-let map;
-let hoveredAreaCode = null; // Track hovered area code
-let selectedAreaCode = null; // Track selected area code
-let selectedAreaName = null; // Track selected area name
-
-let geographySource = detectGeographySource(config.geoUrl);
+const state = {
+	map:null,
+	hoveredAreaCode: null,
+    selectedAreaCode: null,
+    selectedAreaName: null,
+	geographySource: detectGeographySource(config.geoUrl),
+	pymChild: null,
+};
 
 const keyscale = d3.select('#keyscale');
 const graphic = d3.select('#graphic');
@@ -32,7 +32,7 @@ function drawMap(rateById, areaById, colour, data, breaks, areas) {
 	addSource('source', config.sourceText || 'Office for National Statistics.');
 
 	// Set up Maplibre GL map
-	map = new maplibregl.Map({
+	state.map = new maplibregl.Map({
 		container: 'graphic',
 		style: 'style.json',
 		cooperativeGestures: config.scrollZoomGuard || false,
@@ -48,21 +48,21 @@ function drawMap(rateById, areaById, colour, data, breaks, areas) {
 	drawKeyScale({ keyscale, breaks, colour, config, window });
 
 	// Add search box (requires search index)
-	setupSearch(areas,config, hoveredAreaCode, selectedAreaName, selectedAreaCode, rateById, areaById ,map, geographySource)
+	setupSearch(areas,config, state, rateById, areaById)
 
-	setupMap(map, geographySource, config, data, rateById, areaById, areas, colour, hoveredAreaCode, selectedAreaCode, selectedAreaName, pymChild)
+	setupMap(config, data, rateById, areaById, areas, colour, state)
 }
 
 function setupData() {
 
 	Promise.all([
 		d3.csv(config.dataUrl),
-		geographySource === "vector" ? null : d3.json(config.geoUrl || "../lib-maps/master-topo.json")
+		state.geographySource === "vector" ? null : d3.json(config.geoUrl || "../lib-maps/master-topo.json")
 	]).then(([csv, geog]) => {
 		const data = csv;
 		let areas = geog;
 
-		areas = convertTopoJSONtoGeojson(areas,geographySource)
+		areas = convertTopoJSONtoGeojson(areas, state.geographySource)
 
 		// Set up value lookup and breaks
 		const { rateById, areaById } = buildValueAndAreaLookups(data, config)
@@ -89,5 +89,5 @@ function setupData() {
 
 // Initialise pym and load data
 window.onload = () => {
-	pymChild = new pym.Child({ renderCallback: setupData });
+	state.pymChild = new pym.Child({ renderCallback: setupData });
 };

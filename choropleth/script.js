@@ -1,5 +1,5 @@
 import { initialise, addSource } from "../lib/helpers.js";
-import { detectGeographySource, fetchPostcodes, getElementHeightById, setSearchText, pointInPolygon, yearFilter, collectCoords, calculateBounds, calculateZoomPadding, getLegendDecimals, calculateBreaks, buildAreaLookups, buildValueAndAreaLookups, getPalette } from "../lib-maps/map-helpers.js";
+import { detectGeographySource, fetchPostcodes, getElementHeightById, setSearchText, pointInPolygon, yearFilter, collectCoords, calculateBounds, calculateZoomPadding, getLegendDecimals, calculateBreaks, buildAreaLookups, buildValueAndAreaLookups, getPalette, convertTopoJSONtoGeojson } from "../lib-maps/map-helpers.js";
 import { drawKeyScale } from "./legend.js";
 
 let pymChild = null;
@@ -377,32 +377,6 @@ function drawMap(rateById, areaById, colour, data, breaks, areas) {
 		attributionControl: false,
 	});
 
-	if (geographySource !== "vector") {
-		// Convert TopoJSON to GeoJSON
-		if (areas.type !== "FeatureCollection") {
-			const key = areas.objects[config.geoLayer] ? config.geoLayer : Object.keys(areas.objects)[0];
-			areas = topojson.feature(areas, areas.objects[key]);
-			if (geographySource === "topojson" && config.geoYear) {
-				areas.features = areas.features.filter(d => yearFilter(d.properties, config.geoYear));
-			}
-		}
-
-		if (config.geoCountries.length < 4) {
-			areas.features = areas.features.filter(d => config.geoCountries.includes(d.properties[config.geoIdField][0]));
-		}
-
-		// Add data properties to geojson
-		// areas.features.forEach((d) => {
-		// 	const code = d.properties[config.geoIdField]
-		// 	const value = code ? rateById[code] : undefined;
-		// 	d.properties.value = value;
-		// 	let fillColor = colour(value);
-		// 	if (!fillColor || fillColor === null) {
-		// 		fillColor = config.colourUnavailable; // fallback color for missing/invalid data
-		// 	}
-		// 	d.properties.fill = fillColor;
-		// });
-	}
 	// Build area search index after geojson is loaded
 	setupAreaSearchIndex(areas);
 
@@ -683,6 +657,8 @@ function setupData() {
 	]).then(([csv, geog]) => {
 		const data = csv;
 		const areas = geog;
+
+		convertTopoJSONtoGeojson(areas,geographySource)
 
 		// Set up value lookup and breaks
 		const { rateById, areaById } = buildValueAndAreaLookups(data, config)

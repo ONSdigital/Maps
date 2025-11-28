@@ -211,15 +211,6 @@ export function clearAreaSelection(map, geographySource, geoLayer, hoveredAreaCo
     if (window.moveKeyIndicatorSelected) window.moveKeyIndicatorSelected(undefined);
 }
 
-export function setAreaFeatureState(map, geographySource, geoLayer, areaCode, state) {
-    if (!map || !map.setFeatureState) return;
-    map.setFeatureState({
-        source: 'area',
-        sourceLayer: (geographySource === "vector" ? geoLayer : ""),
-        id: areaCode
-    }, state);
-}
-
 export function buildValueAndAreaLookups(data, config) {
     const rateById = {};
     const areaById = {};
@@ -241,15 +232,18 @@ export function getPalette(config) {
 }
 
 export function convertTopoJSONtoGeojson(areas, geographySource) {
-    if (areas.type !== "FeatureCollection") {
-        const key = areas.objects[config.geoLayer] ? config.geoLayer : Object.keys(areas.objects)[0];
-        areas = topojson.feature(areas, areas.objects[key]);
-        if (geographySource === "topojson" && config.geoYear) {
-            areas.features = areas.features.filter(d => yearFilter(d.properties, config.geoYear));
+    if (geographySource !== "vector") {
+        // Convert TopoJSON to GeoJSON
+        if (areas.type !== "FeatureCollection") {
+            const key = areas.objects[config.geoLayer] ? config.geoLayer : Object.keys(areas.objects)[0];
+            areas = topojson.feature(areas, areas.objects[key]);
+            if (geographySource === "topojson" && config.geoYear) {
+                areas.features = areas.features.filter(d => yearFilter(d.properties, config.geoYear));
+            }
         }
-    }
 
-    if (config.geoCountries.length < 4) {
-        areas.features = areas.features.filter(d => config.geoCountries.includes(d.properties[config.geoIdField][0]));
+        if (config.geoCountries.length < 4) {
+            areas.features = areas.features.filter(d => config.geoCountries.includes(d.properties[config.geoIdField][0]));
+        }
     }
 }

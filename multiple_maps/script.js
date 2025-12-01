@@ -761,7 +761,7 @@ function drawMap() {
 	// Set up Maplibre GL map
 	map = new maplibregl.Map({
 		container: 'graphic',
-		style: 'style.json',
+		style: '../lib-maps/style.json',
 		cooperativeGestures: config.scrollZoomGuard || false,
 		minZoom: config.minZoom || 3.5,
 		maxZoom: config.maxZoom || 13,

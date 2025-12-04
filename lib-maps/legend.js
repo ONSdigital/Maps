@@ -34,7 +34,7 @@ export function drawKeyScale({ keyscale, breaks, colour, config, window }) {
         .attr('y', height + config.keyScaleMargin.top - 2)
         .attr('text-anchor', 'middle')
         .attr('font-size', 13)
-        .attr('fill', '#707071')
+        .attr('fill', ONScolours.grey75)
         .style('opacity', 0)
         .text(d => d.label);
     // Attach to DOM to measure
@@ -109,7 +109,7 @@ export function drawKeyScale({ keyscale, breaks, colour, config, window }) {
             .attr('x2', d => d.x)
             .attr('y1', colorBarTop)
             .attr('y2', d => d.y - 11)
-            .attr('stroke', '#707071')
+            .attr('stroke', ONScolours.grey75)
             .attr('stroke-width', 1.1)
             .attr('stroke-dasharray', '2,2');
     }
@@ -124,7 +124,7 @@ export function drawKeyScale({ keyscale, breaks, colour, config, window }) {
         .attr('y', d => d.y)
         .attr('text-anchor', 'middle')
         .attr('font-size', 13)
-        .attr('fill', '#707071')
+        .attr('fill', ONScolours.grey75)
         .text(d => d.label);
 
     // Add indicator(s): main (hover), and faded (selected)
@@ -134,8 +134,8 @@ export function drawKeyScale({ keyscale, breaks, colour, config, window }) {
     scaleSvg.append('polygon')
         .attr('id', 'key-indicator')
         .attr('points', `0,0 ${triangleWidth},0 ${triangleWidth / 2},${triangleHeight}`)
-        .attr('fill', '#fff')
-        .attr('stroke', '#222')
+        .attr('fill', ONScolours.white)
+        .attr('stroke', ONScolours.black)
         .attr('stroke-width', 2.4)
         .attr('stroke-linejoin', 'round')
         .attr('transform', `translate(${x(breaks[0]) - triangleWidth / 2},${keyScaleMargin.top + (height / 2) - triangleHeight - 10})`)
@@ -144,8 +144,8 @@ export function drawKeyScale({ keyscale, breaks, colour, config, window }) {
     scaleSvg.append('polygon')
         .attr('id', 'key-indicator-selected')
         .attr('points', `0,0 ${triangleWidth},0 ${triangleWidth / 2},${triangleHeight}`)
-        .attr('fill', '#fff')
-        .attr('stroke', '#222')
+        .attr('fill', ONScolours.white)
+        .attr('stroke', ONScolours.black)
         .attr('stroke-width', 2.4)
         .attr('stroke-linejoin', 'round')
         .attr('opacity', 0.5)

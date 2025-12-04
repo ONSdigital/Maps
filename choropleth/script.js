@@ -1,12 +1,12 @@
 import { initialise, addSource } from "../lib/helpers.js";
 import { detectGeographySource, getElementHeightById, getLegendDecimals, calculateBreaks, buildValueAndAreaLookups, getPalette, convertTopoJSONtoGeojson, setupSearch, updateKeyInfo, setupMap } from "../lib-maps/map-helpers.js";
-import { drawKeyScale } from "./legend.js";
+import { drawKeyScale } from "../lib-maps/legend.js";
 
 const state = {
-	map:null,
+	map: null,
 	hoveredAreaCode: null,
-    selectedAreaCode: null,
-    selectedAreaName: null,
+	selectedAreaCode: null,
+	selectedAreaName: null,
 	geographySource: detectGeographySource(config.geoUrl),
 	pymChild: null,
 };
@@ -47,9 +47,6 @@ function drawMap(rateById, areaById, colour, data, breaks, areas) {
 	// Draw the key scale
 	drawKeyScale({ keyscale, breaks, colour, config, window });
 
-	// Add search box
-	setupSearch(areas,config, state, rateById, areaById)
-
 	// adds map and interactivity
 	setupMap(config, data, rateById, areaById, areas, colour, state)
 }
@@ -80,6 +77,9 @@ function setupData() {
 		const colour = d3.scaleThreshold()
 			.domain(breaks.slice(1))
 			.range(palette);
+
+		// Add search box
+		setupSearch(areas, config, state, rateById, areaById)
 
 		drawMap(rateById, areaById, colour, data, breaks, areas);
 

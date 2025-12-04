@@ -149,6 +149,39 @@ export function getLegendDecimals(format) {
     return match ? parseInt(match[1], 10) : 0;
 }
 
+export function getBreaks(config, data, palette, state) {
+    const legendDecimals = getLegendDecimals(config.legendFormat || ',.2f');
+    const dataValues = data.map(d => +d.value).filter(v => !isNaN(v)).sort(d3.ascending);
+
+    if (Array.isArray(config.breaks)) {
+        // Determine the index to use from the state, defaulting to 0 or 1 if not a valid number.
+        let selectedIndex = 0;
+        if (typeof state.selectedValueColumn === 'number' && state.selectedValueColumn >= 0 && state.selectedValueColumn < config.breaks.length) {
+            selectedIndex = state.selectedValueColumn;
+        }
+
+        // Get the element at the selected index.
+        const selectedBreaks = config.breaks[selectedIndex];
+
+        if (Array.isArray(selectedBreaks)) {
+            // Case 1: The element at the index is the custom break array (e.g., [0, 10, 20])
+            return selectedBreaks;
+        } else if (typeof selectedBreaks === 'string') {
+            // Case 2: The element at the index is a break calculation method (e.g., "jenks")
+
+            // Use the string method to calculate the breaks
+            return calculateBreaks(dataValues, selectedBreaks, palette.length, legendDecimals);
+
+        } else {
+            console.log("Unexpected format for breaks")
+        }
+
+    } else {
+        // Handle the string case (e.g., "jenks", "equal")
+        return calculateBreaks(dataValues, config.breaks, palette.length, legendDecimals);
+    }
+}
+
 export function calculateBreaks(values, method, numClasses, decimals) {
     if (method === 'equal') {
         const min = d3.min(values), max = d3.max(values);
@@ -545,14 +578,33 @@ export function clearAreaSelection(state, geoLayer) {
 
 
 
-export function getPalette(config) {
-    if (Array.isArray(config.colourPalette) && config.colourPalette.length > 0) {
-        return config.colourPalette;
-    } else if (typeof config.colourPalette === 'string' && d3[`scheme${config.colourPalette}`]) {
-        return d3[`scheme${config.colourPalette}`][7]; // default to 7 classes
-    } else {
+export function getPalette(config, valueColumns = [], selectedValueColumn) {
+    const paletteMode = config.paletteMode || 'single';
+    const cp = config.colourPalette;
+
+    // Helper to resolve a palette from a string or array
+    function resolvePalette(p) {
+        if (typeof p === 'string' && d3[`scheme${p}`]) {
+            return d3[`scheme${p}`][7];
+        }
+        if (Array.isArray(p)) {
+            // If it's [["PuRd"]], treat as preset name
+            if (p.length === 1 && typeof p[0] === 'string' && d3[`scheme${p[0]}`]) {
+                return d3[`scheme${p[0]}`][7];
+            }
+            return p;
+        }
         return d3.schemeBlues[7];
     }
+    // Multiple mode: pick palette by dataset index
+    if (paletteMode === 'multiple' && Array.isArray(cp) && valueColumns.length > 1 && selectedValueColumn) {
+        const idx = valueColumns.indexOf(selectedValueColumn);
+        const selectedPalette = cp[idx] ?? cp[0];
+        return resolvePalette(selectedPalette);
+    }
+
+    // Single mode or fallback
+    return resolvePalette(cp);
 }
 
 export function convertTopoJSONtoGeojson(areas, geographySource) {
@@ -838,7 +890,7 @@ export function setupMap(config, data, rateById, areaById, areas, colour, state)
             }
         });
 
-        if(state.pymChild) state.pymChild.sendHeight();
+        if (state.pymChild) state.pymChild.sendHeight();
 
     })
 }

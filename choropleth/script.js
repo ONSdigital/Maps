@@ -34,7 +34,7 @@ function drawMap(rateById, areaById, colour, data, breaks, areas) {
 	// Set up Maplibre GL map
 	state.map = new maplibregl.Map({
 		container: 'graphic',
-		style: 'style.json',
+		style: '../lib-maps/style.json',
 		cooperativeGestures: config.scrollZoomGuard || false,
 		minZoom: config.minZoom || 3.5,
 		maxZoom: config.maxZoom || 13,
@@ -47,9 +47,10 @@ function drawMap(rateById, areaById, colour, data, breaks, areas) {
 	// Draw the key scale
 	drawKeyScale({ keyscale, breaks, colour, config, window });
 
-	// Add search box (requires search index)
+	// Add search box
 	setupSearch(areas,config, state, rateById, areaById)
 
+	// adds map and interactivity
 	setupMap(config, data, rateById, areaById, areas, colour, state)
 }
 

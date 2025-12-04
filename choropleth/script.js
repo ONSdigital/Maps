@@ -15,7 +15,7 @@ const keyscale = d3.select('#keyscale');
 const graphic = d3.select('#graphic');
 
 // Clear info on load
-updateKeyInfo(undefined, undefined);
+updateKeyInfo(undefined, undefined, state);
 
 graphic.style('width', '100%')
 	.style('height', config.mapHeight || '650px')
@@ -63,7 +63,7 @@ function setupData() {
 		areas = convertTopoJSONtoGeojson(areas, state.geographySource)
 
 		// Set up value lookup and breaks
-		const { rateById, areaById } = buildValueAndAreaLookups(data, config)
+		const { rateById, areaById } = buildValueAndAreaLookups(data, config, state)
 
 		// Calculate breaks and colour scale
 		let breaks;

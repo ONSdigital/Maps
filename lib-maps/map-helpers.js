@@ -1,3 +1,5 @@
+import { drawKeyScale } from "./legend.js";
+
 /**
  * Fetches data from a URL and detects if it is GeoJSON, TopoJSON, or general JSON.
  * It also handles the vector tile (.pbf) case.
@@ -151,7 +153,7 @@ export function getLegendDecimals(format) {
 
 export function getBreaks(config, data, palette, state) {
     const legendDecimals = getLegendDecimals(config.legendFormat || ',.2f');
-    const dataValues = data.map(d => +d.value).filter(v => !isNaN(v)).sort(d3.ascending);
+    const dataValues = data.map(d => state.selectedValueColumn ? +d[state.selectedValueColumn] : +d.value).filter(v => !isNaN(v)).sort(d3.ascending);
 
     if (Array.isArray(config.breaks)) {
         // Determine the index to use from the state, defaulting to 0 or 1 if not a valid number.
@@ -338,7 +340,7 @@ export function setupSearch(areas, config, state, rateById, areaById) {
                     const selectedVal = rateById[code];
                     window.moveKeyIndicator(undefined);
                     window.moveKeyIndicatorSelected(selectedVal);
-                    updateKeyInfo(selectedVal, areaName);
+                    updateKeyInfo(selectedVal, areaName, state);
 
                     // Zoom to area bounds (if geometry is available)
                     if (feature && feature.geometry) {
@@ -421,7 +423,7 @@ export function setupSearch(areas, config, state, rateById, areaById) {
             const selectedVal = rateById[code];
             window.moveKeyIndicator(undefined);
             window.moveKeyIndicatorSelected(selectedVal);
-            updateKeyInfo(selectedVal, areaName);
+            updateKeyInfo(selectedVal, areaName, state);
 
             // Zoom to area bounds (same as click logic)
 
@@ -451,7 +453,7 @@ export function setupSearch(areas, config, state, rateById, areaById) {
                     state.selectedAreaCode = null;
                     state.selectedAreaName = null;
                     // Always clear explainer and value immediately
-                    updateKeyInfo(undefined, undefined);
+                    updateKeyInfo(undefined, undefined, state);
                     // Reset search box to placeholder
                     setSearchText("");
                 }
@@ -482,7 +484,7 @@ let explainerLine2 = explainerSel.select('span.line2');
 if (explainerLine2.empty()) explainerLine2 = explainerSel.append('span').classed('line2', true);
 
 
-export function updateKeyInfo(value, areaName) {
+export function updateKeyInfo(value, areaName, state) {
     // Alignment logic for explainer/value
     const keyInfoNode = document.getElementById('keyinfo');
     const valueNode = document.getElementById('keyinfo-value');
@@ -506,22 +508,23 @@ export function updateKeyInfo(value, areaName) {
             explainerNode.style.textAlign = 'left';
         }
     }
+    const explainerPlaceholder = getConfigValue('explainerPlaceholder', state) || '';
+	const explainerPrefix = getConfigValue('explainerPrefix', state) || '';
+	const explainerSuffix = getConfigValue('explainerSuffix', state) || '';
+	const unavailablePrefix = getConfigValue('unavailablePrefix', state) || '';
+	const unavailableSuffix = getConfigValue('unavailableSuffix', state) || '';
+
     if (typeof value === 'undefined' || value === null || isNaN(value)) {
         // If areaName is provided, show unavailable message; else show placeholder
         if (areaName) {
-            const unavailablePrefix = config.unavailablePrefix || 'The value for';
-            const unavailableSuffix = config.unavailableSuffix || 'is unavailable';
             const areaLabel = areaName || 'this area';
             valueSel.html(`<span class="keyinfo-placeholder"></span>`); // No value shown
             explainerLine1.html('');
-            explainerLine1.append('span').text(`${unavailablePrefix} `);
-            explainerLine1.append('strong').text(areaLabel);
-            explainerLine1.append('span').text(` ${unavailableSuffix}`);
+			explainerLine1.html(`${unavailablePrefix} <strong>${d3.create('span').text(areaName).node().textContent}</strong> ${unavailableSuffix}`);
             explainerLine2.text('');
         } else {
             // Show placeholder in valueSel, clear explainer
-            const placeholder = config.explainerPlaceholder || '';
-            valueSel.html(`<span class="keyinfo-placeholder">${placeholder}</span>`);
+			valueSel.html(`<span class="keyinfo-placeholder">${explainerPlaceholder}</span>`);
             explainerLine1.html('');
             explainerLine2.text('');
         }
@@ -543,18 +546,25 @@ export function updateKeyInfo(value, areaName) {
     );
 
     // Explainer: explainerPrefix, area name (bold), explainerSuffix (all in one container, prefix/suffix can be HTML)
-    const explainerPrefix = config.explainerPrefix || '';
-    const explainerSuffix = config.explainerSuffix || '';
-    let explainerHtml = '';
-    explainerHtml += explainerPrefix;
-    if (areaName) {
-        explainerHtml += '<strong>' + d3.create('span').text(areaName).node().textContent + '</strong>';
-    }
-    explainerHtml += explainerSuffix;
-    explainerLine1.html(explainerHtml);
-    explainerLine2.text('');
+	let explainerHtml = '';
+	explainerHtml += explainerPrefix;
+	if (areaName) {
+		explainerHtml += '<strong>' + d3.create('span').text(areaName).node().textContent + '</strong>';
+	}
+	explainerHtml += explainerSuffix;
+	explainerLine1.html(explainerHtml);
+	explainerLine2.text('');
 }
 
+function getConfigValue(key, state) {
+	const val = config[key];
+	if (Array.isArray(val) && state.selectedValueColumn) {
+		const idx = state.valueColumns.indexOf(state.selectedValueColumn);
+		if (idx >= 0 && idx < val.length) return val[idx];
+		return val[0];
+	}
+	return val;
+}
 
 export function clearAreaSelection(state, geoLayer) {
     if (state.hoveredAreaCode) {
@@ -578,7 +588,7 @@ export function clearAreaSelection(state, geoLayer) {
 
 
 
-export function getPalette(config, valueColumns = [], selectedValueColumn) {
+export function getPalette(config, state) {
     const paletteMode = config.paletteMode || 'single';
     const cp = config.colourPalette;
 
@@ -597,8 +607,8 @@ export function getPalette(config, valueColumns = [], selectedValueColumn) {
         return d3.schemeBlues[7];
     }
     // Multiple mode: pick palette by dataset index
-    if (paletteMode === 'multiple' && Array.isArray(cp) && valueColumns.length > 1 && selectedValueColumn) {
-        const idx = valueColumns.indexOf(selectedValueColumn);
+    if (paletteMode === 'multiple' && Array.isArray(cp) && state.valueColumns.length > 1 && state.selectedValueColumn) {
+        const idx = state.valueColumns.indexOf(state.selectedValueColumn);
         const selectedPalette = cp[idx] ?? cp[0];
         return resolvePalette(selectedPalette);
     }
@@ -625,11 +635,11 @@ export function convertTopoJSONtoGeojson(areas, geographySource) {
     return areas;
 }
 
-export function buildValueAndAreaLookups(data, config) {
+export function buildValueAndAreaLookups(data, config, state) {
     const rateById = {};
     const areaById = {};
     data.forEach((d) => {
-        rateById[d[config.dataIdField]] = +d.value;
+        rateById[d[config.dataIdField]] = state.selectedValueColumn ? +d[state.selectedValueColumn] : +d.value;
         areaById[d[config.dataIdField]] = d[config.geoNameField];
     });
     return { rateById, areaById };
@@ -740,7 +750,7 @@ export function setupMap(config, data, rateById, areaById, areas, colour, state)
                     if (window.moveKeyIndicator) window.moveKeyIndicator(undefined);
                     if (window.moveKeyIndicatorSelected) window.moveKeyIndicatorSelected(undefined);
                     // Always clear explainer and value immediately
-                    updateKeyInfo(undefined, undefined);
+                    updateKeyInfo(undefined, undefined, state);
                     // Reset search box to placeholder
                     setSearchText("");
                 }
@@ -781,7 +791,7 @@ export function setupMap(config, data, rateById, areaById, areas, colour, state)
                 } else {
                     window.moveKeyIndicatorSelected(undefined);
                 }
-                updateKeyInfo(value, areaName);
+                updateKeyInfo(value, areaName, state);
             } else {
                 // Value is missing, show unavailable message
                 window.moveKeyIndicator(undefined);
@@ -791,7 +801,7 @@ export function setupMap(config, data, rateById, areaById, areas, colour, state)
                 } else {
                     window.moveKeyIndicatorSelected(undefined);
                 }
-                updateKeyInfo(undefined, areaName);
+                updateKeyInfo(undefined, areaName, state);
             }
         });
         state.map.on('mouseleave', 'area', () => {
@@ -809,11 +819,11 @@ export function setupMap(config, data, rateById, areaById, areas, colour, state)
                 const selectedVal = rateById[state.selectedAreaCode];
                 window.moveKeyIndicator(undefined);
                 window.moveKeyIndicatorSelected(selectedVal);
-                updateKeyInfo(selectedVal, areaById[state.selectedAreaCode]);
+                updateKeyInfo(selectedVal, areaById[state.selectedAreaCode], state);
             } else {
                 window.moveKeyIndicator(undefined);
                 window.moveKeyIndicatorSelected(undefined);
-                updateKeyInfo(undefined, undefined);
+                updateKeyInfo(undefined, undefined, state);
             }
         });
         state.map.on('click', 'area', (e) => {
@@ -856,7 +866,7 @@ export function setupMap(config, data, rateById, areaById, areas, colour, state)
             window.moveKeyIndicator(undefined);
             window.moveKeyIndicatorSelected(selectedVal);
             // Show explainer for selected area
-            updateKeyInfo(selectedVal, areaName);
+            updateKeyInfo(selectedVal, areaName, state);
 
             // --- Zoom to area bounds (40% of map, centered on unobscured area) ---
             const feature = e.features[0];
@@ -896,4 +906,114 @@ export function setupMap(config, data, rateById, areaById, areas, colour, state)
 }
 
 
+export function detectValueColumns(csv) {
+	if (!csv || !csv.columns) return [];
+	return csv.columns.filter(col => col !== config.dataIdField && col !== config.geoNameField && col.toLowerCase() !== config.dataNameField);
+}
 
+export function addDatasetSwitchButtons(data, state, keyscale) {
+    const mapWrapper = document.getElementById('mapwrapper') || document.body;
+
+    // Container for the switch group
+    let btnDiv = document.getElementById('dataset-switch-container');
+    if (!btnDiv) {
+        btnDiv = document.createElement('div');
+        btnDiv.id = 'dataset-switch-container';
+        btnDiv.style = 'margin: 10px 0 0 0;';
+
+        if (mapWrapper === document.body) {
+            document.body.insertBefore(btnDiv, document.body.firstChild);
+        } else {
+            mapWrapper.parentNode.insertBefore(btnDiv, mapWrapper);
+        }
+    }
+
+    // If only one dataset, hide the controls
+    if (state.valueColumns.length <= 1) {
+        btnDiv.style.display = 'none';
+        btnDiv.innerHTML = '';
+        return;
+    }
+
+    btnDiv.style.display = 'block';
+    btnDiv.innerHTML = ''; // Clear previous content
+
+    // Accessible fieldset
+    const fieldset = document.createElement('fieldset');
+    fieldset.style = 'border: none; padding: 0; margin: 0; display: flex; gap: 12px;';
+    fieldset.setAttribute('role', 'radiogroup');
+
+    const legend = document.createElement('legend');
+    legend.textContent = 'Select data variable';
+    legend.style = 'font-size: 15px; font-weight: 600; margin-bottom: 6px;';
+    fieldset.appendChild(legend);
+
+    const groupName = 'dataset-switch-group';
+
+    state.valueColumns.forEach((col, idx) => {
+        const id = `dataset-switch-${idx}`;
+
+        const wrapper = document.createElement('div');
+        wrapper.style = 'display: flex; align-items: center; gap: 6px;';
+
+        const radio = document.createElement('input');
+        radio.type = 'radio';
+        radio.name = groupName;
+        radio.id = id;
+        radio.value = col;
+        radio.checked = col === state.selectedValueColumn;
+
+        radio.addEventListener('change', () => {
+            if (state.selectedValueColumn !== col) {
+                state.selectedValueColumn = col;
+                updateDataset(keyscale, data, state);
+            }
+        });
+
+        const label = document.createElement('label');
+        label.setAttribute('for', id);
+        label.textContent = col;
+        label.style = 'font-size: 15px; cursor: pointer;';
+
+        wrapper.appendChild(radio);
+        wrapper.appendChild(label);
+        fieldset.appendChild(wrapper);
+    });
+
+    btnDiv.appendChild(fieldset);
+}
+
+
+export function setupDatasetSwitch(csv, state, keyscale) {
+	state.valueColumns = detectValueColumns(csv);
+	state.selectedValueColumn = state.valueColumns[0];
+	addDatasetSwitchButtons(csv,state, keyscale);
+}
+
+export function redrawMapFill(data,rateById,colour,state) {
+    if (!state.map || !data || !colour || !config.dataIdField) return;
+    if (!state.map.isStyleLoaded()) {
+        state.map.once('styledata', () => redrawMapFill());
+        return;
+    }
+    data.forEach(d => {
+        const code = d[config.dataIdField];
+        const value = rateById[code];
+        const fillColor = colour(value);
+        state.map.setFeatureState({ source: 'area', sourceLayer: (state.geographySource === "vector" ? config.geoLayer : ""), id: code }, { color: fillColor });
+    });
+}
+
+export function updateDataset(keyscale, data, state) {
+    const { rateById, areaById } = buildValueAndAreaLookups(data,config, state)
+    
+    let palette = getPalette(config, state);
+    let breaks = getBreaks(config,data,palette,state)
+    let colour = d3.scaleThreshold()
+        .domain(breaks.slice(1))
+        .range(palette);
+
+    drawKeyScale({ keyscale, breaks, colour, config, window });
+    redrawMapFill(data,rateById,colour, state);
+    updateKeyInfo(undefined, undefined, state);
+}

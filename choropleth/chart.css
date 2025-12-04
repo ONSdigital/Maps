@@ -1,0 +1,39 @@
+.keyinfo {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 1.5em; /* increased gap for minimum space */
+  margin: 0 0 3px 0;
+  min-height: 56px;
+}
+#keyinfo-value {
+  font-size: 2.2em;
+  font-weight: bold;
+  line-height: 1;
+  min-width: 1.5em;
+  text-align: right;
+  flex-shrink: 0;
+}
+
+#keyinfo-value .keyinfo-placeholder {
+  color: #b0b0b0;
+  font-size: 1.1rem;
+  font-weight: normal;
+  /* font-style: italic; */
+  letter-spacing: 0.01em;
+  line-height: 1.2;
+}
+
+#keyinfo-explainer {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  line-height: 1.1;
+  min-width: 0;
+  flex: 1 1 0%;
+  word-break: break-word;
+}
+.dataLabels{
+  font-weight: 600;
+  font-size: 14px;
+}

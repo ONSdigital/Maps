@@ -14,12 +14,12 @@
 }
 
 #keycontainer {
-  position: absolute; 
-  left:0.5rem;
+  position: absolute;
+  left: 0.5rem;
   bottom: 1.5rem;
   margin: 0;
   width: calc(100% - 1rem);
-  background: rgba(255,255,255,0.9);
+  background: rgba(255, 255, 255, 0.9);
   z-index: 1002;
   box-sizing: border-box;
   border-width: 1px;
@@ -73,7 +73,7 @@
   flex: 1 1 0%;
   word-break: break-word;
 }
-.dataLabels{
+.dataLabels {
   font-weight: 600;
   font-size: 14px;
 }
@@ -82,7 +82,8 @@
 #search-container {
   margin-bottom: 8px;
 }
-.autocomplete__input, .autocomplete__hint {
+.autocomplete__input,
+.autocomplete__hint {
   border-radius: 3px !important;
   border-width: 1px !important;
   background: var(--ons-color-input-bg, white);
@@ -95,7 +96,8 @@
   width: 18px !important;
   transform: translateY(-2px);
 }
-.autocomplete__input, .autocomplete__hint {
+.autocomplete__input,
+.autocomplete__hint {
   height: 40px;
 }
 .autocomplete__hint {
@@ -109,20 +111,67 @@
   border: 1px solid currentColor;
   border-radius: 3px;
 }
-.autocomplete__option--focused, .autocomplete__option:hover {
+.autocomplete__option--focused,
+.autocomplete__option:hover {
   background-color: var(--ons-color-branded-secondary, #003c57);
 }
 .autocomplete__option:focus {
   outline: none !important;
 }
-.autocomplete__input, .autocomplete__hint {
+.autocomplete__input,
+.autocomplete__hint {
   z-index: 10;
   padding: 0 35px 0 8px;
 }
-span:has(+.autocomplete__input:placeholder-shown) {
+span:has(+ .autocomplete__input:placeholder-shown) {
   visibility: hidden;
 }
 
-fieldset{
+fieldset {
   display: inline-block;
+}
+
+fieldset legend {
+  font-size: 1.25rem;
+  font-weight: 700;
+  margin-bottom: 6px;
+}
+
+div.dataset-switch-buttons {
+  display: inline-flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  background: var(--ons-color-grey-5);
+  padding: 4px;
+  border-radius: 8px;
+}
+
+div.dataset-switch-buttons input[type=radio]{
+  position: absolute;
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+
+div.dataset-switch-buttons label{
+  padding: 4px 8px;
+  border: none;
+  background: transparent;
+  font-size: 14px;
+  cursor: pointer;
+  border-radius: 6px;
+  transition: background .2s ease,color .2s ease;
+  color: #707071;
+  text-align: center;
+}
+
+div.dataset-switch-buttons label.selected {
+  background: #fff;
+  font-weight: 700;
+  color: #206095;
+  box-shadow: 0 2px 4px #0003;
+}
+
+div.dataset-switch-buttons label:hover{
+  background-color: #e8e8e8;
 }

@@ -914,39 +914,38 @@ export function detectValueColumns(csv) {
 export function addDatasetSwitchButtons(data, state, keyscale) {
     const mapWrapper = document.getElementById('mapwrapper') || document.body;
 
-    // Container for the switch group
-    let btnDiv = document.getElementById('dataset-switch-container');
-    if (!btnDiv) {
-        btnDiv = document.createElement('div');
-        btnDiv.id = 'dataset-switch-container';
-        btnDiv.style = 'margin: 10px 0 0 0;';
+    let container = document.getElementById('dataset-switch-container');
+    if (!container) {
+        container = document.createElement('div');
+        container.id = 'dataset-switch-container';
+        container.style = 'margin: 10px 0 10px 0;';
 
         if (mapWrapper === document.body) {
-            document.body.insertBefore(btnDiv, document.body.firstChild);
+            document.body.insertBefore(container, document.body.firstChild);
         } else {
-            mapWrapper.parentNode.insertBefore(btnDiv, mapWrapper);
+            mapWrapper.parentNode.insertBefore(container, mapWrapper);
         }
     }
 
-    // If only one dataset, hide the controls
     if (state.valueColumns.length <= 1) {
-        btnDiv.style.display = 'none';
-        btnDiv.innerHTML = '';
+        container.style.display = 'none';
+        container.innerHTML = '';
         return;
     }
 
-    btnDiv.style.display = 'block';
-    btnDiv.innerHTML = ''; // Clear previous content
+    container.style.display = 'block';
+    container.innerHTML = '';
 
-    // Accessible fieldset
     const fieldset = document.createElement('fieldset');
-    fieldset.style = 'border: none; padding: 0; margin: 0; display: flex; gap: 12px;';
+    fieldset.style = 'border: none; padding: 0; margin: 0;';
     fieldset.setAttribute('role', 'radiogroup');
 
     const legend = document.createElement('legend');
     legend.textContent = 'Select data variable';
-    legend.style = 'font-size: 15px; font-weight: 600; margin-bottom: 6px;';
     fieldset.appendChild(legend);
+
+    const buttonsWrapper = document.createElement('div');
+    buttonsWrapper.className = 'dataset-switch-buttons';
 
     const groupName = 'dataset-switch-group';
 
@@ -963,25 +962,43 @@ export function addDatasetSwitchButtons(data, state, keyscale) {
         radio.value = col;
         radio.checked = col === state.selectedValueColumn;
 
-        radio.addEventListener('change', () => {
-            if (state.selectedValueColumn !== col) {
-                state.selectedValueColumn = col;
-                updateDataset(keyscale, data, state);
-            }
-        });
-
         const label = document.createElement('label');
         label.setAttribute('for', id);
         label.textContent = col;
         label.style = 'font-size: 15px; cursor: pointer;';
 
+        // Mark label as selected if its radio is initially checked
+        if (radio.checked) {
+            label.classList.add('selected');
+        }
+
+        // Handle change
+        radio.addEventListener('change', () => {
+            if (state.selectedValueColumn !== col) {
+                state.selectedValueColumn = col;
+
+                // Remove "selected" from all labels in this group
+                buttonsWrapper.querySelectorAll('label').forEach(l => 
+                    l.classList.remove('selected')
+                );
+
+                // Add "selected" to the clicked one
+                label.classList.add('selected');
+
+                updateDataset(keyscale, data, state);
+            }
+        });
+
         wrapper.appendChild(radio);
         wrapper.appendChild(label);
-        fieldset.appendChild(wrapper);
+        buttonsWrapper.appendChild(wrapper);
     });
 
-    btnDiv.appendChild(fieldset);
+    fieldset.appendChild(buttonsWrapper);
+    container.appendChild(fieldset);
 }
+
+
 
 
 export function setupDatasetSwitch(csv, state, keyscale) {

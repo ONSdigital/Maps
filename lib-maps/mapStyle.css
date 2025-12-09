@@ -15,15 +15,16 @@
 
 #keycontainer {
   position: absolute;
-  left: 0;
-  right: 0;
-  bottom: 0;
+  left: 0.5rem;
+  bottom: 1.5rem;
   margin: 0;
-  width: 100%;
-  background: rgba(255,255,255,0.78);
+  width: calc(100% - 1rem);
+  background: rgba(255, 255, 255, 0.9);
   z-index: 1002;
   box-sizing: border-box;
-  padding: 10px 0 0 0;
+  border-width: 1px;
+  border-color: var(--ons-color-grey-15);
+  border-style: solid;
 }
 
 .maplibregl-cooperative-gesture-screen {
@@ -35,4 +36,143 @@
   padding: 6px 16px;
   border-radius: 6px;
   transition: opacity 0.4s ease 0.4s;
+}
+
+.keyinfo {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 1.5em; /* increased gap for minimum space */
+  margin: 0 0 3px 0;
+  min-height: 56px;
+}
+#keyinfo-value {
+  /* font-size: 2.2em;
+  font-weight: bold;
+  line-height: 1;
+  min-width: 1.5em;
+  text-align: right;
+  flex-shrink: 0; */
+}
+
+#keyinfo-value .keyinfo-placeholder {
+  color: var(--ons-color-black);
+  font-size: 1.25rem;
+  font-weight: 700;
+  /* font-style: italic; */
+  letter-spacing: 0.01em;
+  line-height: 1.75;
+}
+
+#keyinfo-explainer {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  line-height: 1.1;
+  min-width: 0;
+  flex: 1 1 0%;
+  word-break: break-word;
+}
+.dataLabels {
+  font-weight: 600;
+  font-size: 14px;
+}
+
+/* Autocomplete styles */
+#search-container {
+  margin-bottom: 8px;
+}
+.autocomplete__input,
+.autocomplete__hint {
+  border-radius: 3px !important;
+  border-width: 1px !important;
+  background: var(--ons-color-input-bg, white);
+  font-family: "Open Sans",Helvetica,Arial,sans-serif;
+}
+.autocomplete__input--focused {
+  box-shadow: inset 0 0 0 1px black !important;
+  outline-color: var(--ons-color-focus, #fbc900) !important;
+}
+.autocomplete__dropdown-arrow-down {
+  width: 18px !important;
+  transform: translateY(-2px);
+}
+.autocomplete__input,
+.autocomplete__hint {
+  height: 40px;
+}
+.autocomplete__hint {
+  /* display: none; */
+}
+.autocomplete__option {
+  margin: 0;
+}
+.autocomplete__menu {
+  transform: translateY(5px);
+  border: 1px solid currentColor;
+  border-radius: 3px;
+}
+.autocomplete__option--focused,
+.autocomplete__option:hover {
+  background-color: var(--ons-color-branded-secondary, #003c57);
+}
+.autocomplete__option:focus {
+  outline: none !important;
+}
+.autocomplete__input,
+.autocomplete__hint {
+  z-index: 10;
+  padding: 0 35px 0 8px;
+}
+span:has(+ .autocomplete__input:placeholder-shown) {
+  visibility: hidden;
+}
+
+fieldset {
+  display: inline-block;
+}
+
+fieldset legend {
+  font-size: 1.25rem;
+  font-weight: 700;
+  margin-bottom: 6px;
+}
+
+div.dataset-switch-buttons {
+  display: inline-flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  background: var(--ons-color-grey-5);
+  padding: 4px;
+  border-radius: 8px;
+}
+
+div.dataset-switch-buttons input[type=radio]{
+  position: absolute;
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+
+div.dataset-switch-buttons label{
+  padding: 4px 8px;
+  border: none;
+  background: transparent;
+  font-size: 14px;
+  cursor: pointer;
+  border-radius: 6px;
+  transition: background .2s ease,color .2s ease;
+  color: #707071;
+  text-align: center;
+}
+
+div.dataset-switch-buttons label.selected {
+  background: #fff;
+  font-weight: 700;
+  color: #206095;
+  box-shadow: 0 2px 4px #0003;
+}
+
+div.dataset-switch-buttons label:hover{
+  background-color: #e8e8e8;
 }

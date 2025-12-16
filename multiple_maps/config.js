@@ -7,6 +7,7 @@ Multi-dataset behaviour:
 - For config options such as:
     - colourPalette
     - breaks
+	- breaksNumber
     - explainerPlaceholder
     - explainerPrefix
     - explainerSuffix

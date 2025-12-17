@@ -485,6 +485,7 @@ if (explainerLine2.empty()) explainerLine2 = explainerSel.append('span').classed
 
 
 export function updateKeyInfo(value, areaName, state) {
+    console.log(value)
     // Alignment logic for explainer/value
     const keyInfoNode = document.getElementById('keyinfo');
     const valueNode = document.getElementById('keyinfo-value');
@@ -509,10 +510,10 @@ export function updateKeyInfo(value, areaName, state) {
         }
     }
     const explainerPlaceholder = getConfigValue('explainerPlaceholder', state) || '';
-	const explainerPrefix = getConfigValue('explainerPrefix', state) || '';
-	const explainerSuffix = getConfigValue('explainerSuffix', state) || '';
-	const unavailablePrefix = getConfigValue('unavailablePrefix', state) || '';
-	const unavailableSuffix = getConfigValue('unavailableSuffix', state) || '';
+    const explainerPrefix = getConfigValue('explainerPrefix', state) || '';
+    const explainerSuffix = getConfigValue('explainerSuffix', state) || '';
+    const unavailablePrefix = getConfigValue('unavailablePrefix', state) || '';
+    const unavailableSuffix = getConfigValue('unavailableSuffix', state) || '';
 
     if (typeof value === 'undefined' || value === null || isNaN(value)) {
         // If areaName is provided, show unavailable message; else show placeholder
@@ -520,11 +521,11 @@ export function updateKeyInfo(value, areaName, state) {
             const areaLabel = areaName || 'this area';
             valueSel.html(`<span class="keyinfo-placeholder"></span>`); // No value shown
             explainerLine1.html('');
-			explainerLine1.html(`${unavailablePrefix} <strong>${d3.create('span').text(areaName).node().textContent}</strong> ${unavailableSuffix}`);
+            explainerLine1.html(`${unavailablePrefix} <strong>${d3.create('span').text(areaName).node().textContent}</strong> ${unavailableSuffix}`);
             explainerLine2.text('');
         } else {
             // Show placeholder in valueSel, clear explainer
-			valueSel.html(`<span class="keyinfo-placeholder">${explainerPlaceholder}</span>`);
+            valueSel.html(`<span class="keyinfo-placeholder">${explainerPlaceholder}</span>`);
             explainerLine1.html('');
             explainerLine2.text('');
         }
@@ -546,24 +547,24 @@ export function updateKeyInfo(value, areaName, state) {
     );
 
     // Explainer: explainerPrefix, area name (bold), explainerSuffix (all in one container, prefix/suffix can be HTML)
-	let explainerHtml = '';
-	explainerHtml += explainerPrefix;
-	if (areaName) {
-		explainerHtml += '<strong>' + d3.create('span').text(areaName).node().textContent + '</strong>';
-	}
-	explainerHtml += explainerSuffix;
-	explainerLine1.html(explainerHtml);
-	explainerLine2.text('');
+    let explainerHtml = '';
+    explainerHtml += explainerPrefix;
+    if (areaName) {
+        explainerHtml += '<strong>' + d3.create('span').text(areaName).node().textContent + '</strong>';
+    }
+    explainerHtml += explainerSuffix;
+    explainerLine1.html(explainerHtml);
+    explainerLine2.text('');
 }
 
 function getConfigValue(key, state) {
-	const val = config[key];
-	if (Array.isArray(val) && state.selectedValueColumn) {
-		const idx = state.valueColumns.indexOf(state.selectedValueColumn);
-		if (idx >= 0 && idx < val.length) return val[idx];
-		return val[0];
-	}
-	return val;
+    const val = config[key];
+    if (Array.isArray(val) && state.selectedValueColumn) {
+        const idx = state.valueColumns.indexOf(state.selectedValueColumn);
+        if (idx >= 0 && idx < val.length) return val[idx];
+        return val[0];
+    }
+    return val;
 }
 
 export function clearAreaSelection(state, geoLayer) {
@@ -685,7 +686,7 @@ export function setupMap(config, data, rateById, areaById, areas, colour, state)
             "source-layer": state.geographySource === "vector" ? config.geoLayer : "",
             layout: {},
             paint: {
-                'line-color': '#000',
+                'line-color': ONScolours.grey100,
                 'line-width': 2,
                 'line-opacity': [
                     'case',
@@ -701,7 +702,7 @@ export function setupMap(config, data, rateById, areaById, areas, colour, state)
             "source-layer": state.geographySource === "vector" ? config.geoLayer : "",
             layout: {},
             paint: {
-                'line-color': '#000',
+                'line-color': ONScolours.grey100,
                 'line-width': 2,
                 'line-opacity': ['case', ['==', ['feature-state', 'selected'], true], 0.4, 0],
             }
@@ -907,8 +908,8 @@ export function setupMap(config, data, rateById, areaById, areas, colour, state)
 
 
 export function detectValueColumns(csv) {
-	if (!csv || !csv.columns) return [];
-	return csv.columns.filter(col => col !== config.dataIdField && col !== config.geoNameField && col.toLowerCase() !== config.dataNameField);
+    if (!csv || !csv.columns) return [];
+    return csv.columns.filter(col => col !== config.dataIdField && col !== config.geoNameField && col.toLowerCase() !== config.dataNameField);
 }
 
 export function addDatasetSwitchButtons(data, state, keyscale) {
@@ -978,7 +979,7 @@ export function addDatasetSwitchButtons(data, state, keyscale) {
                 state.selectedValueColumn = col;
 
                 // Remove "selected" from all labels in this group
-                buttonsWrapper.querySelectorAll('label').forEach(l => 
+                buttonsWrapper.querySelectorAll('label').forEach(l =>
                     l.classList.remove('selected')
                 );
 
@@ -1002,12 +1003,12 @@ export function addDatasetSwitchButtons(data, state, keyscale) {
 
 
 export function setupDatasetSwitch(csv, state, keyscale) {
-	state.valueColumns = detectValueColumns(csv);
-	state.selectedValueColumn = state.valueColumns[0];
-	addDatasetSwitchButtons(csv,state, keyscale);
+    state.valueColumns = detectValueColumns(csv);
+    state.selectedValueColumn = state.valueColumns[0];
+    addDatasetSwitchButtons(csv, state, keyscale);
 }
 
-export function redrawMapFill(data,rateById,colour,state) {
+export function redrawMapFill(data, rateById, colour, state) {
     if (!state.map || !data || !colour || !config.dataIdField) return;
     if (!state.map.isStyleLoaded()) {
         state.map.once('styledata', () => redrawMapFill());
@@ -1021,16 +1022,56 @@ export function redrawMapFill(data,rateById,colour,state) {
     });
 }
 
+export function redeclareMouseEvents(rateById, state) {
+    state.map.on('mousemove', 'area', (e) => {
+        const areaName = e.features[0].properties[config.geoNameField];
+
+        const value = rateById[e.features[0].properties[config.geoIdField]];
+        // Always show hover info if hovering, but if an area is selected, show faded indicator for it
+        if (typeof value !== 'undefined' && value !== null && !isNaN(value)) {
+            window.moveKeyIndicator(value);
+            if (state.selectedAreaCode && state.selectedAreaCode !== code) {
+                const selectedVal = rateById[state.selectedAreaCode];
+                window.moveKeyIndicatorSelected(selectedVal);
+            } else {
+                window.moveKeyIndicatorSelected(undefined);
+            }
+            updateKeyInfo(value, areaName, state);
+        } else {
+            // Value is missing, show unavailable message
+            window.moveKeyIndicator(undefined);
+            if (state.selectedAreaCode && state.selectedAreaCode !== code) {
+                const selectedVal = rateById[state.selectedAreaCode];
+                window.moveKeyIndicatorSelected(selectedVal);
+            } else {
+                window.moveKeyIndicatorSelected(undefined);
+            }
+            updateKeyInfo(undefined, areaName, state);
+        }
+    })
+    state.map.on('click', 'area', (e) => {
+        const areaName = e.features[0].properties[config.geoNameField];
+
+        const value = rateById[e.features[0].properties[config.geoIdField]];
+        // window.moveKeyIndicator(undefined);
+        window.moveKeyIndicatorSelected(value);
+        // Show explainer for selected area
+        updateKeyInfo(value, areaName, state);
+
+    })
+}
+
 export function updateDataset(keyscale, data, state) {
-    const { rateById, areaById } = buildValueAndAreaLookups(data,config, state)
-    
+    const { rateById, areaById } = buildValueAndAreaLookups(data, config, state)
+
     let palette = getPalette(config, state);
-    let breaks = getBreaks(config,data,palette,state)
+    let breaks = getBreaks(config, data, palette, state)
     let colour = d3.scaleThreshold()
         .domain(breaks.slice(1))
         .range(palette);
 
     drawKeyScale({ keyscale, breaks, colour, config, window });
-    redrawMapFill(data,rateById,colour, state);
+    redrawMapFill(data, rateById, colour, state);
+    redeclareMouseEvents(rateById, state)
     updateKeyInfo(undefined, undefined, state);
 }

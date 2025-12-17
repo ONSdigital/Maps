@@ -623,7 +623,7 @@ export function getPalette(config, state) {
     // Helper to resolve a palette from a string or array
     function resolvePalette(p, idx = null) {
         let resolved;
-        // Determine number of breaks to use for d3 scheme
+        // Determine number of breaks to use for d3 scheme or ONScolours
         let k = 7;
         if (Array.isArray(config.breaksNumber)) {
             k = (idx !== null && typeof config.breaksNumber[idx] === 'number') ? config.breaksNumber[idx] : config.breaksNumber[0] || 7;
@@ -631,12 +631,39 @@ export function getPalette(config, state) {
             k = config.breaksNumber;
         }
         // Clamp k to available range for d3 schemes (usually 3-9)
-        if (k < 3) k = 3;
-        if (k > 9) k = 9;
-        if (typeof p === 'string' && d3[`scheme${p}`]) {
-            resolved = d3[`scheme${p}`][k] || d3[`scheme${p}`][7];
-            if (debug) console.log(`[Map Debug] Using d3.scheme (ColorBrewer) palette '${p}' with k=${k}`, resolved, idx !== null ? `(dataset index ${idx})` : '');
-        } else if (Array.isArray(p)) {
+        if (k < 3) {
+            if (debug) console.log(`[Map Debug] breaksNumber (k=${k}) is less than 3, clamping to 3.`);
+            k = 3;
+        }
+        if (k > 9) {
+            if (debug) console.log(`[Map Debug] breaksNumber (k=${k}) is greater than 9, clamping to 9.`);
+            k = 9;
+        }
+        if (typeof p === 'string') {
+            if (p.startsWith('ONScolours')) {
+                try {
+                    // eslint-disable-next-line no-eval
+                    let paletteObj = eval(p);
+                    if (paletteObj && typeof paletteObj === 'object' && paletteObj[k]) {
+                        resolved = paletteObj[k];
+                        if (debug) console.log(`[Map Debug] Using ONScolours palette '${p}' with k=${k}`, resolved, idx !== null ? `(dataset index ${idx})` : '');
+                    } else if (Array.isArray(paletteObj)) {
+                        resolved = paletteObj;
+                        if (debug) console.log(`[Map Debug] Using ONScolours palette '${p}' as array`, resolved, idx !== null ? `(dataset index ${idx})` : '');
+                    } else {
+                        resolved = ONScolours.sequential.standard[k] || ONScolours.sequential.standard[5];
+                        if (debug) console.log(`[Map Debug] Fallback to ONScolours.sequential.standard[${k}] for ONScolours palette '${p}'`, resolved, idx !== null ? `(dataset index ${idx})` : '');
+                    }
+                } catch (e) {
+                    resolved = ONScolours.sequential.standard[k] || ONScolours.sequential.standard[5];
+                    if (debug) console.log(`[Map Debug] Error evaluating ONScolours palette '${p}', fallback to ONScolours.sequential.standard[${k}]`, resolved, idx !== null ? `(dataset index ${idx})` : '', e);
+                }
+            } else if (d3[`scheme${p}`]) {
+                resolved = d3[`scheme${p}`][k] || d3[`scheme${p}`][7];
+                if (debug) console.log(`[Map Debug] Using d3.scheme (ColorBrewer) palette '${p}' with k=${k}`, resolved, idx !== null ? `(dataset index ${idx})` : '');
+            }
+        }
+        if (!resolved && Array.isArray(p)) {
             // If it's [["PuRd"]], treat as preset name
             if (p.length === 1 && typeof p[0] === 'string' && d3[`scheme${p[0]}`]) {
                 resolved = d3[`scheme${p[0]}`][k] || d3[`scheme${p[0]}`][7];
@@ -645,9 +672,10 @@ export function getPalette(config, state) {
                 resolved = p;
                 if (debug) console.log(`[Map Debug] Using custom palette array`, resolved, idx !== null ? `(dataset index ${idx})` : '');
             }
-        } else {
-            resolved = d3.schemeBlues[k] || d3.schemeBlues[7];
-            if (debug) console.log(`[Map Debug] Fallback to d3.schemeBlues[${k}]`, resolved, idx !== null ? `(dataset index ${idx})` : '');
+        }
+        if (!resolved) {
+            resolved = ONScolours.sequential.standard[k] || ONScolours.sequential.standard[5];
+            if (debug) console.log(`[Map Debug] Fallback to ONScolours.sequential.standard[${k}]`, resolved, idx !== null ? `(dataset index ${idx})` : '');
         }
         return resolved;
     }

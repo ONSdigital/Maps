@@ -512,7 +512,6 @@ if (explainerLine2.empty()) explainerLine2 = explainerSel.append('span').classed
 
 
 export function updateKeyInfo(value, areaName, state) {
-    console.log(value)
     // Alignment logic for explainer/value
     const keyInfoNode = document.getElementById('keyinfo');
     const valueNode = document.getElementById('keyinfo-value');

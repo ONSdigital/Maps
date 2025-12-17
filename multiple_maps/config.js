@@ -39,8 +39,8 @@ config = {
 	takeNameFromGeo: true, // if true, area names are taken from geo file using geoNameField, if false it will use the dataNameField from data file
 	mapHeight: "650px",
 	paletteMode: "multiple", // "single" = one palette for all datasets, "multiple" = separate palette per dataset
-	colourPalette: [['#edf8b1','#c7e9b4','#7fcdbb','#41b6c4','#1d91c0','#225ea8','#0c2c84'],"PuRd"], // can be preset colourbrewer palette (e.g. YlGnBu) or custom array of colours
-	colourUnavailable: "#ccc",
+	colourPalette: [ONScolours.sequential.alternative[5],ONScolours.diverging.declineToGrowth[5]], // can be preset d3.scheme (same as colourbrewer) palette (e.g. YlGnBu),  or custom array of colours, including those defined in lib/colours.js (e.g. ONScolours.sequential.standard[5])
+	colourUnavailable: ONScolours.noData,
 	breaks: ["jenks","equal"], // can be "equal", "jenks", or a custom array of breaks - number of values in palette determines number of breaks
 	breaksNumber: [5, 5], // only needed if breaks is "equal" or "jenks" and colour palette is not an array (then this number defines how many breaks to calculate) - default is 5
 	valueFormat: ",.0f", // d3 format for values

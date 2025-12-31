@@ -1,4 +1,5 @@
 config = {
+	debugInfo: true,
 	dataUrl: "data.csv",
 	geoUrl: "geog.json", //if null uses default topoJSON otherwise can be a .json file or vector tile service (e.g. 'https://cdn.ons.gov.uk/maptiles/administrative/2021/msoa/v2/boundaries/{z}/{x}/{y}.pbf')
 	geoYear: 2025, // only needed for default topoJSON
@@ -8,9 +9,11 @@ config = {
 	geoNameField: "AREANM", // feature property to use for area name
 	dataIdField: "areacd", // column in data file that matches geoIdField in geo file
 	mapHeight: "650px",
-	colourPalette: ['#edf8b1','#c7e9b4','#7fcdbb','#41b6c4','#1d91c0','#225ea8','#0c2c84'], // can be preset colourbrewer palette (e.g. YlGnBu) or custom array of colours
-	colourUnavailable: "#ccc",
+	colourPalette: "ONScolours.sequential.standard", // can be preset d3.scheme (same as colourbrewer) palette (e.g. YlGnBu), an ons pallete in a string (e.g. "ONScolours.sequential.popDensity"),  or a custom array of colours, including those defined in lib/colours.js (e.g. ONScolours.sequential.standard[5])
+	// colourPalette: ['#edf8b1','#c7e9b4','#7fcdbb','#41b6c4','#1d91c0','#225ea8','#0c2c84'], // example of a custom array
+	colourUnavailable: ONScolours.noData,
 	breaks: "jenks", // can be "equal", "jenks", or a custom array of breaks - number of values in palette determines number of breaks
+	breaksNumber: 5, // only needed if breaks is "equal" or "jenks" and colour palette a string (then this number defines how many breaks to calculate) - default is 5
 	valueFormat: ",.0f", // d3 format for values
 	valuePrefix: "£",
 	valueSuffix: "",

@@ -1,3 +1,5 @@
+// Add a config option to enable debug output for map logic
+// config.debugInfo = true; // Set to true to enable debug output in the console
 import { drawKeyScale } from "./legend.js";
 
 /**
@@ -152,6 +154,7 @@ export function getLegendDecimals(format) {
 }
 
 export function getBreaks(config, data, palette, state) {
+        const debug = config.debugInfo === true;
     const legendDecimals = getLegendDecimals(config.legendFormat || ',.2f');
     const dataValues = data.map(d => state.selectedValueColumn ? +d[state.selectedValueColumn] : +d.value).filter(v => !isNaN(v)).sort(d3.ascending);
 
@@ -167,20 +170,44 @@ export function getBreaks(config, data, palette, state) {
 
         if (Array.isArray(selectedBreaks)) {
             // Case 1: The element at the index is the custom break array (e.g., [0, 10, 20])
+            if (debug) {
+                console.log(`[Map Debug] Using custom breaks for dataset index ${selectedIndex}:`, selectedBreaks);
+            }
             return selectedBreaks;
         } else if (typeof selectedBreaks === 'string') {
             // Case 2: The element at the index is a break calculation method (e.g., "jenks")
-
-            // Use the string method to calculate the breaks
-            return calculateBreaks(dataValues, selectedBreaks, palette.length, legendDecimals);
-
+            // Use config.breaksNumber if palette is not an array or not suitable
+            let n;
+            if (Array.isArray(palette) && palette.length > 1) {
+                n = palette.length;
+            } else if (typeof config.breaksNumber === 'number' && config.breaksNumber > 1) {
+                n = config.breaksNumber;
+            } else {
+                n = 5;
+            }
+            const calculated = calculateBreaks(dataValues, selectedBreaks, n, legendDecimals);
+            if (debug) {
+                console.log(`[Map Debug] Calculated breaks for dataset index ${selectedIndex} using method '${selectedBreaks}' and n=${n}:`, calculated);
+            }
+            return calculated;
         } else {
-            console.log("Unexpected format for breaks")
+            if (debug) console.log("[Map Debug] Unexpected format for breaks", selectedBreaks);
         }
-
     } else {
         // Handle the string case (e.g., "jenks", "equal")
-        return calculateBreaks(dataValues, config.breaks, palette.length, legendDecimals);
+        let n;
+        if (Array.isArray(palette) && palette.length > 1) {
+            n = palette.length;
+        } else if (typeof config.breaksNumber === 'number' && config.breaksNumber > 1) {
+            n = config.breaksNumber;
+        } else {
+            n = 5;
+        }
+        const calculated = calculateBreaks(dataValues, config.breaks, n, legendDecimals);
+        if (debug) {
+            console.log(`[Map Debug] Calculated breaks using method '${config.breaks}' and n=${n}:`, calculated);
+        }
+        return calculated;
     }
 }
 
@@ -589,28 +616,74 @@ export function clearAreaSelection(state, geoLayer) {
 
 
 export function getPalette(config, state) {
+    const debug = config.debugInfo === true;
     const paletteMode = config.paletteMode || 'single';
     const cp = config.colourPalette;
 
     // Helper to resolve a palette from a string or array
-    function resolvePalette(p) {
-        if (typeof p === 'string' && d3[`scheme${p}`]) {
-            return d3[`scheme${p}`][7];
+    function resolvePalette(p, idx = null) {
+        let resolved;
+        // Determine number of breaks to use for d3 scheme or ONScolours
+        let k = 7;
+        if (Array.isArray(config.breaksNumber)) {
+            k = (idx !== null && typeof config.breaksNumber[idx] === 'number') ? config.breaksNumber[idx] : config.breaksNumber[0] || 7;
+        } else if (typeof config.breaksNumber === 'number') {
+            k = config.breaksNumber;
         }
-        if (Array.isArray(p)) {
+        // Clamp k to available range for d3 schemes (usually 3-9)
+        if (k < 3) {
+            if (debug) console.log(`[Map Debug] breaksNumber (k=${k}) is less than 3, clamping to 3.`);
+            k = 3;
+        }
+        if (k > 9) {
+            if (debug) console.log(`[Map Debug] breaksNumber (k=${k}) is greater than 9, clamping to 9.`);
+            k = 9;
+        }
+        if (typeof p === 'string') {
+            if (p.startsWith('ONScolours')) {
+                try {
+                    // eslint-disable-next-line no-eval
+                    let paletteObj = eval(p);
+                    if (paletteObj && typeof paletteObj === 'object' && paletteObj[k]) {
+                        resolved = paletteObj[k];
+                        if (debug) console.log(`[Map Debug] Using ONScolours palette '${p}' with k=${k}`, resolved, idx !== null ? `(dataset index ${idx})` : '');
+                    } else if (Array.isArray(paletteObj)) {
+                        resolved = paletteObj;
+                        if (debug) console.log(`[Map Debug] Using ONScolours palette '${p}' as array`, resolved, idx !== null ? `(dataset index ${idx})` : '');
+                    } else {
+                        resolved = ONScolours.sequential.standard[k] || ONScolours.sequential.standard[5];
+                        if (debug) console.log(`[Map Debug] Fallback to ONScolours.sequential.standard[${k}] for ONScolours palette '${p}'`, resolved, idx !== null ? `(dataset index ${idx})` : '');
+                    }
+                } catch (e) {
+                    resolved = ONScolours.sequential.standard[k] || ONScolours.sequential.standard[5];
+                    if (debug) console.log(`[Map Debug] Error evaluating ONScolours palette '${p}', fallback to ONScolours.sequential.standard[${k}]`, resolved, idx !== null ? `(dataset index ${idx})` : '', e);
+                }
+            } else if (d3[`scheme${p}`]) {
+                resolved = d3[`scheme${p}`][k] || d3[`scheme${p}`][7];
+                if (debug) console.log(`[Map Debug] Using d3.scheme (ColorBrewer) palette '${p}' with k=${k}`, resolved, idx !== null ? `(dataset index ${idx})` : '');
+            }
+        }
+        if (!resolved && Array.isArray(p)) {
             // If it's [["PuRd"]], treat as preset name
             if (p.length === 1 && typeof p[0] === 'string' && d3[`scheme${p[0]}`]) {
-                return d3[`scheme${p[0]}`][7];
+                resolved = d3[`scheme${p[0]}`][k] || d3[`scheme${p[0]}`][7];
+                if (debug) console.log(`[Map Debug] Using d3.scheme (ColorBrewer) palette '${p[0]}' (wrapped in array) with k=${k}`, resolved, idx !== null ? `(dataset index ${idx})` : '');
+            } else {
+                resolved = p;
+                if (debug) console.log(`[Map Debug] Using custom palette array`, resolved, idx !== null ? `(dataset index ${idx})` : '');
             }
-            return p;
         }
-        return d3.schemeBlues[7];
+        if (!resolved) {
+            resolved = ONScolours.sequential.standard[k] || ONScolours.sequential.standard[5];
+            if (debug) console.log(`[Map Debug] Fallback to ONScolours.sequential.standard[${k}]`, resolved, idx !== null ? `(dataset index ${idx})` : '');
+        }
+        return resolved;
     }
     // Multiple mode: pick palette by dataset index
     if (paletteMode === 'multiple' && Array.isArray(cp) && state.valueColumns.length > 1 && state.selectedValueColumn) {
         const idx = state.valueColumns.indexOf(state.selectedValueColumn);
         const selectedPalette = cp[idx] ?? cp[0];
-        return resolvePalette(selectedPalette);
+        return resolvePalette(selectedPalette, idx);
     }
 
     // Single mode or fallback

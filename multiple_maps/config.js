@@ -37,7 +37,7 @@ config = {
 	dataIdField: "areacd", // column in data file that matches geoIdField in geo file
 	dataNameField: "areanm", // column in data file for area name
 	takeNameFromGeo: true, // if true, area names are taken from geo file using geoNameField, if false it will use the dataNameField from data file
-	mapHeight: "650px",
+	mapHeight: "450px",
 	paletteMode: "multiple", // "single" = one palette for all datasets, "multiple" = separate palette per dataset
 	colourPalette: [ONScolours.sequential.alternative[5],ONScolours.diverging.declineToGrowth[5]], // can be preset d3.scheme (same as colourbrewer) palette (e.g. YlGnBu),  or custom array of colours, including those defined in lib/colours.js (e.g. ONScolours.sequential.standard[5])
 	colourUnavailable: ONScolours.noData,

@@ -24,9 +24,6 @@ function drawMap(rateById, areaById, colour, data, breaks, areas) {
 	//Initialise for pym, not sure if it should go here, just copied from drawGraphic() on other templates
 	const size = initialise();
 
-	// Calculate bottom padding for overlay
-	const bottomPad = getElementHeightById('keycontainer') + 85; // extra for spacing
-
 	// Set up source text
 	addSource('source', config.sourceText || 'Office for National Statistics.');
 
@@ -39,7 +36,7 @@ function drawMap(rateById, areaById, colour, data, breaks, areas) {
 		maxZoom: config.maxZoom || 13,
 		bounds: config.mapBounds, // UK bounds
 		maxBounds: config.maxBounds || undefined,
-		fitBoundsOptions: { padding: { top: 10, left: 10, right: 10, bottom: bottomPad } },
+		fitBoundsOptions: { padding: { top: 10, left: 10, right: 10, bottom: 20 } },
 		attributionControl: false,
 	});
 	// Draw the key scale

@@ -8,7 +8,7 @@ config = {
 	geoIdField: "AREACD", // feature property in geo file that matches id field in data file
 	geoNameField: "AREANM", // feature property to use for area name
 	dataIdField: "areacd", // column in data file that matches geoIdField in geo file
-	mapHeight: "650px",
+	mapHeight: "550px",
 	colourPalette: "ONScolours.sequential.standard", // can be preset d3.scheme (same as colourbrewer) palette (e.g. YlGnBu), an ons pallete in a string (e.g. "ONScolours.sequential.popDensity"),  or a custom array of colours, including those defined in lib/colours.js (e.g. ONScolours.sequential.standard[5])
 	// colourPalette: ['#edf8b1','#c7e9b4','#7fcdbb','#41b6c4','#1d91c0','#225ea8','#0c2c84'], // example of a custom array
 	colourUnavailable: ONScolours.noData,
@@ -34,7 +34,7 @@ config = {
 	sourceText: "Office for National Statistics",
 	accessibleSummary: "Here is the screenreader text describing the chart.",
 	scrollZoomGuard: true, // if true, user has to hold shift key to zoom map with scroll
-	keyScaleMargin: { left: 20, right: 40, top: 10, bottom: 10 },
+	keyScaleMargin: { left: 20, right: 27, top: 10, bottom: 10 },
 	elements: { select: 1, nav: 1, legend: 1, titles: 0 },
 	chartBuild: {}
 };

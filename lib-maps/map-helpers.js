@@ -798,16 +798,8 @@ export function setupMap(config, data, rateById, areaById, areas, colour, state)
         // 	}
         // }));
 
-        // Provide a getPadding function to dynamically calculate padding (including keycontainer height)
         const zoomhome = new MapLibreControlZoomHome({
             resetBounds: config.mapBounds,
-            getPadding: function () {
-                let bottomPad = 10;
-                if (keycontainer) {
-                    bottomPad += getElementHeightById('keycontainer') || 0;
-                }
-                return { top: 10, left: 10, right: 10, bottom: bottomPad };
-            },
             onReset: function () {
                 // Clear selected area and info
                 if (typeof state.map !== 'undefined' && state.map !== null) {

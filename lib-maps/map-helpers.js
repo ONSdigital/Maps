@@ -452,6 +452,10 @@ export function setupSearch(areas, config, state, rateById, areaById) {
             window.moveKeyIndicatorSelected(selectedVal);
             updateKeyInfo(selectedVal, areaName, state);
 
+            if (typeof state.onAreaSelected === 'function') {
+                state.onAreaSelected({ code, areaName, value: selectedVal, source: 'search' });
+            }
+
             // Zoom to area bounds (same as click logic)
 
             if (feature && feature.geometry) {
@@ -508,6 +512,10 @@ if (explainerSel.empty()) {
 let explainerLine1 = explainerSel.select('span.line1');
 if (explainerLine1.empty()) explainerLine1 = explainerSel.append('span').classed('line1', true);
 let explainerLine2 = explainerSel.select('span.line2');
+
+                                                    if (typeof state.onAreaSelected === 'function') {
+                                                        state.onAreaSelected({ code, areaName, value: selectedVal, source: 'postcode' });
+                                                    }
 if (explainerLine2.empty()) explainerLine2 = explainerSel.append('span').classed('line2', true);
 
 
@@ -611,6 +619,10 @@ export function clearAreaSelection(state, geoLayer) {
     if (state.map.getCanvas) state.map.getCanvas().style.cursor = '';
     if (window.moveKeyIndicator) window.moveKeyIndicator(undefined);
     if (window.moveKeyIndicatorSelected) window.moveKeyIndicatorSelected(undefined);
+
+    if (typeof state.onAreaSelected === 'function') {
+        state.onAreaSelected({ code: null, areaName: null, value: null, source: 'clear' });
+    }
 }
 
 
@@ -932,6 +944,10 @@ export function setupMap(config, data, rateById, areaById, areas, colour, state)
             window.moveKeyIndicatorSelected(selectedVal);
             // Show explainer for selected area
             updateKeyInfo(selectedVal, areaName, state);
+
+            if (typeof state.onAreaSelected === 'function') {
+                state.onAreaSelected({ code, areaName, value: selectedVal, source: 'map' });
+            }
 
             // --- Zoom to area bounds (40% of map, centered on unobscured area) ---
             const feature = e.features[0];

@@ -171,7 +171,7 @@ function ensureBreaksAndLegend() {
 		state.colour.domain(calculated.slice(1));
 	}
 
-	drawKeyScale({ keyscale, breaks: state.breaks, colour: state.colour, config, window });
+	drawKeyScale({ keyscale, breaks: state.breaks, colour: state.colour, config, window, state });
 }
 
 function setTimelineUI() {
@@ -431,7 +431,10 @@ async function loadDataset(datasetIndex) {
 	for (const k of Object.keys(state.areaById)) delete state.areaById[k];
 	Object.assign(state.areaById, areaById);
 
-	state.timeIndex = 0;
+	// Initial timeline position: config.startTime if present, otherwise default to last.
+	const desired = typeof config.startTime === 'string' ? config.startTime : null;
+	const idx = desired ? state.timeColumns.indexOf(desired) : -1;
+	state.timeIndex = idx >= 0 ? idx : Math.max(0, state.timeColumns.length - 1);
 	updateRateByIdForTime();
 	buildDataForMap();
 	computeBreaksForDataset();

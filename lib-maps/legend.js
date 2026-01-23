@@ -1,15 +1,34 @@
 // legend.js
 // Handles drawing the key scale and indicators for the map legend
 
-export function drawKeyScale({ keyscale, breaks, colour, config, window }) {
+export function drawKeyScale({ keyscale, breaks, colour, config, window, state }) {
     keyscale.selectAll('*').remove();
     const mapWidth = window.d3.select('#graphic').node().getBoundingClientRect().width || 400;
     const width = mapWidth - config.keyScaleMargin.left - config.keyScaleMargin.right;
     let height = 39;
 
-    const legendFmt = window.d3.format(config.legendFormat || ',.2f');
-    const legendPrefix = config.legendPrefix || '';
-    const legendSuffix = config.legendSuffix || '';
+    const resolveConfigByDataset = (key) => {
+        const val = config[key];
+        if (!Array.isArray(val)) return val;
+        if (!state) return val[0];
+
+        const selectedIndex = (() => {
+            if (typeof state.selectedValueColumn === 'number') return state.selectedValueColumn;
+            if (Array.isArray(state.valueColumns) && state.selectedValueColumn) {
+                const idx = state.valueColumns.indexOf(state.selectedValueColumn);
+                return idx >= 0 ? idx : 0;
+            }
+            if (typeof state.datasetIndex === 'number') return state.datasetIndex;
+            return 0;
+        })();
+
+        if (selectedIndex >= 0 && selectedIndex < val.length) return val[selectedIndex];
+        return val[0];
+    };
+
+    const legendFmt = window.d3.format(resolveConfigByDataset('legendFormat') || ',.2f');
+    const legendPrefix = resolveConfigByDataset('legendPrefix') || '';
+    const legendSuffix = resolveConfigByDataset('legendSuffix') || '';
     const tickData = breaks.map((d, i) => ({
         value: d,
         index: i,

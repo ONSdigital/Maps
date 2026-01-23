@@ -8,6 +8,8 @@ Multi-dataset behaviour:
     - colourPalette
     - breaks
 	- breaksNumber
+	- valueFormat/Prefix/Suffix
+	- legendFormat/Prefix/Suffix
     - explainerPlaceholder
     - explainerPrefix
     - explainerSuffix
@@ -29,8 +31,8 @@ config = {
 	debugInfo: true,
 	// Time-series datasets (wide format: id + name + one column per time point)
 	datasets: [
-		{ label: "Dataset 0", url: "data_over_time_0.csv" },
-		{ label: "Dataset 1", url: "data_over_time_1.csv" }
+		{ label: "Per 1,000 population", url: "data_over_time_0.csv" },
+		{ label: "Per 100 sales", url: "data_over_time_1.csv" }
 	],
 	dataUrl: "data_over_time_0.csv", // used as a fallback if datasets is not provided
 	geoUrl: "geog.json", //if null uses default topoJSON otherwise can be a .json file or vector tile service (e.g. 'https://cdn.ons.gov.uk/maptiles/administrative/2021/msoa/v2/boundaries/{z}/{x}/{y}.pbf')
@@ -51,16 +53,19 @@ config = {
 	breaksNumber: 5,
 	// If true, breaks are calculated once per dataset across all time points (recommended for comparison)
 	timeBreaksMode: "fixed", // "fixed" | "perTime"
-	valueFormat: ",.0f", // d3 format for values
-	valuePrefix: "£",
+	// Timeline start position. If null/undefined or not found in the data headers, defaults to the last time point.
+	// Example: startTime: "2011"
+	startTime: null,
+	valueFormat: ",.1f", // d3 format for values
+	valuePrefix: "",
 	valueSuffix: "",
 	legendFormat: ",.0f",
-	legendPrefix: "£",
+	legendPrefix: "",
 	legendSuffix: "",
 	explainerAlignment: "right", // left or right
 	explainerPlaceholder: "Select an area",
-	explainerPrefix: "Value in </br>",
-	explainerSuffix: "",
+	explainerPrefix: "First time buyer mortgages in</br>",
+	explainerSuffix: ["<br>per 1,000 people</br>","</br>per 100 house sales"],
 	unavailablePrefix: "The value for",
 	unavailableSuffix: "is unavailable", //could change to suppressed if purposefully suppressed
 	mapBounds: [[-7, 50.2], [1.77, 59]], // UK bounds (Shetland cut off a bit): [[-8.62, 48.87], [1.77, 60.84]] England and Wales: [[-6.43, 50], [1.77, 55.81]]

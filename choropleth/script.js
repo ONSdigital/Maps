@@ -42,7 +42,7 @@ function drawMap(rateById, areaById, colour, data, breaks, areas) {
 	});
 
 	// Draw the key scale
-	drawKeyScale({ keyscale, breaks, colour, config, window });
+	drawKeyScale({ keyscale, breaks, colour, config, window, state });
 
 	// adds map and interactivity
 	setupMap(config, data, rateById, areaById, areas, colour, state)

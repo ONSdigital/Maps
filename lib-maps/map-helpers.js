@@ -154,19 +154,41 @@ export function getLegendDecimals(format) {
 }
 
 export function getBreaks(config, data, palette, state) {
-        const debug = config.debugInfo === true;
-    const legendDecimals = getLegendDecimals(config.legendFormat || ',.2f');
+    const debug = config.debugInfo === true;
     const dataValues = data.map(d => state.selectedValueColumn ? +d[state.selectedValueColumn] : +d.value).filter(v => !isNaN(v)).sort(d3.ascending);
 
-    if (Array.isArray(config.breaks)) {
-        // Determine the index to use from the state, defaulting to 0 or 1 if not a valid number.
-        let selectedIndex = 0;
-        if (typeof state.selectedValueColumn === 'number' && state.selectedValueColumn >= 0 && state.selectedValueColumn < config.breaks.length) {
-            selectedIndex = state.selectedValueColumn;
+    const selectedIndex = (() => {
+        if (!state) return 0;
+        if (typeof state.selectedValueColumn === 'number') return state.selectedValueColumn;
+        if (Array.isArray(state.valueColumns) && state.selectedValueColumn) {
+            const idx = state.valueColumns.indexOf(state.selectedValueColumn);
+            return idx >= 0 ? idx : 0;
         }
+        return 0;
+    })();
 
-        // Get the element at the selected index.
-        const selectedBreaks = config.breaks[selectedIndex];
+    const breaksNumberForDataset = (() => {
+        if (Array.isArray(config.breaksNumber)) {
+            const v = config.breaksNumber[selectedIndex];
+            if (typeof v === 'number' && v > 1) return v;
+            const fallback = config.breaksNumber[0];
+            return (typeof fallback === 'number' && fallback > 1) ? fallback : undefined;
+        }
+        return (typeof config.breaksNumber === 'number' && config.breaksNumber > 1) ? config.breaksNumber : undefined;
+    })();
+
+    const legendFormatForDataset = (() => {
+        const lf = config.legendFormat;
+        if (Array.isArray(lf)) {
+            return lf[selectedIndex] ?? lf[0] ?? ',.2f';
+        }
+        return lf || ',.2f';
+    })();
+
+    const legendDecimals = getLegendDecimals(legendFormatForDataset);
+
+    if (Array.isArray(config.breaks)) {
+        const selectedBreaks = config.breaks[selectedIndex] ?? config.breaks[0];
 
         if (Array.isArray(selectedBreaks)) {
             // Case 1: The element at the index is the custom break array (e.g., [0, 10, 20])
@@ -180,14 +202,14 @@ export function getBreaks(config, data, palette, state) {
             let n;
             if (Array.isArray(palette) && palette.length > 1) {
                 n = palette.length;
-            } else if (typeof config.breaksNumber === 'number' && config.breaksNumber > 1) {
-                n = config.breaksNumber;
+	        } else if (typeof breaksNumberForDataset === 'number') {
+	            n = breaksNumberForDataset;
             } else {
                 n = 5;
             }
             const calculated = calculateBreaks(dataValues, selectedBreaks, n, legendDecimals);
             if (debug) {
-                console.log(`[Map Debug] Calculated breaks for dataset index ${selectedIndex} using method '${selectedBreaks}' and n=${n}:`, calculated);
+				console.log(`[Map Debug] Calculated breaks for dataset index ${selectedIndex} using method '${selectedBreaks}' and n=${n}:`, calculated);
             }
             return calculated;
         } else {
@@ -198,8 +220,8 @@ export function getBreaks(config, data, palette, state) {
         let n;
         if (Array.isArray(palette) && palette.length > 1) {
             n = palette.length;
-        } else if (typeof config.breaksNumber === 'number' && config.breaksNumber > 1) {
-            n = config.breaksNumber;
+	    } else if (typeof breaksNumberForDataset === 'number') {
+	        n = breaksNumberForDataset;
         } else {
             n = 5;
         }
@@ -369,6 +391,10 @@ export function setupSearch(areas, config, state, rateById, areaById) {
                     window.moveKeyIndicatorSelected(selectedVal);
                     updateKeyInfo(selectedVal, areaName, state);
 
+                    if (typeof state.onAreaSelected === 'function') {
+                        state.onAreaSelected({ code, areaName, value: selectedVal, source: 'postcode' });
+                    }
+
                     // Zoom to area bounds (if geometry is available)
                     if (feature && feature.geometry) {
                         let allCoords = collectCoords(feature.geometry);
@@ -512,10 +538,6 @@ if (explainerSel.empty()) {
 let explainerLine1 = explainerSel.select('span.line1');
 if (explainerLine1.empty()) explainerLine1 = explainerSel.append('span').classed('line1', true);
 let explainerLine2 = explainerSel.select('span.line2');
-
-                                                    if (typeof state.onAreaSelected === 'function') {
-                                                        state.onAreaSelected({ code, areaName, value: selectedVal, source: 'postcode' });
-                                                    }
 if (explainerLine2.empty()) explainerLine2 = explainerSel.append('span').classed('line2', true);
 
 
@@ -570,10 +592,10 @@ export function updateKeyInfo(value, areaName, state) {
         }
         return;
     }
-    // Format value with prefix/suffix for value display
-    let fmt = d3.format(config.valueFormat || ',.0f');
-    let valuePrefix = config.valuePrefix || '';
-    let valueSuffix = config.valueSuffix || '';
+    // Format value with prefix/suffix for value display (supports arrays per dataset)
+    let fmt = d3.format(getConfigValue('valueFormat', state) || ',.0f');
+    let valuePrefix = getConfigValue('valuePrefix', state) || '';
+    let valueSuffix = getConfigValue('valueSuffix', state) || '';
     valueSel.html(
         `<span style="font-size:0.6em;vertical-align:middle;">${valuePrefix}</span>` +
         `<span style="font-size:1em;">${fmt(value)}</span>` +
@@ -593,12 +615,25 @@ export function updateKeyInfo(value, areaName, state) {
 
 function getConfigValue(key, state) {
     const val = config[key];
-    if (Array.isArray(val) && state.selectedValueColumn) {
+
+    if (!Array.isArray(val)) return val;
+
+    // Multi-value-column dataset switching (valueColumns + selectedValueColumn)
+    if (state && state.selectedValueColumn && Array.isArray(state.valueColumns)) {
         const idx = state.valueColumns.indexOf(state.selectedValueColumn);
         if (idx >= 0 && idx < val.length) return val[idx];
         return val[0];
     }
-    return val;
+
+    // File-based dataset switching (e.g. time-series template uses config.datasets)
+    if (state && typeof state.datasetIndex === 'number') {
+        const idx = state.datasetIndex;
+        if (idx >= 0 && idx < val.length) return val[idx];
+        return val[0];
+    }
+
+    // Safe default
+    return val[0];
 }
 
 export function clearAreaSelection(state, geoLayer) {
@@ -725,7 +760,7 @@ export function buildValueAndAreaLookups(data, config, state) {
     const areaById = {};
     data.forEach((d) => {
         rateById[d[config.dataIdField]] = state.selectedValueColumn ? +d[state.selectedValueColumn] : +d.value;
-        areaById[d[config.dataIdField]] = d[config.geoNameField];
+        areaById[d[config.dataIdField]] = d[config.dataNameField] ?? d[config.geoNameField];
     });
     return { rateById, areaById };
 }
@@ -745,9 +780,16 @@ export function setupMap(config, data, rateById, areaById, areas, colour, state)
         }
 
         data.forEach(d => {
-            const fillColor = colour(d.value);
-            state.map.setFeatureState({ source: 'area', sourceLayer: (state.geographySource === "vector" ? config.geoLayer : ""), id: d[config.dataIdField] }, { value: d.value, color: fillColor });
-        })
+            const raw = d.value;
+            const value = (raw === null || typeof raw === 'undefined' || raw === '') ? NaN : +raw;
+            const hasData = Number.isFinite(value);
+            const unavailableColour = getConfigValue('colourUnavailable', state) ?? config.colourUnavailable ?? ONScolours.noData;
+            const fillColor = hasData ? colour(value) : unavailableColour;
+            state.map.setFeatureState(
+                { source: 'area', sourceLayer: (state.geographySource === "vector" ? config.geoLayer : ""), id: d[config.dataIdField] },
+                { value: hasData ? value : null, color: fillColor }
+            );
+        });
 
         state.map.addLayer({
             id: 'area',
@@ -1091,14 +1133,20 @@ export function setupDatasetSwitch(csv, state, keyscale) {
 export function redrawMapFill(data, rateById, colour, state) {
     if (!state.map || !data || !colour || !config.dataIdField) return;
     if (!state.map.isStyleLoaded()) {
-        state.map.once('styledata', () => redrawMapFill());
+        state.map.once('styledata', () => redrawMapFill(data, rateById, colour, state));
         return;
     }
     data.forEach(d => {
         const code = d[config.dataIdField];
-        const value = rateById[code];
-        const fillColor = colour(value);
-        state.map.setFeatureState({ source: 'area', sourceLayer: (state.geographySource === "vector" ? config.geoLayer : ""), id: code }, { color: fillColor });
+        const raw = rateById[code];
+        const value = (raw === null || typeof raw === 'undefined' || raw === '') ? NaN : +raw;
+        const hasData = Number.isFinite(value);
+        const unavailableColour = getConfigValue('colourUnavailable', state) ?? config.colourUnavailable ?? ONScolours.noData;
+        const fillColor = hasData ? colour(value) : unavailableColour;
+        state.map.setFeatureState(
+            { source: 'area', sourceLayer: (state.geographySource === "vector" ? config.geoLayer : ""), id: code },
+            { value: hasData ? value : null, color: fillColor }
+        );
     });
 }
 
@@ -1142,7 +1190,15 @@ export function redeclareMouseEvents(rateById, state) {
 }
 
 export function updateDataset(keyscale, data, state) {
-    const { rateById, areaById } = buildValueAndAreaLookups(data, config, state)
+    const { rateById: nextRateById, areaById: nextAreaById } = buildValueAndAreaLookups(data, config, state)
+
+    // Keep object identity stable so existing map event handlers (closures) keep working.
+    const rateById = state.rateById || (state.rateById = {});
+    const areaById = state.areaById || (state.areaById = {});
+    for (const k of Object.keys(rateById)) delete rateById[k];
+    for (const k of Object.keys(areaById)) delete areaById[k];
+    Object.assign(rateById, nextRateById);
+    Object.assign(areaById, nextAreaById);
 
     let palette = getPalette(config, state);
     let breaks = getBreaks(config, data, palette, state)
@@ -1150,8 +1206,7 @@ export function updateDataset(keyscale, data, state) {
         .domain(breaks.slice(1))
         .range(palette);
 
-    drawKeyScale({ keyscale, breaks, colour, config, window });
+    drawKeyScale({ keyscale, breaks, colour, config, window, state });
     redrawMapFill(data, rateById, colour, state);
-    redeclareMouseEvents(rateById, state)
     updateKeyInfo(undefined, undefined, state);
 }

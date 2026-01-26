@@ -138,14 +138,13 @@ export function calculateBounds(coords) {
 }
 
 
-export function calculateZoomPadding(map, keyOverlayId = 'keycontainer', padPercent = 0.3) {
+export function calculateZoomPadding(map, padPercent = 0.3) {
     const mapCanvas = map.getContainer();
     const mapWidth = mapCanvas.offsetWidth;
     const mapHeight = mapCanvas.offsetHeight;
     const padX = Math.round(mapWidth * padPercent);
     const padY = Math.round(mapHeight * padPercent);
-    const keyPad = getElementHeightById(keyOverlayId);
-    return { top: padY, bottom: padY + keyPad, left: padX, right: padX };
+    return { top: padY, bottom: padY, left: padX, right: padX };
 }
 
 export function getLegendDecimals(format) {

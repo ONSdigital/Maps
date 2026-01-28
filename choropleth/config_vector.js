@@ -19,6 +19,7 @@ config = {
 	legendSuffix: "",
 	explainerAlignment: "left", // left or right, defaults to left
 	explainerPlaceholder: "EPC energy efficiency score",
+	explainerPlaceholderTextSize: "14px", // font-size for placeholder text (e.g., "0.9em", "14px", or a number for px)
 	explainerPrefix: "average EPC energy efficiency score in ",
 	explainerSuffix: "",
 	unavailablePrefix: "The value for",

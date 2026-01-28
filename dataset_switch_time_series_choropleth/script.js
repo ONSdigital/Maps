@@ -504,10 +504,11 @@ function setupUI() {
 }
 
 function setupData() {
-	detectGeographySource(config.geoUrl).then((sourceType) => {
+	const geoUrl = config.geoUrl || "../lib-maps/master-topo.json";
+	detectGeographySource(geoUrl).then((sourceType) => {
 		state.geographySource = sourceType;
 		return Promise.all([
-			sourceType === "vector" ? null : d3.json(config.geoUrl || "../lib-maps/master-topo.json"),
+			sourceType === "vector" ? null : d3.json(geoUrl),
 			loadDataset(0)
 		]);
 	}).then(([geog]) => {

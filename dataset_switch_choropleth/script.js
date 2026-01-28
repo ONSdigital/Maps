@@ -7,7 +7,7 @@ const state = {
 	hoveredAreaCode: null,
 	selectedAreaCode: null,
 	selectedAreaName: null,
-	geographySource: detectGeographySource(config.geoUrl),
+	geographySource: null,
 	pymChild: null,
 	selectedValueColumn: 0,
 	valueColumns: []
@@ -47,10 +47,12 @@ function drawMap(rateById, areaById, colour, data, breaks, areas) {
 	updateKeyInfo(undefined, undefined, state);
 }
 
-function setupData() {
+async function setupData() {
+	const geoUrl = config.geoUrl || "../lib-maps/master-topo.json";
+	state.geographySource = await detectGeographySource(geoUrl);
 	Promise.all([
 		d3.csv(config.dataUrl),
-		state.geographySource === "vector" ? null : d3.json(config.geoUrl || "../lib-maps/master-topo.json")
+		state.geographySource === "vector" ? null : d3.json(geoUrl)
 	]).then(([csv, geog]) => {
 		const data = csv;
 		let areas = geog;

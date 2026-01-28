@@ -10,7 +10,8 @@ Multi-dataset behaviour:
 	- breaksNumber
 	- valueFormat/Prefix/Suffix
 	- legendFormat/Prefix/Suffix
-    - explainerPlaceholder
+	- explainerPlaceholder
+	- explainerPlaceholderTextSize
     - explainerPrefix
     - explainerSuffix
     - unavailablePrefix
@@ -64,6 +65,7 @@ config = {
 	legendSuffix: "",
 	explainerAlignment: "right", // left or right
 	explainerPlaceholder: "Select an area",
+	explainerPlaceholderTextSize: "0.9em", // font-size for placeholder text (e.g., "0.9em", "14px", or a number for px)
 	explainerPrefix: "First time buyer mortgages in</br>",
 	explainerSuffix: ["<br>per 1,000 people</br>","</br>per 100 house sales"],
 	unavailablePrefix: "The value for",

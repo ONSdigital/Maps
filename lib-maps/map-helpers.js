@@ -779,13 +779,14 @@ export function setupMap(config, data, rateById, areaById, areas, colour, state)
         }
 
         data.forEach(d => {
-            const raw = d.value;
+            const code = d[config.dataIdField];
+            const raw = rateById ? rateById[code] : d.value;
             const value = (raw === null || typeof raw === 'undefined' || raw === '') ? NaN : +raw;
             const hasData = Number.isFinite(value);
             const unavailableColour = getConfigValue('colourUnavailable', state) ?? config.colourUnavailable ?? ONScolours.noData;
             const fillColor = hasData ? colour(value) : unavailableColour;
             state.map.setFeatureState(
-                { source: 'area', sourceLayer: (state.geographySource === "vector" ? config.geoLayer : ""), id: d[config.dataIdField] },
+                { source: 'area', sourceLayer: (state.geographySource === "vector" ? config.geoLayer : ""), id: code },
                 { value: hasData ? value : null, color: fillColor }
             );
         });

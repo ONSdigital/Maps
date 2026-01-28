@@ -8,6 +8,8 @@ Multi-dataset behaviour:
     - colourPalette
     - breaks
 	- breaksNumber
+	- valueFormat/Prefix/Suffix
+	- legendFormat/Prefix/Suffix
     - explainerPlaceholder
     - explainerPrefix
     - explainerSuffix
@@ -44,7 +46,7 @@ config = {
 	breaks: ["jenks","equal"], // can be "equal", "jenks", or a custom array of breaks - number of values in palette determines number of breaks
 	breaksNumber: [5, 5], // only needed if breaks is "equal" or "jenks" and colour palette is not an array (then this number defines how many breaks to calculate) - default is 5
 	valueFormat: ",.0f", // d3 format for values
-	valuePrefix: "£",
+	valuePrefix: ["£",""],
 	valueSuffix: "",
 	legendFormat: ",.0f",
 	legendPrefix: "£",

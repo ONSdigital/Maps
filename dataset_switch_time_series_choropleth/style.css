@@ -1,0 +1,45 @@
+/* Template-specific layout for time-series explorer */
+
+#controls {
+  max-width: 800px;
+  margin: 0 auto;
+}
+
+#dataset-switch-container {
+  margin: 10px 0;
+}
+
+#timeline-container {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 10px 0 6px 0;
+}
+
+#timeline-label {
+  font-weight: 700;
+  min-width: 60px;
+}
+
+#timeline-slider {
+  width: 100%;
+}
+
+#chartwrapper {
+  max-width: 800px;
+  margin: 10px auto 0 auto;
+}
+
+#chart {
+  width: 100%;
+}
+
+.chart-title {
+  font-weight: 700;
+  margin: 6px 0;
+}
+
+.chart-subtitle {
+  margin: 0 0 6px 0;
+  color: #4d4d4d;
+}

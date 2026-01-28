@@ -40,7 +40,7 @@ function drawMap(rateById, areaById, colour, data, breaks, areas) {
 		attributionControl: false,
 	});
 	// Draw the key scale
-	drawKeyScale({ keyscale, breaks, colour, config, window });
+	drawKeyScale({ keyscale, breaks, colour, config, window, state });
 
 	setupMap(config, data, rateById, areaById, areas, colour, state);
 
@@ -60,6 +60,8 @@ function setupData() {
 		areas = convertTopoJSONtoGeojson(areas, state.geographySource)
 
 		const { rateById, areaById } = buildValueAndAreaLookups(data, config, state)
+		state.rateById = rateById;
+		state.areaById = areaById;
 
 		let palette = getPalette(config, state);
 		let breaks = getBreaks(config, data, palette, state);

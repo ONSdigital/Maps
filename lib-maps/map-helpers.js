@@ -565,6 +565,13 @@ export function updateKeyInfo(value, areaName, state) {
         }
     }
     const explainerPlaceholder = getConfigValue('explainerPlaceholder', state) || '';
+    const explainerPlaceholderTextSize = getConfigValue('explainerPlaceholderTextSize', state);
+    const explainerPlaceholderFontSize = (typeof explainerPlaceholderTextSize === 'number')
+        ? `${explainerPlaceholderTextSize}px`
+        : explainerPlaceholderTextSize;
+    const explainerPlaceholderStyle = explainerPlaceholderFontSize
+        ? ` style="font-size:${explainerPlaceholderFontSize};"`
+        : '';
     const explainerPrefix = getConfigValue('explainerPrefix', state) || '';
     const explainerSuffix = getConfigValue('explainerSuffix', state) || '';
     const unavailablePrefix = getConfigValue('unavailablePrefix', state) || '';
@@ -580,7 +587,7 @@ export function updateKeyInfo(value, areaName, state) {
             explainerLine2.text('');
         } else {
             // Show placeholder in valueSel, clear explainer
-            valueSel.html(`<span class="keyinfo-placeholder">${explainerPlaceholder}</span>`);
+            valueSel.html(`<span class="keyinfo-placeholder"${explainerPlaceholderStyle}>${explainerPlaceholder}</span>`);
             explainerLine1.html('');
             explainerLine2.text('');
         }
@@ -737,18 +744,34 @@ export function getPalette(config, state) {
 }
 
 export function convertTopoJSONtoGeojson(areas, geographySource) {
+    const debug = config.debugInfo === true;
+    if (debug) {
+        console.log('[Map Debug] Geography source:', geographySource, '| geoUrl:', config.geoUrl || '(default master-topo.json)', '| geoLayer:', config.geoLayer, '| geoYear:', config.geoYear);
+    }
     if (geographySource !== "vector") {
         // Convert TopoJSON to GeoJSON
         if (areas.type !== "FeatureCollection") {
             const key = areas.objects[config.geoLayer] ? config.geoLayer : Object.keys(areas.objects)[0];
+            if (debug && key !== config.geoLayer) {
+                console.log('[Map Debug] geoLayer not found in topojson. Falling back to object key:', key);
+            }
             areas = topojson.feature(areas, areas.objects[key]);
-            if (geographySource === "topojson" && config.geoYear) {
-                areas.features = areas.features.filter(d => yearFilter(d.properties, config.geoYear));
+        }
+
+        if (config.geoYear && Array.isArray(areas.features)) {
+            const beforeCount = areas.features.length;
+            areas.features = areas.features.filter(d => yearFilter(d.properties || {}, config.geoYear));
+            if (debug) {
+                console.log('[Map Debug] Applied geoYear filter:', config.geoYear, '| features before:', beforeCount, '| after:', areas.features.length);
             }
         }
 
         if (config.geoCountries.length < 4) {
+            const beforeCount = areas.features.length;
             areas.features = areas.features.filter(d => config.geoCountries.includes(d.properties[config.geoIdField][0]));
+            if (debug) {
+                console.log('[Map Debug] Applied geoCountries filter:', config.geoCountries.join(','), '| features before:', beforeCount, '| after:', areas.features.length);
+            }
         }
     }
     return areas;

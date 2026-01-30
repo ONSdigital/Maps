@@ -2,7 +2,7 @@ config = {
 	debugInfo: true,
 	dataUrl: "data.csv",
 	geoUrl: "geog.json", //if null uses default topoJSON otherwise can be a .json file or vector tile service (e.g. 'https://cdn.ons.gov.uk/maptiles/administrative/2021/msoa/v2/boundaries/{z}/{x}/{y}.pbf')
-	geoYear: 2025, // only needed for default topoJSON
+	geoYear: 2014, // only needed for default topoJSON
 	geoLayer: "ltla", // source layer within default topoJSON or vector tile source
 	geoCountries: ["E", "W", "S", "N"], // which countries to include from default topoJSON - E, W, S, N
 	geoIdField: "AREACD", // feature property in geo file that matches id field in data file
@@ -22,6 +22,7 @@ config = {
 	legendSuffix: "",
 	explainerAlignment: "right", // left or right
 	explainerPlaceholder: "Mean monthly private rent price",
+	explainerPlaceholderTextSize: "0.9em", // font-size for placeholder text (e.g., "0.9em", "14px", or a number for px)
 	explainerPrefix: "Mean monthly private rent price in</br>", //can include HTML
 	explainerSuffix: "",
 	unavailablePrefix: "The value for",

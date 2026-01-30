@@ -10,7 +10,8 @@ Multi-dataset behaviour:
 	- breaksNumber
 	- valueFormat/Prefix/Suffix
 	- legendFormat/Prefix/Suffix
-    - explainerPlaceholder
+	- explainerPlaceholder
+	- explainerPlaceholderTextSize
     - explainerPrefix
     - explainerSuffix
     - unavailablePrefix
@@ -53,6 +54,7 @@ config = {
 	legendSuffix: "",
 	explainerAlignment: "right", // left or right
 	explainerPlaceholder: ["Mean monthly private rent price","Random value"], // if multiple datasets, provide array with one entry per dataset
+	explainerPlaceholderTextSize: ["0.9em", "0.9em"], // font-size for placeholder text per dataset
 	explainerPrefix: ["Mean monthly private rent price in</br>", "The made up value in "], //can include HTML
 	explainerSuffix: ["", " is"],
 	unavailablePrefix: "The value for",

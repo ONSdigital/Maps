@@ -41,19 +41,20 @@
   <div aria-hidden="true" id="legend"></div>
 
   <div id="mapwrapper">
-    <div id="graphic" aria-hidden="true">
-      <!-- <img src="fallback.png" alt="[Chart]" /> -->
+    <div id="mapstage">
+      <div id="graphic" aria-hidden="true">
+        <!-- <img src="fallback.png" alt="[Chart]" /> -->
+      </div>
+
+      <div id="chart-overlay" class="chart-overlay hidden" aria-hidden="true">
+        <button id="chart-overlay-close" class="chart-overlay-close" type="button" aria-label="Close chart">×</button>
+        <div id="chart"></div>
+      </div>
     </div>
     <div id="keycontainer">
       <div id="keyinfo"></div>
       <div id="keyscale"></div>
     </div>
-  </div>
-
-  <div id="chartwrapper" aria-hidden="true">
-    <div class="chart-title" id="chart-title">Selected area over time</div>
-    <div class="chart-subtitle" id="chart-subtitle">Select an area to see its trend.</div>
-    <div id="chart"></div>
   </div>
 
   <h5 id="source">

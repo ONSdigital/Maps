@@ -78,15 +78,44 @@ export function getElementHeightById(id) {
  */
 export async function setSearchText(value) {
     const searchBox = document.getElementById('search-box');
-    const searchDropdown = document.getElementById('search-box__listbox');
-    if (searchBox && searchDropdown) {
-        searchDropdown.style.visibility = "hidden";
+    if (searchBox) {
+        // Avoid focusing the input here: on mobile/narrow layouts this can
+        // expand the autocomplete dropdown and obscure the map after a map click.
         searchBox.value = value || "";
-        await sleep(110);
-        searchBox.focus({ preventScroll: true });
-        searchBox.blur();
-        searchDropdown.style.visibility = "visible";
+
+        if (document.activeElement === searchBox) searchBox.blur();
+
+        // Force-close the accessible-autocomplete menu if it is open.
+        forceHideSearchMenuUntilUserInteracts();
     }
+}
+
+function forceHideSearchMenuUntilUserInteracts() {
+    const input = document.getElementById('search-box');
+    if (!input) return;
+
+    const hide = () => {
+        const menu = document.querySelector('#search-container .autocomplete__menu');
+        const listbox = document.getElementById('search-box__listbox');
+        input.setAttribute('aria-expanded', 'false');
+        if (menu) menu.style.display = 'none';
+        if (listbox) listbox.style.display = 'none';
+    };
+
+    const unhide = () => {
+        const menu = document.querySelector('#search-container .autocomplete__menu');
+        const listbox = document.getElementById('search-box__listbox');
+        if (menu) menu.style.display = '';
+        if (listbox) listbox.style.display = '';
+    };
+
+    hide();
+
+    // Re-enable on next real user interaction with the input.
+    // (Use once listeners so we don't accumulate handlers.)
+    input.addEventListener('focus', unhide, { once: true });
+    input.addEventListener('input', unhide, { once: true });
+    input.addEventListener('keydown', unhide, { once: true });
 }
 
 // Sleep function. Used to synchronise actions

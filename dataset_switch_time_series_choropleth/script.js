@@ -2,6 +2,7 @@ import { initialise, addSource } from "../lib/helpers.js";
 import { drawKeyScale } from "../lib-maps/legend.js";
 import {
 	calculateBreaks,
+	clearAreaSelection,
 	convertTopoJSONtoGeojson,
 	detectGeographySource,
 	getLegendDecimals,
@@ -19,6 +20,7 @@ const state = {
 	selectedAreaName: null,
 	geographySource: null,
 	pymChild: null,
+	areasGeojson: null,
 
 	// dataset/time series
 	datasetIndex: 0,
@@ -381,10 +383,7 @@ function createChart() {
 			marker.style('opacity', 0);
 		}
 
-		const title = document.getElementById('chart-title');
-		const subtitle = document.getElementById('chart-subtitle');
-		if (title) title.textContent = areaName ? `${areaName} over time` : 'Selected area over time';
-		if (subtitle) subtitle.textContent = areaName ? `Scrub the slider to see ${t}.` : 'Select an area to see its trend.';
+		// Title/subtitle are intentionally omitted in the overlay UI.
 	}
 
 	return { update };
@@ -463,7 +462,10 @@ function drawMap(areas) {
 		// state.selectedAreaCode/name are already set by map/search helpers; this ensures chart refreshes
 		state.selectedAreaCode = code;
 		state.selectedAreaName = areaName;
+		setChartOverlayVisible(Boolean(code));
+
 		updateChart();
+		if (code) deferFocusSelectedArea();
 	};
 
 	state.map = new maplibregl.Map({
@@ -488,6 +490,7 @@ function drawMap(areas) {
 function setupUI() {
 	renderDatasetSwitch();
 	setTimelineUI();
+	setupChartOverlayUI();
 
 	const slider = document.getElementById('timeline-slider');
 	if (slider) {
@@ -500,6 +503,99 @@ function setupUI() {
 	window.addEventListener('resize', () => {
 		state.chart = null;
 		updateChart();
+		if (state.selectedAreaCode) deferFocusSelectedArea();
+	});
+}
+
+function setupChartOverlayUI() {
+	const closeBtn = document.getElementById('chart-overlay-close');
+	if (closeBtn) {
+		closeBtn.addEventListener('click', () => {
+			// Overlay should only be closed when there's no selected area.
+			// So this button clears the current selection.
+			if (state.selectedAreaCode) {
+				clearAreaSelection(state, config.geoLayer);
+			} else {
+				setChartOverlayVisible(false);
+			}
+		});
+	}
+
+	setChartOverlayVisible(false);
+}
+
+function setChartOverlayVisible(visible) {
+	const overlay = document.getElementById('chart-overlay');
+	if (!overlay) return;
+	const show = Boolean(visible);
+	overlay.classList.toggle('hidden', !show);
+	overlay.setAttribute('aria-hidden', show ? 'false' : 'true');
+}
+
+function getChartOverlayPadding() {
+	const overlay = document.getElementById('chart-overlay');
+	if (!overlay || overlay.classList.contains('hidden')) {
+		return { top: 10, right: 10, bottom: 20, left: 10 };
+	}
+	const rect = overlay.getBoundingClientRect();
+	const extra = 18;
+	return {
+		top: 10,
+		right: 10,
+		bottom: Math.round(rect.height + extra),
+		left: Math.round(rect.width + extra),
+	};
+}
+
+function maybeFocusSelectedArea() {
+	if (!state.map || !state.selectedAreaCode) return;
+	const overlay = document.getElementById('chart-overlay');
+	if (!overlay || overlay.classList.contains('hidden')) return;
+
+	const code = state.selectedAreaCode;
+	let feature = null;
+
+	if (state.areasGeojson && state.areasGeojson.features) {
+		feature = state.areasGeojson.features.find(f => f && f.properties && f.properties[config.geoIdField] === code) || null;
+	}
+
+	if (!feature) {
+		try {
+			const opts = state.geographySource === 'vector'
+				? { sourceLayer: config.geoLayer, filter: ['==', config.geoIdField, code] }
+				: { filter: ['==', config.geoIdField, code] };
+			const feats = state.map.querySourceFeatures('area', opts) || [];
+			feature = feats[0] || null;
+		} catch (e) {
+			// ignore
+		}
+	}
+
+	if (!feature) return;
+
+	let bounds;
+	try {
+		bounds = d3.geoBounds(feature);
+	} catch (e) {
+		return;
+	}
+	if (!bounds || !bounds[0] || !bounds[1]) return;
+
+	state.map.fitBounds(bounds, {
+		padding: getChartOverlayPadding(),
+		maxZoom: Math.min((config.maxZoom || 13), 9.5),
+		duration: 650,
+	});
+}
+
+function deferFocusSelectedArea() {
+	if (!state.selectedAreaCode) return;
+	// Allow overlay and SVG layout to settle, especially on small screens.
+	requestAnimationFrame(() => {
+		requestAnimationFrame(() => {
+			maybeFocusSelectedArea();
+			setTimeout(maybeFocusSelectedArea, 160);
+		});
 	});
 }
 
@@ -514,6 +610,7 @@ function setupData() {
 	}).then(([geog]) => {
 		let areas = geog;
 		areas = convertTopoJSONtoGeojson(areas, state.geographySource);
+		state.areasGeojson = (state.geographySource === 'vector') ? null : areas;
 		setupUI();
 		drawMap(areas);
 	});

@@ -823,7 +823,19 @@ export function setupMap(config, data, rateById, areaById, areas, colour, state)
             paint: {
                 'fill-color': ['feature-state', 'color'],
                 'fill-opacity': config.fillOpacity || 0.8,
-                'fill-outline-color': ONScolours.grey100
+                // 'fill-outline-color': ONScolours.grey100
+            }
+        }, 'place_town');
+
+        state.map.addLayer({
+            id: 'area-border',
+            type: 'line',
+            source: 'area',
+            "source-layer": state.geographySource === "vector" ? config.geoLayer : "",
+            layout: {},
+            paint: {
+                'line-color': 'grey',
+                'line-width': ['interpolate', ['linear'], ['zoom'], 6, 0.2, 11, 1]
             }
         }, 'place_town');
 

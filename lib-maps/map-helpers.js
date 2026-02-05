@@ -814,6 +814,9 @@ export function setupMap(config, data, rateById, areaById, areas, colour, state)
             );
         });
 
+        const baseFillOpacity = config.fillOpacity || 0.8;
+        const dimFillOpacity = (typeof config.legendDimOpacity === 'number') ? config.legendDimOpacity : 0.2;
+
         state.map.addLayer({
             id: 'area',
             type: 'fill',
@@ -822,7 +825,12 @@ export function setupMap(config, data, rateById, areaById, areas, colour, state)
             layout: {},
             paint: {
                 'fill-color': ['feature-state', 'color'],
-                'fill-opacity': config.fillOpacity || 0.8,
+                'fill-opacity': [
+                    'case',
+                    ['boolean', ['feature-state', 'legendActive'], false],
+                    ['case', ['boolean', ['feature-state', 'legendMatch'], false], baseFillOpacity, dimFillOpacity],
+                    baseFillOpacity
+                ],
                 'fill-outline-color': ONScolours.grey100
             }
         }, 'place_town');
@@ -854,6 +862,25 @@ export function setupMap(config, data, rateById, areaById, areas, colour, state)
                 'line-color': ONScolours.grey100,
                 'line-width': 2,
                 'line-opacity': ['case', ['==', ['feature-state', 'selected'], true], 0.4, 0],
+            }
+        }, 'area-hover');
+
+        // Legend hover outline layer (below hover outline)
+        state.map.addLayer({
+            id: 'area-legend-match',
+            type: 'line',
+            source: 'area',
+            "source-layer": state.geographySource === "vector" ? config.geoLayer : "",
+            layout: {},
+            paint: {
+                'line-color': ONScolours.grey100,
+                'line-width': 1.5,
+                'line-opacity': [
+                    'case',
+                    ['==', ['feature-state', 'legendMatch'], true],
+                    1,
+                    0
+                ]
             }
         }, 'area-hover');
 
@@ -1045,6 +1072,40 @@ export function setupMap(config, data, rateById, areaById, areas, colour, state)
                 }
             }
         });
+
+        // Legend hover handlers (from keyscale)
+        const sourceLayerName = (state.geographySource === "vector" ? config.geoLayer : "");
+        const legendCodes = data.map(d => d[config.dataIdField]);
+
+        function setLegendHover(range) {
+            if (!state.map) return;
+            const min = range.min;
+            const max = range.max;
+            const isLast = range.isLast === true;
+
+            for (const code of legendCodes) {
+                const raw = rateById ? rateById[code] : null;
+                const value = (raw === null || typeof raw === 'undefined' || raw === '') ? NaN : +raw;
+                const match = Number.isFinite(value) && value >= min && (isLast ? value <= max : value < max);
+                state.map.setFeatureState(
+                    { source: 'area', sourceLayer: sourceLayerName, id: code },
+                    { legendActive: true, legendMatch: match }
+                );
+            }
+        }
+
+        function clearLegendHover() {
+            if (!state.map) return;
+            for (const code of legendCodes) {
+                state.map.setFeatureState(
+                    { source: 'area', sourceLayer: sourceLayerName, id: code },
+                    { legendActive: false, legendMatch: false }
+                );
+            }
+        }
+
+        state.onLegendRangeHover = setLegendHover;
+        state.onLegendRangeLeave = clearLegendHover;
 
         if (state.pymChild) state.pymChild.sendHeight();
 

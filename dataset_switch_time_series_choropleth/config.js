@@ -70,8 +70,9 @@ config = {
 	explainerSuffix: ["<br>per 1,000 people</br>","</br>per 100 house sales"],
 	unavailablePrefix: "The value for",
 	unavailableSuffix: "is unavailable", //could change to suppressed if purposefully suppressed
-	mapBounds: [[-7, 50.2], [1.77, 59]], // UK bounds (Shetland cut off a bit): [[-8.62, 48.87], [1.77, 60.84]] England and Wales: [[-6.43, 50], [1.77, 55.81]]
+	mapBounds: [[-7, 50.2], [1.77, 59]], // Set to "auto" to use GeoJSON/TopoJSON extents (not supported for vector tiles). Ensure maxBounds and minZoom are set so the auto view displays correctly. UK bounds (Shetland cut off a bit): [[-8.62, 48.87], [1.77, 60.84]] England and Wales: [[-6.43, 50], [1.77, 55.81]]
 	maxBounds: [[-14, 46], [8, 62]], // restrict panning to these bounds
+
 	minZoom: 4.3,
 	maxZoom: 13,
 	fillOpacity: 0.8,

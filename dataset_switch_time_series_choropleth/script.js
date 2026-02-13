@@ -6,6 +6,7 @@ import {
 	detectGeographySource,
 	getLegendDecimals,
 	getPalette,
+	resolveAutoMapBounds,
 	setupMap,
 	setupSearch,
 	updateKeyInfo,
@@ -514,6 +515,7 @@ function setupData() {
 	}).then(([geog]) => {
 		let areas = geog;
 		areas = convertTopoJSONtoGeojson(areas, state.geographySource);
+		resolveAutoMapBounds(config, areas, state.geographySource);
 		setupUI();
 		drawMap(areas);
 	});

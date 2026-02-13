@@ -1,5 +1,5 @@
 import { initialise, addSource } from "../lib/helpers.js";
-import { detectGeographySource, getLegendDecimals, calculateBreaks, buildValueAndAreaLookups, getPalette, convertTopoJSONtoGeojson, setupSearch, updateKeyInfo, setupMap } from "../lib-maps/map-helpers.js";
+import { detectGeographySource, getLegendDecimals, calculateBreaks, buildValueAndAreaLookups, getPalette, convertTopoJSONtoGeojson, setupSearch, updateKeyInfo, setupMap, resolveAutoMapBounds } from "../lib-maps/map-helpers.js";
 import { drawKeyScale } from "../lib-maps/legend.js";
 
 const state = {
@@ -60,6 +60,7 @@ async function setupData() {
 		let areas = geog;
 
 		areas = convertTopoJSONtoGeojson(areas, state.geographySource)
+		resolveAutoMapBounds(config, areas, state.geographySource);
 
 		// Set up value lookup and breaks
 		const { rateById, areaById } = buildValueAndAreaLookups(data, config, state)

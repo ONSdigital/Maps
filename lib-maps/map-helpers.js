@@ -130,11 +130,83 @@ export function collectCoords(geometry) {
 
 export function calculateBounds(coords) {
     if (!coords.length) return null;
-    let lons = coords.map(c => c[0]);
-    let lats = coords.map(c => c[1]);
-    let minLon = Math.min(...lons), maxLon = Math.max(...lons);
-    let minLat = Math.min(...lats), maxLat = Math.max(...lats);
+    let minLon = Infinity;
+    let maxLon = -Infinity;
+    let minLat = Infinity;
+    let maxLat = -Infinity;
+
+    for (const coord of coords) {
+        if (!Array.isArray(coord) || coord.length < 2) continue;
+        const lon = coord[0];
+        const lat = coord[1];
+        if (!Number.isFinite(lon) || !Number.isFinite(lat)) continue;
+        if (lon < minLon) minLon = lon;
+        if (lon > maxLon) maxLon = lon;
+        if (lat < minLat) minLat = lat;
+        if (lat > maxLat) maxLat = lat;
+    }
+
+    if (!Number.isFinite(minLon) || !Number.isFinite(minLat)) return null;
     return [[minLon, minLat], [maxLon, maxLat]];
+}
+
+export function boundsContain(outer, inner) {
+    if (!Array.isArray(outer) || !Array.isArray(inner)) return false;
+    if (!outer[0] || !outer[1] || !inner[0] || !inner[1]) return false;
+    return outer[0][0] <= inner[0][0]
+        && outer[0][1] <= inner[0][1]
+        && outer[1][0] >= inner[1][0]
+        && outer[1][1] >= inner[1][1];
+}
+
+export function calculateBoundsFromGeojson(areas) {
+    if (!areas) return null;
+    let allCoords = [];
+
+    if (areas.type === 'FeatureCollection' && Array.isArray(areas.features)) {
+        areas.features.forEach(feature => {
+            if (!feature || !feature.geometry) return;
+            allCoords.push(...collectCoords(feature.geometry));
+        });
+    } else if (areas.type === 'Feature' && areas.geometry) {
+        allCoords = collectCoords(areas.geometry);
+    } else if (areas.type) {
+        allCoords = collectCoords(areas);
+    }
+
+    if (!allCoords.length) return null;
+    return calculateBounds(allCoords);
+}
+
+export function resolveAutoMapBounds(config, areas, geographySource) {
+    if (!config || typeof config.mapBounds !== 'string') return;
+    if (config.mapBounds.toLowerCase() !== 'auto') return;
+
+    if (geographySource === 'vector') {
+        if (config.debugInfo) {
+            console.warn("[Map Debug] mapBounds 'auto' is only supported for GeoJSON/TopoJSON sources. Falling back to maxBounds.");
+        }
+        if (Array.isArray(config.maxBounds)) {
+            config.mapBounds = config.maxBounds;
+        }
+        return;
+    }
+
+    const autoBounds = calculateBoundsFromGeojson(areas);
+    if (autoBounds) {
+        config.mapBounds = autoBounds;
+        config.__autoMapBounds = autoBounds;
+        if (config.debugInfo) {
+            console.log('[Map Debug] mapBounds auto resolved to:', autoBounds);
+        }
+        if (Array.isArray(config.maxBounds) && !boundsContain(config.maxBounds, autoBounds)) {
+            if (config.debugInfo) {
+                console.warn("[Map Debug] mapBounds 'auto' exceeds maxBounds; map view may be constrained.");
+            }
+        }
+    } else if (config.debugInfo) {
+        console.warn("[Map Debug] mapBounds 'auto' could not be resolved from the provided geography.");
+    }
 }
 
 
@@ -790,6 +862,20 @@ export function buildValueAndAreaLookups(data, config, state) {
 
 export function setupMap(config, data, rateById, areaById, areas, colour, state) {
     state.map.on('load', () => {
+
+        if (config.debugInfo && Array.isArray(config.__autoMapBounds)) {
+            const viewBounds = state.map.getBounds().toArray();
+            if (!boundsContain(viewBounds, config.__autoMapBounds)) {
+                let zoomNote = '';
+                const z = state.map.getZoom();
+                if (typeof config.minZoom === 'number' && z <= config.minZoom + 1e-6) {
+                    zoomNote = ' Current zoom is at minZoom.';
+                } else if (typeof config.maxZoom === 'number' && z >= config.maxZoom - 1e-6) {
+                    zoomNote = ' Current zoom is at maxZoom.';
+                }
+                console.warn("[Map Debug] mapBounds 'auto' exceeds the initial view; maxBounds/minZoom/maxZoom may be constraining the fit." + zoomNote);
+            }
+        }
 
         if (state.geographySource === "vector") {
 

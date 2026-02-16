@@ -396,6 +396,26 @@ export function setupSearch(areas, config, state, rateById, areaById) {
                 `<svg class="${opts?.className}" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" viewBox="0 0 11.75 7.7" width="18" style="z-index:1"><path fill="currentColor" d="m1.37.15 4.5 5.1 4.5-5.1a.37.37 0 0 1 .6 0l.7.7a.45.45 0 0 1 0 .5l-5.5 6.2a.37.37 0 0 1-.6 0l-5.5-6.1a.64.64 0 0 1 0-.6l.7-.7a.64.64 0 0 1 .6 0Z"></path></svg>`
         });
 
+        const searchInput = document.getElementById(searchBoxId);
+        const listboxId = `${searchBoxId}__listbox`;
+
+        const syncAutocompleteTabOrder = () => {
+            const listbox = document.getElementById(listboxId);
+            if (!listbox) return;
+            listbox.setAttribute('tabindex', '-1');
+            listbox.querySelectorAll('[role="option"]').forEach(option => {
+                option.setAttribute('tabindex', '-1');
+            });
+        };
+
+        if (searchInput) {
+            const scheduleSync = () => requestAnimationFrame(syncAutocompleteTabOrder);
+            ['focus', 'blur', 'input', 'keydown', 'keyup', 'change'].forEach(evt => {
+                searchInput.addEventListener(evt, scheduleSync);
+            });
+            scheduleSync();
+        }
+
         // Function to populate search results
         async function searchSuggest(query, populateResults) {
             const safeQuery = query.replace(/[^\w\s]/gi, ""); // Remove special characters

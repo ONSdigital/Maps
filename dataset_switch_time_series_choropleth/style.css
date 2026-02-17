@@ -6,11 +6,11 @@
 }
 
 #dataset-switch-container {
-  margin: 10px 0;
+  margin: 6px 0 4px 0;
 }
 
 #timeline-container {
-  margin: 10px 0 6px 0;
+  margin: 6px 0 2px 0;
   padding: 0 12px;
   box-sizing: border-box;
 }
@@ -22,7 +22,7 @@
 /* Custom timeline slider */
 #timeline-slider.timeline-slider {
   position: relative;
-  height: 76px;
+  height: 64px;
   user-select: none;
   -webkit-user-select: none;
   /* Allow page to scroll vertically, but keep horizontal drags for scrubbing */

@@ -34,12 +34,12 @@
 }
 
 #timeline-slider.timeline-slider:focus-visible .timeline-marker.is-active {
-  box-shadow: 0 0 0 3px #f39431; /* ONScolours.highlightOrange */
+  box-shadow: 0 0 0 3px var(--ons-color-highlight-orange);
 }
 
 /* While dragging, keep the highlight following the active marker */
 #timeline-slider.timeline-slider.is-dragging .timeline-marker.is-active {
-  box-shadow: 0 0 0 3px #f39431; /* ONScolours.highlightOrange */
+  box-shadow: 0 0 0 3px var(--ons-color-highlight-orange);
 }
 
 .timeline-track {
@@ -48,18 +48,19 @@
   right: 0;
   top: 18px;
   height: 2px;
-  background: #707071; /* ONScolours.grey75 */
+  transform: translateY(-50%);
+  background: var(--ons-color-grey-50);
 }
 
 .timeline-marker {
   position: absolute;
   top: 18px;
   transform: translate(-50%, -50%);
-  width: 8px;
-  height: 8px;
+  width: 10px;
+  height: 10px;
   border-radius: 50%;
-  background: transparent;
-  border: 2px solid #707071; /* ONScolours.grey75 */
+  background: var(--ons-color-white); /* masks the track behind inactive markers */
+  border: 2px solid var(--ons-color-grey-50);
   padding: 0;
   margin: 0;
   cursor: pointer;
@@ -67,23 +68,24 @@
   -webkit-appearance: none;
   color: inherit;
   touch-action: none;
+  z-index: 1;
 }
 
 .timeline-marker.is-complete {
-  background: #003c57; /* ONScolours.nightBlue */
-  border-color: #003c57;
+  background: var(--ons-color-ocean-blue);
+  border-color: var(--ons-color-ocean-blue);
 }
 
 .timeline-marker.is-active {
-  width: 20px;
-  height: 20px;
-  background: #003c57; /* ONScolours.nightBlue */
-  border-color: #003c57;
+  width: 22px;
+  height: 22px;
+  background: var(--ons-color-ocean-blue);
+  border-color: var(--ons-color-ocean-blue);
   z-index: 2;
 }
 
 .timeline-marker:focus-visible {
-  outline: 3px solid #f39431; /* ONScolours.highlightOrange */
+  outline: 3px solid var(--ons-color-highlight-orange);
   outline-offset: 3px;
 }
 
@@ -91,23 +93,25 @@
   position: absolute;
   top: 34px;
   transform: translateX(-50%);
-  background: #003c57; /* ONScolours.nightBlue */
-  color: #fff;
+  background: var(--ons-color-ocean-blue);
+  color: var(--ons-color-white);
   font-weight: 700;
-  font-size: 12px;
+  font-size: 15px;
   line-height: 1;
   padding: 6px 10px;
   border-radius: 999px;
   white-space: nowrap;
+  z-index: 1;
 }
 
 .timeline-tick {
   position: absolute;
-  top: 56px;
+  top: 34px;
   transform: translateX(-50%);
-  font-size: 11px;
-  color: #707071; /* ONScolours.grey75 */
+  font-size: 13px;
+  color: var(--ons-color-grey-50);
   white-space: nowrap;
+  z-index: 0;
 }
 
 /* Map stage (map + overlay elements) */
@@ -125,7 +129,7 @@
   width: min(420px, calc(100% - 24px));
   overflow: hidden;
 
-  background: #fff;
+  background: var(--ons-color-white);
   border: 1px solid rgba(0, 0, 0, 0.15);
   border-radius: 8px;
   box-shadow: 0 10px 30px rgba(0, 0, 0, 0.18);
@@ -144,7 +148,7 @@
   height: 32px;
   border-radius: 8px;
   border: 1px solid rgba(0, 0, 0, 0.15);
-  background: #fff;
+  background: var(--ons-color-white);
   cursor: pointer;
   font-size: 22px;
   line-height: 28px;
@@ -152,7 +156,7 @@
 }
 
 .chart-overlay-close:hover {
-  background: #f3f3f3;
+  background: var(--ons-color-grey-10);
 }
 
 #chart {

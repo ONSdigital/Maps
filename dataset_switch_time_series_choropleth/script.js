@@ -27,6 +27,7 @@ const state = {
 	datasetIndex: 0,
 	timeColumns: [],
 	timeIndex: 0,
+	selectedTimeRaw: null,
 	seriesById: {},
 	meanSeries: [],
 	breaks: null,
@@ -177,21 +178,350 @@ function ensureBreaksAndLegend() {
 	drawKeyScale({ keyscale, breaks: state.breaks, colour: state.colour, config, window, state });
 }
 
-function setTimelineUI() {
-	const slider = document.getElementById('timeline-slider');
-	const label = document.getElementById('timeline-label');
-	if (!slider || !label) return;
+let __timelineWired = false;
 
-	slider.min = '0';
-	slider.max = String(Math.max(0, state.timeColumns.length - 1));
-	slider.step = '1';
-	slider.value = String(state.timeIndex);
-	label.textContent = state.timeColumns[state.timeIndex] || '';
+function getNearestTimelineIndexFromClientX(container, clientX) {
+	if (!container) return 0;
+	const positions = container.__timelinePositions || null;
+	if (!positions || !positions.length) return 0;
+	const rect = container.getBoundingClientRect();
+	const localX = clientX - rect.left;
+
+	let bestIndex = 0;
+	let bestDist = Infinity;
+	for (const p of positions) {
+		const dist = Math.abs(p.x - localX);
+		if (dist < bestDist) {
+			bestDist = dist;
+			bestIndex = p.index;
+		}
+	}
+	return bestIndex;
+}
+
+function beginTimelineDrag(container, event, captureElement) {
+	if (!container || !event) return;
+	const pointerId = event.pointerId;
+	if (typeof pointerId !== 'number') return;
+
+	// Avoid double-binding if something already captured.
+	if (container.__timelineDragging) return;
+	container.__timelineDragging = true;
+	container.classList.add('is-dragging');
+
+	// If the user started from a focused marker, keep focus following the active step while scrubbing.
+	const startedOnMarker = Boolean(event.target && event.target.closest && event.target.closest('button.timeline-marker'));
+	// If the user starts dragging on the track/background, ensure the slider itself has focus
+	// so ArrowLeft/ArrowRight works immediately after scrubbing.
+	if (!startedOnMarker && event.pointerType !== 'touch') {
+		try { container.focus({ preventScroll: true }); } catch (e) { /* ignore */ }
+	}
+
+	const captureEl = captureElement || event.currentTarget || container;
+	try {
+		if (captureEl && captureEl.setPointerCapture) captureEl.setPointerCapture(pointerId);
+	} catch (e) {
+		// ignore
+	}
+
+	let latestX = event.clientX;
+	let rafId = null;
+
+	const apply = () => {
+		rafId = null;
+		const next = getNearestTimelineIndexFromClientX(container, latestX);
+		setTimeIndex(next);
+
+		if (startedOnMarker) {
+			const activeBtn = container.querySelector(`button.timeline-marker[data-index="${state.timeIndex}"]`);
+			if (activeBtn && document.activeElement && document.activeElement.classList && document.activeElement.classList.contains('timeline-marker')) {
+				try { activeBtn.focus(); } catch (e) { /* ignore */ }
+			}
+		}
+	};
+
+	const onMove = (e) => {
+		if (e.pointerId !== pointerId) return;
+		// Prevent the browser from interpreting this as a scroll while scrubbing.
+		if (e.pointerType === 'touch') {
+			try { e.preventDefault(); } catch (err) { /* ignore */ }
+		}
+		latestX = e.clientX;
+		if (rafId) return;
+		rafId = requestAnimationFrame(apply);
+	};
+
+	const end = (e) => {
+		if (e.pointerId !== pointerId) return;
+		container.__timelineDragging = false;
+		container.classList.remove('is-dragging');
+		if (!startedOnMarker && e.pointerType !== 'touch') {
+			try { container.focus({ preventScroll: true }); } catch (err) { /* ignore */ }
+		}
+		if (rafId) {
+			cancelAnimationFrame(rafId);
+			rafId = null;
+		}
+		window.removeEventListener('pointermove', onMove);
+		window.removeEventListener('pointerup', end);
+		window.removeEventListener('pointercancel', end);
+		try {
+			if (captureEl && captureEl.releasePointerCapture) captureEl.releasePointerCapture(pointerId);
+		} catch (err) {
+			// ignore
+		}
+	};
+
+	window.addEventListener('pointermove', onMove, { passive: false });
+	window.addEventListener('pointerup', end);
+	window.addEventListener('pointercancel', end);
+
+	// Apply immediately at the start position.
+	apply();
+}
+
+function getTimelineConfig() {
+	const t = (config && config.timeline) ? config.timeline : {};
+	return {
+		displayFormat: t.displayFormat || '%Y',
+		screenreaderFormat: t.screenreaderFormat || t.displayFormat || '%Y',
+		parseFormat: t.parseFormat || null,
+		ariaLabel: t.ariaLabel || 'Timeline'
+	};
+}
+
+function parseTimeColumn(raw) {
+	const str = String(raw ?? '').trim();
+	if (!str) return null;
+
+	const t = getTimelineConfig();
+	if (t.parseFormat) {
+		const parse = d3.timeParse(t.parseFormat);
+		const d = parse(str);
+		return d && Number.isFinite(d.getTime()) ? d : null;
+	}
+
+	// Heuristic parsing for common header formats
+	if (/^\d{4}$/.test(str)) return new Date(+str, 0, 1);
+	if (/^\d{4}-\d{2}$/.test(str)) return new Date(+str.slice(0, 4), +str.slice(5, 7) - 1, 1);
+	if (/^\d{4}-\d{2}-\d{2}$/.test(str)) {
+		const d = new Date(`${str}T00:00:00`);
+		return Number.isFinite(d.getTime()) ? d : null;
+	}
+
+	// Last resort: try Date parsing
+	const d = new Date(str);
+	return Number.isFinite(d.getTime()) ? d : null;
+}
+
+function buildTimelineItems() {
+	const t = getTimelineConfig();
+	const fmtDisplay = d3.timeFormat(t.displayFormat);
+	const fmtSR = d3.timeFormat(t.screenreaderFormat);
+
+	return state.timeColumns.map((raw, index) => {
+		const date = parseTimeColumn(raw);
+		const display = date ? fmtDisplay(date) : String(raw);
+		const srText = date ? fmtSR(date) : String(raw);
+		return { raw: String(raw), index, date, display, srText };
+	});
+}
+
+function ensureTimelineScaffold(container) {
+	container.classList.add('timeline-slider');
+	container.setAttribute('role', 'slider');
+	container.setAttribute('tabindex', '0');
+
+	const t = getTimelineConfig();
+	container.setAttribute('aria-label', t.ariaLabel);
+
+	if (!container.querySelector('.timeline-track')) {
+		const track = document.createElement('div');
+		track.className = 'timeline-track';
+		container.appendChild(track);
+	}
+	if (!container.querySelector('.timeline-pill')) {
+		const pill = document.createElement('div');
+		pill.className = 'timeline-pill';
+		container.appendChild(pill);
+	}
+}
+
+function renderTimeline() {
+	const container = document.getElementById('timeline-slider');
+	if (!container) return;
+	ensureTimelineScaffold(container);
+
+	const items = buildTimelineItems();
+	const maxIdx = Math.max(0, items.length - 1);
+	const clamped = Math.max(0, Math.min(state.timeIndex, maxIdx));
+	state.timeIndex = clamped;
+
+	container.setAttribute('aria-valuemin', '0');
+	container.setAttribute('aria-valuemax', String(maxIdx));
+	container.setAttribute('aria-valuenow', String(state.timeIndex));
+	container.setAttribute('aria-valuetext', items[state.timeIndex] ? items[state.timeIndex].srText : '');
+
+	const width = container.clientWidth || 0;
+	if (!width || items.length === 0) return;
+	const padding = 10;
+
+	let allHaveDates = items.length > 1 && items.every(d => d.date instanceof Date && Number.isFinite(d.date.getTime()));
+	let timeDomain = null;
+	if (allHaveDates) {
+		timeDomain = d3.extent(items, d => d.date);
+		if (!timeDomain || !timeDomain[0] || !timeDomain[1] || timeDomain[0].getTime() === timeDomain[1].getTime()) {
+			allHaveDates = false;
+		}
+	}
+
+	const x = allHaveDates
+		? d3.scaleTime().domain(timeDomain).range([padding, width - padding])
+		: d3.scalePoint().domain(items.map(d => d.index)).range([padding, width - padding]);
+
+	// Cache discrete positions for drag snapping.
+	container.__timelinePositions = items.map(d => {
+		const px = allHaveDates ? x(d.date) : x(d.index);
+		return { index: d.index, x: px };
+	});
+
+	const markersSel = d3.select(container)
+		.selectAll('button.timeline-marker')
+		.data(items, d => d.raw);
+
+	markersSel.exit().remove();
+
+	const markersEnter = markersSel.enter()
+		.append('button')
+		.attr('type', 'button')
+		.attr('class', 'timeline-marker')
+		.attr('role', 'button')
+		.attr('tabindex', 0)
+		.on('pointerdown', (event, d) => {
+			// Allow click-to-set and drag-to-scrub from a marker (especially the active one)
+			event.preventDefault();
+			try { event.currentTarget.focus(); } catch (e) { /* ignore */ }
+			beginTimelineDrag(container, event, event.currentTarget);
+			setTimeIndex(d.index);
+		})
+		.on('keydown', (event, d) => {
+			const key = event.key;
+			if (key === 'Enter' || key === ' ') {
+				event.preventDefault();
+				event.stopPropagation();
+				setTimeIndex(d.index);
+				const activeBtn = container.querySelector(`button.timeline-marker[data-index="${state.timeIndex}"]`);
+				if (activeBtn) {
+					try { activeBtn.focus(); } catch (e) { /* ignore */ }
+				}
+				return;
+			}
+			if (key === 'ArrowLeft') {
+				event.preventDefault();
+				event.stopPropagation();
+				setTimeIndex(state.timeIndex - 1);
+				const prev = container.querySelector(`button.timeline-marker[data-index="${state.timeIndex}"]`);
+				if (prev) {
+					try { prev.focus(); } catch (e) { /* ignore */ }
+				}
+				return;
+			}
+			if (key === 'ArrowRight') {
+				event.preventDefault();
+				event.stopPropagation();
+				setTimeIndex(state.timeIndex + 1);
+				const next = container.querySelector(`button.timeline-marker[data-index="${state.timeIndex}"]`);
+				if (next) {
+					try { next.focus(); } catch (e) { /* ignore */ }
+				}
+				return;
+			}
+		});
+
+	const markersAll = markersEnter.merge(markersSel);
+	markersAll
+		.attr('data-index', d => String(d.index))
+		.attr('aria-label', d => d.srText)
+		.classed('is-complete', d => d.index <= state.timeIndex)
+		.classed('is-active', d => d.index === state.timeIndex)
+		.style('left', d => {
+			const px = allHaveDates ? x(d.date) : x(d.index);
+			return `${px}px`;
+		});
+
+	// Tick labels
+	const ticksSel = d3.select(container)
+		.selectAll('div.timeline-tick')
+		.data(items, d => d.raw);
+
+	ticksSel.exit().remove();
+
+	const ticksEnter = ticksSel.enter()
+		.append('div')
+		.attr('class', 'timeline-tick');
+
+	ticksEnter.merge(ticksSel)
+		.text(d => d.display)
+		.style('left', d => {
+			const px = allHaveDates ? x(d.date) : x(d.index);
+			return `${px}px`;
+		});
+
+	// Active pill label
+	const pill = container.querySelector('.timeline-pill');
+	if (pill && items[state.timeIndex]) {
+		const active = items[state.timeIndex];
+		pill.textContent = active.display;
+		const px = allHaveDates ? x(active.date) : x(active.index);
+		pill.style.left = `${px}px`;
+		pill.style.display = '';
+	} else if (pill) {
+		pill.style.display = 'none';
+	}
+}
+
+function wireTimelineEvents() {
+	if (__timelineWired) return;
+	__timelineWired = true;
+	const container = document.getElementById('timeline-slider');
+	if (!container) return;
+
+	// Click/drag on the track area should scrub too (useful on touch).
+	container.addEventListener('pointerdown', (event) => {
+		// Buttons handle their own pointerdown; avoid starting a second drag.
+		if (event.target && event.target.closest && event.target.closest('button.timeline-marker')) return;
+		event.preventDefault();
+		if (event.pointerType !== 'touch') {
+			try { container.focus({ preventScroll: true }); } catch (e) { /* ignore */ }
+		}
+		beginTimelineDrag(container, event, container);
+	});
+
+	container.addEventListener('keydown', (event) => {
+		// If a marker has focus, it handles its own keydown.
+		if (event.target !== container) return;
+		if (event.key === 'ArrowLeft') {
+			event.preventDefault();
+			setTimeIndex(state.timeIndex - 1);
+			return;
+		}
+		if (event.key === 'ArrowRight') {
+			event.preventDefault();
+			setTimeIndex(state.timeIndex + 1);
+			return;
+		}
+	});
+}
+
+function setTimelineUI() {
+	wireTimelineEvents();
+	renderTimeline();
 }
 
 function setTimeIndex(nextIndex) {
 	const clamped = Math.max(0, Math.min(nextIndex, state.timeColumns.length - 1));
 	state.timeIndex = clamped;
+	state.selectedTimeRaw = state.timeColumns[clamped] ?? null;
 	setTimelineUI();
 
 	updateRateByIdForTime();
@@ -421,6 +751,10 @@ async function loadDataset(datasetIndex) {
 	const ds = datasets[datasetIndex] || datasets[0];
 	state.datasetIndex = datasetIndex;
 
+	// Capture the current selection so we can retain it across dataset switches.
+	const prevSelectedRaw = state.selectedTimeRaw || state.timeColumns[state.timeIndex] || null;
+	const prevSelectedDate = prevSelectedRaw ? parseTimeColumn(prevSelectedRaw) : null;
+
 	const csv = await d3.csv(ds.url);
 	const { timeColumns, seriesById, areaById, meanSeries } = buildSeriesStore(csv);
 	state.timeColumns = timeColumns;
@@ -431,10 +765,34 @@ async function loadDataset(datasetIndex) {
 	for (const k of Object.keys(state.areaById)) delete state.areaById[k];
 	Object.assign(state.areaById, areaById);
 
-	// Initial timeline position: config.startTime if present, otherwise default to last.
-	const desired = typeof config.startTime === 'string' ? config.startTime : null;
-	const idx = desired ? state.timeColumns.indexOf(desired) : -1;
-	state.timeIndex = idx >= 0 ? idx : Math.max(0, state.timeColumns.length - 1);
+	// Initial timeline position:
+	// 1) Retain previous selected time (exact header match, else nearest parsed date)
+	// 2) config.startTime if present
+	// 3) default to last
+	let nextIdx = -1;
+	if (prevSelectedRaw) {
+		nextIdx = state.timeColumns.indexOf(prevSelectedRaw);
+		if (nextIdx < 0 && prevSelectedDate && Number.isFinite(prevSelectedDate.getTime())) {
+			let best = -1;
+			let bestDist = Infinity;
+			for (let i = 0; i < state.timeColumns.length; i++) {
+				const d = parseTimeColumn(state.timeColumns[i]);
+				if (!d || !Number.isFinite(d.getTime())) continue;
+				const dist = Math.abs(d.getTime() - prevSelectedDate.getTime());
+				if (dist < bestDist) {
+					bestDist = dist;
+					best = i;
+				}
+			}
+			nextIdx = best;
+		}
+	}
+	if (nextIdx < 0) {
+		const desired = typeof config.startTime === 'string' ? config.startTime : null;
+		nextIdx = desired ? state.timeColumns.indexOf(desired) : -1;
+	}
+	state.timeIndex = nextIdx >= 0 ? nextIdx : Math.max(0, state.timeColumns.length - 1);
+	state.selectedTimeRaw = state.timeColumns[state.timeIndex] ?? null;
 	updateRateByIdForTime();
 	buildDataForMap();
 	computeBreaksForDataset();
@@ -492,18 +850,14 @@ function setupUI() {
 	renderDatasetSwitch();
 	setTimelineUI();
 	setupChartOverlayUI();
-
-	const slider = document.getElementById('timeline-slider');
-	if (slider) {
-		slider.addEventListener('input', () => {
-			setTimeIndex(+slider.value);
-		});
-	}
+	// Ensure timeline is positioned correctly once layout is stable.
+	requestAnimationFrame(() => renderTimeline());
 
 	// Keep chart responsive
 	window.addEventListener('resize', () => {
 		state.chart = null;
 		updateChart();
+		renderTimeline();
 		if (state.selectedAreaCode) deferFocusSelectedArea();
 	});
 }

@@ -57,6 +57,17 @@ config = {
 	// Timeline start position. If null/undefined or not found in the data headers, defaults to the last time point.
 	// Example: startTime: "2011"
 	startTime: null,
+	// Timeline display and accessibility formatting
+	// - displayFormat controls the labels under the track and the active pill label
+	// - screenreaderFormat controls aria-valuetext (e.g. "January 2004")
+	// - parseFormat (optional) is a d3.timeParse format used to parse CSV header strings into Date objects
+	//   If omitted, the template will attempt a simple heuristic parse (YYYY, YYYY-MM, YYYY-MM-DD).
+	timeline: {
+		displayFormat: "%Y",
+		screenreaderFormat: "%B %Y",
+		parseFormat: null,
+		ariaLabel: "Select time period"
+	},
 	valueFormat: ",.1f", // d3 format for values
 	valuePrefix: "",
 	valueSuffix: "",

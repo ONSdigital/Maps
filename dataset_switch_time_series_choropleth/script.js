@@ -286,8 +286,13 @@ function getTimelineConfig() {
 		displayFormat: t.displayFormat || '%Y',
 		screenreaderFormat: t.screenreaderFormat || t.displayFormat || '%Y',
 		parseFormat: t.parseFormat || null,
-		ariaLabel: t.ariaLabel || 'Timeline'
+		ariaLabel: t.ariaLabel || 'Timeline',
+		keyboardStep: Number.isFinite(+t.keyboardStep) && +t.keyboardStep > 1 ? Math.floor(+t.keyboardStep) : 5
 	};
+}
+
+function getTimelineKeyboardStep() {
+	return getTimelineConfig().keyboardStep;
 }
 
 function parseTimeColumn(raw) {
@@ -416,10 +421,50 @@ function renderTimeline() {
 				}
 				return;
 			}
+			if (key === 'Home') {
+				event.preventDefault();
+				event.stopPropagation();
+				setTimeIndex(0);
+				const first = container.querySelector(`button.timeline-marker[data-index="0"]`);
+				if (first) {
+					try { first.focus(); } catch (e) { /* ignore */ }
+				}
+				return;
+			}
+			if (key === 'End') {
+				event.preventDefault();
+				event.stopPropagation();
+				setTimeIndex(maxIdx);
+				const last = container.querySelector(`button.timeline-marker[data-index="${state.timeIndex}"]`);
+				if (last) {
+					try { last.focus(); } catch (e) { /* ignore */ }
+				}
+				return;
+			}
+			if (key === 'PageUp') {
+				event.preventDefault();
+				event.stopPropagation();
+				setTimeIndex(state.timeIndex - getTimelineKeyboardStep());
+				const btn = container.querySelector(`button.timeline-marker[data-index="${state.timeIndex}"]`);
+				if (btn) {
+					try { btn.focus(); } catch (e) { /* ignore */ }
+				}
+				return;
+			}
+			if (key === 'PageDown') {
+				event.preventDefault();
+				event.stopPropagation();
+				setTimeIndex(state.timeIndex + getTimelineKeyboardStep());
+				const btn = container.querySelector(`button.timeline-marker[data-index="${state.timeIndex}"]`);
+				if (btn) {
+					try { btn.focus(); } catch (e) { /* ignore */ }
+				}
+				return;
+			}
 			if (key === 'ArrowLeft') {
 				event.preventDefault();
 				event.stopPropagation();
-				setTimeIndex(state.timeIndex - 1);
+				setTimeIndex(state.timeIndex - (event.shiftKey ? getTimelineKeyboardStep() : 1));
 				const prev = container.querySelector(`button.timeline-marker[data-index="${state.timeIndex}"]`);
 				if (prev) {
 					try { prev.focus(); } catch (e) { /* ignore */ }
@@ -429,7 +474,7 @@ function renderTimeline() {
 			if (key === 'ArrowRight') {
 				event.preventDefault();
 				event.stopPropagation();
-				setTimeIndex(state.timeIndex + 1);
+				setTimeIndex(state.timeIndex + (event.shiftKey ? getTimelineKeyboardStep() : 1));
 				const next = container.querySelector(`button.timeline-marker[data-index="${state.timeIndex}"]`);
 				if (next) {
 					try { next.focus(); } catch (e) { /* ignore */ }
@@ -500,14 +545,39 @@ function wireTimelineEvents() {
 	container.addEventListener('keydown', (event) => {
 		// If a marker has focus, it handles its own keydown.
 		if (event.target !== container) return;
+
+		const maxIdx = Math.max(0, state.timeColumns.length - 1);
+		const jump = getTimelineKeyboardStep();
+		const delta = event.shiftKey ? jump : 1;
+
+		if (event.key === 'Home') {
+			event.preventDefault();
+			setTimeIndex(0);
+			return;
+		}
+		if (event.key === 'End') {
+			event.preventDefault();
+			setTimeIndex(maxIdx);
+			return;
+		}
+		if (event.key === 'PageUp') {
+			event.preventDefault();
+			setTimeIndex(state.timeIndex - jump);
+			return;
+		}
+		if (event.key === 'PageDown') {
+			event.preventDefault();
+			setTimeIndex(state.timeIndex + jump);
+			return;
+		}
 		if (event.key === 'ArrowLeft') {
 			event.preventDefault();
-			setTimeIndex(state.timeIndex - 1);
+			setTimeIndex(state.timeIndex - delta);
 			return;
 		}
 		if (event.key === 'ArrowRight') {
 			event.preventDefault();
-			setTimeIndex(state.timeIndex + 1);
+			setTimeIndex(state.timeIndex + delta);
 			return;
 		}
 	});

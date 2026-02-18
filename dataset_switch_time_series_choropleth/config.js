@@ -66,7 +66,8 @@ config = {
 		displayFormat: "%Y",
 		screenreaderFormat: "%B %Y",
 		parseFormat: null,
-		ariaLabel: "Select time period"
+		ariaLabel: "Select time period",
+		keyboardStep: 5
 	},
 	valueFormat: ",.1f", // d3 format for values
 	valuePrefix: "",

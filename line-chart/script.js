@@ -1,4 +1,4 @@
-import { initialise, wrap, addSvg, addAxisLabel, addSource, createDirectLabels, getXAxisTicks, calculateAutoBounds, customTemporalAxis } from "../lib/helpers.js";
+import { initialise, wrap, addSvg, addAxisLabel, addSource, createDirectLabels, getXAxisTicks, calculateAutoBounds, customTemporalAxis, drawIndexedLegendShape, drawIndexedLineEndMarker } from "../lib/helpers.js";
 
 let graphic = d3.select('#graphic');
 let legend = d3.select('#legend');
@@ -165,7 +165,7 @@ function drawGraphic() {
 	});
 
 	if (config.addEndMarkers) {
-		const circleData = categories.map((category, index) => {
+		const markerData = categories.map((category, index) => {
 			// Find last valid datum for this category
 			const lastDatum = [...graphicData].reverse().find(d => d[category] != null && d[category] !== "");
 			return lastDatum ? {
@@ -177,15 +177,17 @@ function drawGraphic() {
 			} : null;
 		}).filter(d => d); // Remove null entries
 
-		const circles = svg.selectAll('circle.line-end')
-			.data(circleData, d => d.category)
-			.enter()
-			.append('circle')
-			.attr('cx', d => d.x)
-			.attr('cy', d => d.y)
-			.style('fill', d => d.color)
-			.attr('r', 4)
-			.attr('class', 'line-end');
+		markerData.forEach(d => {
+			drawIndexedLineEndMarker({
+				svg,
+				index: d.index,
+				color: d.color,
+				x: d.x,
+				y: d.y,
+				size: 4,
+				diamondSize: 7,
+			});
+		});
 	}
 
 
@@ -196,17 +198,28 @@ function drawGraphic() {
 		// Set up the legend
 		let legenditem = legend
 			.selectAll('div.legend--item')
-			.data(categories.map((c, i) => [c, config.colourPalette[i % config.colourPalette.length]]))
+			.data(categories.map((c, i) => [c, config.colourPalette[i % config.colourPalette.length], i]))
 			.enter()
 			.append('div')
 			.attr('class', 'legend--item');
 
-		legenditem
-			.append('div')
-			.attr('class', 'legend--icon--circle')
-			.style('background-color', function (d) {
-				return d[1];
+		legenditem.each(function(d, i) {
+			const item = d3.select(this);
+			const svg = item.append('svg')
+				.attr('width', 14)
+				.attr('height', 14)
+				.attr('viewBox', '0 0 12 12')
+				.attr('class', 'legend--icon')
+				.style('overflow', 'visible');
+
+			drawIndexedLegendShape({
+				svg,
+				index: d[2],
+				color: d[1],
+				size: 4,
+				diamondSize: 7,
 			});
+		});
 
 		legenditem
 			.append('div')

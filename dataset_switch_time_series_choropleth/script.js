@@ -667,28 +667,36 @@ function renderDatasetSwitch() {
 function createChart() {
 	const container = d3.select('#chart');
 	container.html('');
-
-	const width = container.node()?.getBoundingClientRect().width || 800;
+	const width = Math.floor(container.node()?.getBoundingClientRect().width || 0);
+	if (!width || width < 50) {
+		// Overlay not visible or not yet laid out.
+		return {
+			__width: 0,
+			update: () => { /* no-op until we have a real width */ }
+		};
+	}
 	const height = config.chartHeight || 220;
 	const margin = { top: 10, right: 20, bottom: 30, left: 50 };
 	const innerWidth = Math.max(10, width - margin.left - margin.right);
 	const innerHeight = Math.max(10, height - margin.top - margin.bottom);
 
 	const svg = container.append('svg')
-		.attr('width', '100%')
-		.attr('height', height)
-		.attr('viewBox', `0 0 ${width} ${height}`);
+		.attr('width', width)
+		.attr('height', height);
 
 	const g = svg.append('g').attr('transform', `translate(${margin.left},${margin.top})`);
 
 	const x = d3.scalePoint().range([0, innerWidth]).padding(0.5);
 	const y = d3.scaleLinear().range([innerHeight, 0]);
 
-	const xAxisG = g.append('g').attr('transform', `translate(0,${innerHeight})`);
-	const yAxisG = g.append('g');
+	const xAxisG = g.append('g')
+		.attr('class', 'axis axis--x')
+		.attr('transform', `translate(0,${innerHeight})`);
+	const yAxisG = g.append('g')
+		.attr('class', 'axis axis--y');
 
 	const vline = g.append('line')
-		.attr('stroke', '#999')
+		.style('stroke', 'var(--ons-color-grey-50)')
 		.attr('stroke-width', 1)
 		.attr('y1', 0)
 		.attr('y2', innerHeight)
@@ -696,25 +704,41 @@ function createChart() {
 
 	const meanPath = g.append('path')
 		.attr('fill', 'none')
-		.attr('stroke', '#6f6f6f')
-		.attr('stroke-width', 1.5)
+		.style('stroke', 'var(--ons-color-grey-50)')
+		.attr('stroke-width', 3)
 		.attr('stroke-dasharray', '4 3')
+		.style('stroke-linejoin', 'round')
+		.style('stroke-linecap', 'round')
 		.style('opacity', 0);
+
+	const defs = svg.append('defs');
+	const gradientId = `area-gradient-${Math.random().toString(16).slice(2)}`;
+	const areaGradient = defs.append('linearGradient')
+		.attr('id', gradientId)
+		.attr('gradientUnits', 'objectBoundingBox')
+		.attr('x1', 0)
+		.attr('y1', 0)
+		.attr('x2', 1)
+		.attr('y2', 0);
 
 	const areaPath = g.append('path')
 		.attr('fill', 'none')
-		.attr('stroke', '#206095')
-		.attr('stroke-width', 2)
+		.attr('stroke-width', 3)
+		.style('stroke', (config.chartLineStyle || 'gradient') === 'solid'
+			? (config.chartSolidStroke || 'var(--ons-color-ocean-blue)')
+			: `url(#${gradientId})`)
+		.style('stroke-linejoin', 'round')
+		.style('stroke-linecap', 'round')
 		.style('opacity', 0);
 
 	const marker = g.append('circle')
-		.attr('r', 3.5)
-		.attr('fill', '#206095')
-		.attr('stroke', '#ffffff')
+		.attr('r', 4)
+		.style('fill', 'var(--ons-color-ocean-blue)')
+		.style('stroke', 'var(--ons-color-white)')
 		.attr('stroke-width', 1)
 		.style('opacity', 0);
 
-	function update({ timeColumns, areaSeries, meanSeries, timeIndex, areaName }) {
+	function update({ timeColumns, areaSeries, meanSeries, timeIndex, areaName, colourScale }) {
 		x.domain(timeColumns);
 
 		const values = [];
@@ -725,6 +749,7 @@ function createChart() {
 			xAxisG.call(d3.axisBottom(x).tickValues([]));
 			yAxisG.call(d3.axisLeft(y).ticks(4));
 			areaPath.style('opacity', 0);
+			areaGradient.selectAll('stop').remove();
 			meanPath.style('opacity', 0);
 			marker.style('opacity', 0);
 			vline.style('opacity', 0);
@@ -755,11 +780,109 @@ function createChart() {
 		}
 
 		if (areaSeries) {
-			areaPath
-				.attr('d', line(areaSeries))
-				.style('opacity', 1);
+			areaPath.attr('d', line(areaSeries)).style('opacity', 1);
+
+			const lineStyle = (config.chartLineStyle || 'gradient');
+			if (lineStyle === 'solid') {
+				areaPath.style('stroke', config.chartSolidStroke || 'var(--ons-color-ocean-blue)');
+				areaGradient.selectAll('stop').remove();
+			} else {
+				areaPath.style('stroke', `url(#${gradientId})`);
+				// Build hard-stop gradient stops where the series crosses choropleth breaks.
+				const thresholds = (colourScale && typeof colourScale.domain === 'function') ? (colourScale.domain() || []) : [];
+				const segments = [];
+				for (let i = 0; i < areaSeries.length - 1; i++) {
+					const a = areaSeries[i];
+					const b = areaSeries[i + 1];
+					if (!a || !b) continue;
+					if (a.v === null || b.v === null) continue;
+					const x0 = x(a.t);
+					const x1 = x(b.t);
+					if (typeof x0 !== 'number' || typeof x1 !== 'number') continue;
+					const v0 = a.v;
+					const v1 = b.v;
+					if (!Number.isFinite(v0) || !Number.isFinite(v1)) continue;
+
+					const pts = [{ x: x0, v: v0 }];
+					if (v0 !== v1 && thresholds && thresholds.length) {
+						const lo = Math.min(v0, v1);
+						const hi = Math.max(v0, v1);
+						const crosses = thresholds
+							.filter(t => t > lo && t < hi)
+							.map(t => ({ t, f: (t - v0) / (v1 - v0) }))
+							.filter(d => d.f > 0 && d.f < 1)
+							.sort((p, q) => p.f - q.f);
+						for (const c of crosses) {
+							pts.push({ x: x0 + (x1 - x0) * c.f, v: c.t });
+						}
+					}
+					pts.push({ x: x1, v: v1 });
+
+					for (let j = 0; j < pts.length - 1; j++) {
+						const p0 = pts[j];
+						const p1 = pts[j + 1];
+						const vm = (p0.v + p1.v) / 2;
+						let c = null;
+						if (colourScale && Number.isFinite(vm)) {
+							try { c = colourScale(vm); } catch (e) { c = null; }
+						}
+						segments.push({ x0: p0.x, x1: p1.x, c: c || 'var(--ons-color-ocean-blue)' });
+					}
+				}
+
+				// Merge adjacent segments of the same colour.
+				segments.sort((a, b) => a.x0 - b.x0);
+				const merged = [];
+				for (const s of segments) {
+					const last = merged[merged.length - 1];
+					if (last && last.c === s.c && Math.abs(last.x1 - s.x0) < 0.5) {
+						last.x1 = s.x1;
+					} else {
+						merged.push({ ...s });
+					}
+				}
+
+				// Compute normalised offsets based on visible x-range.
+				let minX = Infinity;
+				let maxX = -Infinity;
+				for (const s of merged) {
+					minX = Math.min(minX, s.x0, s.x1);
+					maxX = Math.max(maxX, s.x0, s.x1);
+				}
+				if (!Number.isFinite(minX) || !Number.isFinite(maxX) || maxX <= minX) {
+					minX = 0;
+					maxX = innerWidth;
+				}
+
+				const stops = [];
+				for (const s of merged) {
+					const o0 = Math.max(0, Math.min(1, (s.x0 - minX) / (maxX - minX)));
+					const o1 = Math.max(0, Math.min(1, (s.x1 - minX) / (maxX - minX)));
+					stops.push({ o: o0, c: s.c });
+					stops.push({ o: o1, c: s.c });
+				}
+
+				// Ensure stops are ordered and include endpoints.
+				stops.sort((a, b) => a.o - b.o);
+				if (!stops.length) {
+					stops.push({ o: 0, c: 'var(--ons-color-ocean-blue)' }, { o: 1, c: 'var(--ons-color-ocean-blue)' });
+				} else {
+					if (stops[0].o > 0) stops.unshift({ o: 0, c: stops[0].c });
+					if (stops[stops.length - 1].o < 1) stops.push({ o: 1, c: stops[stops.length - 1].c });
+				}
+
+				const stopSel = areaGradient.selectAll('stop')
+					.data(stops);
+				stopSel.exit().remove();
+				stopSel.enter()
+					.append('stop')
+					.merge(stopSel)
+					.attr('offset', d => `${(d.o * 100).toFixed(2)}%`)
+					.attr('stop-color', d => d.c);
+			}
 		} else {
 			areaPath.style('opacity', 0);
+			areaGradient.selectAll('stop').remove();
 		}
 
 		const t = timeColumns[timeIndex];
@@ -773,6 +896,11 @@ function createChart() {
 		if (areaSeries) {
 			const point = areaSeries.find(d => d.t === t);
 			if (point && point.v !== null && typeof xPos === 'number') {
+				let pc = null;
+				if (colourScale && point.v !== null && Number.isFinite(point.v)) {
+					try { pc = colourScale(point.v); } catch (e) { pc = null; }
+				}
+				marker.style('fill', pc || 'var(--ons-color-ocean-blue)');
 				marker
 					.attr('cx', xPos)
 					.attr('cy', y(point.v))
@@ -787,14 +915,17 @@ function createChart() {
 		// Title/subtitle are intentionally omitted in the overlay UI.
 	}
 
-	return { update };
+	return { __width: width, update };
 }
 
 function updateChart() {
-	if (!state.chart) state.chart = createChart();
+	const chartEl = document.getElementById('chart');
+	const width = Math.floor(chartEl?.getBoundingClientRect().width || 0);
+	if (!width || width < 50) return;
+	if (!state.chart || state.chart.__width !== width) state.chart = createChart();
 	const timeColumns = state.timeColumns;
 	if (!timeColumns.length) {
-		state.chart.update({ timeColumns: [], areaSeries: null, meanSeries: null, timeIndex: 0, areaName: null });
+		state.chart.update({ timeColumns: [], areaSeries: null, meanSeries: null, timeIndex: 0, areaName: null, colourScale: null });
 		return;
 	}
 
@@ -803,7 +934,14 @@ function updateChart() {
 	if (state.selectedAreaCode && state.seriesById[state.selectedAreaCode]) {
 		const s = state.seriesById[state.selectedAreaCode];
 		areaName = s.areaName;
-		areaSeries = timeColumns.map((t, idx) => ({ t, v: s.values[idx] }));
+		areaSeries = timeColumns.map((t, idx) => {
+			const v = s.values[idx];
+			let c = null;
+			if (state.colour && v !== null && Number.isFinite(v)) {
+				try { c = state.colour(v); } catch (e) { c = null; }
+			}
+			return { t, v, c };
+		});
 	}
 	const meanSeries = timeColumns.map((t, idx) => ({ t, v: state.meanSeries[idx]?.v ?? null }));
 
@@ -812,7 +950,8 @@ function updateChart() {
 		areaSeries,
 		meanSeries,
 		timeIndex: state.timeIndex,
-		areaName
+		areaName,
+		colourScale: state.colour
 	});
 }
 

@@ -96,6 +96,15 @@ config = {
 	// Line chart
 	chartHeight: 220,
 	showMeanLine: true,
+	// Chart margins (top, right, bottom, left)
+	chartMargin: { top: 10, right: 20, bottom: 30, left: 30 },
+
+	// Chart legend for mean/average line
+	chartMeanLegend: {
+		label: "UK Average",
+		color: "var(--ons-color-grey-50)"
+	},
+
 	// Stroke style for the selected-area series in the overlay chart:
 	// - "gradient": colour varies along the line based on choropleth breaks
 	// - "solid": single stroke colour

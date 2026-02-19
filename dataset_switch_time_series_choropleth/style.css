@@ -163,3 +163,8 @@
   width: 100%;
 }
 
+/* Chart tick label sizing */
+.chart-overlay .axis text {
+  font-size: 13px;
+}
+

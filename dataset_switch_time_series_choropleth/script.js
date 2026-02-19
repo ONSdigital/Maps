@@ -664,6 +664,7 @@ function renderDatasetSwitch() {
 	container.appendChild(fieldset);
 }
 
+
 function createChart() {
 	const container = d3.select('#chart');
 	container.html('');
@@ -676,9 +677,31 @@ function createChart() {
 		};
 	}
 	const height = config.chartHeight || 220;
-	const margin = { top: 10, right: 20, bottom: 30, left: 50 };
+	const margin = (config.chartMargin && typeof config.chartMargin === 'object')
+		? { ...{ top: 10, right: 20, bottom: 30, left: 50 }, ...config.chartMargin }
+		: { top: 10, right: 20, bottom: 30, left: 50 };
 	const innerWidth = Math.max(10, width - margin.left - margin.right);
 	const innerHeight = Math.max(10, height - margin.top - margin.bottom);
+
+	const meanLegendCfg = config.chartMeanLegend || { label: 'Average', color: 'var(--ons-color-grey-60)' };
+	const legendId = 'chart-legend';
+	const legend = container.append('div')
+		.attr('id', legendId)
+		.style('display', 'flex')
+		.style('align-items', 'center')
+		.style('gap', '8px')
+		.style('margin', '0 0 8px 0');
+	const legendSwatch = legend.append('span')
+		.style('display', 'inline-block')
+		.style('width', '28px')
+		.style('height', '3px')
+		.style('background', meanLegendCfg.color)
+		.style('border-radius', '2px')
+		.style('vertical-align', 'middle');
+	const legendLabel = legend.append('span')
+		.text(meanLegendCfg.label)
+		.style('font-size', '13px')
+		.style('color', 'var(--ons-color-grey-60)');
 
 	const svg = container.append('svg')
 		.attr('width', width)
@@ -690,10 +713,10 @@ function createChart() {
 	const y = d3.scaleLinear().range([innerHeight, 0]);
 
 	const xAxisG = g.append('g')
-		.attr('class', 'axis axis--x')
+		.attr('class', 'x axis')
 		.attr('transform', `translate(0,${innerHeight})`);
 	const yAxisG = g.append('g')
-		.attr('class', 'axis axis--y');
+		.attr('class', 'y axis numeric');
 
 	const vline = g.append('line')
 		.style('stroke', 'var(--ons-color-grey-50)')
@@ -704,9 +727,9 @@ function createChart() {
 
 	const meanPath = g.append('path')
 		.attr('fill', 'none')
-		.style('stroke', 'var(--ons-color-grey-50)')
+		.style('stroke', meanLegendCfg.color)
 		.attr('stroke-width', 3)
-		.attr('stroke-dasharray', '4 3')
+		.attr('stroke-dasharray', null)
 		.style('stroke-linejoin', 'round')
 		.style('stroke-linecap', 'round')
 		.style('opacity', 0);
@@ -739,6 +762,9 @@ function createChart() {
 		.style('opacity', 0);
 
 	function update({ timeColumns, areaSeries, meanSeries, timeIndex, areaName, colourScale }) {
+		legendSwatch.style('background', meanLegendCfg.color);
+		legendLabel.text(meanLegendCfg.label);
+
 		x.domain(timeColumns);
 
 		const values = [];
@@ -775,8 +801,10 @@ function createChart() {
 			meanPath
 				.attr('d', line(meanSeries))
 				.style('opacity', 1);
+			legend.style('display', meanLegendCfg.label ? 'flex' : 'none');
 		} else {
 			meanPath.style('opacity', 0);
+			legend.style('display', 'none');
 		}
 
 		if (areaSeries) {
@@ -914,6 +942,7 @@ function createChart() {
 
 		// Title/subtitle are intentionally omitted in the overlay UI.
 	}
+
 
 	return { __width: width, update };
 }

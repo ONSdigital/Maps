@@ -705,18 +705,17 @@ function createChart() {
 
 	const svg = container.append('svg')
 		.attr('width', width)
-		.attr('height', height);
+		.attr('height', height)
+		.attr('class', 'chart')
+		.attr('tabindex', 0);
 
 	const g = svg.append('g').attr('transform', `translate(${margin.left},${margin.top})`);
 
 	const x = d3.scalePoint().range([0, innerWidth]).padding(0.5);
 	const y = d3.scaleLinear().range([innerHeight, 0]);
 
-	const xAxisG = g.append('g')
-		.attr('class', 'x axis')
-		.attr('transform', `translate(0,${innerHeight})`);
-	const yAxisG = g.append('g')
-		.attr('class', 'y axis numeric');
+	const gridG = g.append('g')
+		.attr('class', 'grid');
 
 	const vline = g.append('line')
 		.style('stroke', 'var(--ons-color-grey-50)')
@@ -726,6 +725,7 @@ function createChart() {
 		.style('opacity', 0);
 
 	const meanPath = g.append('path')
+		.attr('class', 'line mean')
 		.attr('fill', 'none')
 		.style('stroke', meanLegendCfg.color)
 		.attr('stroke-width', 3)
@@ -745,6 +745,7 @@ function createChart() {
 		.attr('y2', 0);
 
 	const areaPath = g.append('path')
+		.attr('class', 'line series')
 		.attr('fill', 'none')
 		.attr('stroke-width', 3)
 		.style('stroke', (config.chartLineStyle || 'gradient') === 'solid'
@@ -753,6 +754,12 @@ function createChart() {
 		.style('stroke-linejoin', 'round')
 		.style('stroke-linecap', 'round')
 		.style('opacity', 0);
+
+	const xAxisG = g.append('g')
+		.attr('class', 'x axis')
+		.attr('transform', `translate(0,${innerHeight})`);
+	const yAxisG = g.append('g')
+		.attr('class', 'y axis numeric');
 
 	const marker = g.append('circle')
 		.attr('r', 4)
@@ -772,6 +779,7 @@ function createChart() {
 		if (config.showMeanLine && meanSeries) values.push(...meanSeries.filter(d => d.v !== null).map(d => d.v));
 		if (!values.length) {
 			// Empty chart state
+			gridG.call(d3.axisLeft(y).tickValues([]).tickSize(-innerWidth).tickFormat(''));
 			xAxisG.call(d3.axisBottom(x).tickValues([]));
 			yAxisG.call(d3.axisLeft(y).ticks(4));
 			areaPath.style('opacity', 0);
@@ -789,6 +797,7 @@ function createChart() {
 			? timeColumns.filter((_, i) => i % Math.ceil(timeColumns.length / 8) === 0)
 			: timeColumns;
 
+		gridG.call(d3.axisLeft(y).ticks(5).tickSize(-innerWidth).tickFormat(''));
 		xAxisG.call(d3.axisBottom(x).tickValues(tickValues));
 		yAxisG.call(d3.axisLeft(y).ticks(5));
 

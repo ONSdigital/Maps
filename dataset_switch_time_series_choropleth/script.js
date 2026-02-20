@@ -717,6 +717,11 @@ function createChart() {
 	const gridG = g.append('g')
 		.attr('class', 'grid');
 
+	const yScaleSwatchesG = g.append('g')
+		.attr('class', 'y-scale-swatches')
+		.style('pointer-events', 'none')
+		.style('display', 'none');
+
 	const vline = g.append('line')
 		.style('stroke', 'var(--ons-color-grey-50)')
 		.attr('stroke-width', 1)
@@ -768,7 +773,7 @@ function createChart() {
 		.attr('stroke-width', 1)
 		.style('opacity', 0);
 
-	function update({ timeColumns, areaSeries, meanSeries, timeIndex, areaName, colourScale }) {
+	function update({ timeColumns, areaSeries, meanSeries, timeIndex, areaName, colourScale, breaks }) {
 		legendSwatch.style('background', meanLegendCfg.color);
 		legendLabel.text(meanLegendCfg.label);
 
@@ -782,6 +787,7 @@ function createChart() {
 			gridG.call(d3.axisLeft(y).tickValues([]).tickSize(-innerWidth).tickFormat(''));
 			xAxisG.call(d3.axisBottom(x).tickValues([]));
 			yAxisG.call(d3.axisLeft(y).ticks(4));
+			yScaleSwatchesG.style('display', 'none').selectAll('rect').remove();
 			areaPath.style('opacity', 0);
 			areaGradient.selectAll('stop').remove();
 			meanPath.style('opacity', 0);
@@ -800,6 +806,89 @@ function createChart() {
 		gridG.call(d3.axisLeft(y).ticks(5).tickSize(-innerWidth).tickFormat(''));
 		xAxisG.call(d3.axisBottom(x).tickValues(tickValues));
 		yAxisG.call(d3.axisLeft(y).ticks(5));
+
+		// Optional: show choropleth scale colours as a vertical strip next to the y-axis.
+		if (config.chartShowBreaks && colourScale && typeof colourScale.range === 'function') {
+			const palette = colourScale.range() || [];
+			let bins = [];
+			const yd = y.domain();
+			const domLo = Math.min(yd[0], yd[1]);
+			const domHi = Math.max(yd[0], yd[1]);
+
+			if (Array.isArray(breaks) && breaks.length >= 2) {
+				const n = Math.min(palette.length, breaks.length - 1);
+				for (let i = 0; i < n; i++) {
+					const b0 = +breaks[i];
+					const b1 = +breaks[i + 1];
+					if (!Number.isFinite(b0) || !Number.isFinite(b1) || b0 === b1) continue;
+					bins.push({ i, b0, b1, c: palette[i] });
+				}
+			} else if (typeof colourScale.invertExtent === 'function' && palette.length) {
+				bins = palette.map((c, i) => {
+					const ext = colourScale.invertExtent(c) || [undefined, undefined];
+					const d0 = ext[0];
+					const d1 = ext[1];
+					return {
+						i,
+						b0: Number.isFinite(d0) ? d0 : y.domain()[0],
+						b1: Number.isFinite(d1) ? d1 : y.domain()[1],
+						c
+					};
+				}).filter(d => Number.isFinite(d.b0) && Number.isFinite(d.b1) && d.b0 !== d.b1);
+			}
+
+			// Only show bins that overlap the current (data-driven) y-domain.
+			bins = bins.filter(d => {
+				const lo = Math.min(d.b0, d.b1);
+				const hi = Math.max(d.b0, d.b1);
+				return hi > domLo && lo < domHi;
+			});
+
+			if (!bins.length) {
+				yScaleSwatchesG.style('display', 'none').selectAll('rect').remove();
+			} else {
+				yScaleSwatchesG.style('display', null);
+				const swatchX = 2;
+				const swatchW = 10;
+				const rects = yScaleSwatchesG.selectAll('rect').data(bins, d => d.i);
+				rects.exit().remove();
+				rects.enter().append('rect')
+					.merge(rects)
+					.attr('x', swatchX)
+					.attr('width', swatchW)
+					.attr('fill', d => d.c)
+					.attr('y', d => {
+						const lo = Math.min(d.b0, d.b1);
+						const hi = Math.max(d.b0, d.b1);
+						const v0 = Math.max(lo, domLo);
+						const v1 = Math.min(hi, domHi);
+						const y0 = y(v0);
+						const y1 = y(v1);
+						if (!Number.isFinite(y0) || !Number.isFinite(y1)) return 0;
+						let top = Math.min(y0, y1);
+						let bottom = Math.max(y0, y1);
+						top = Math.max(0, Math.min(innerHeight, top));
+						bottom = Math.max(0, Math.min(innerHeight, bottom));
+						return top;
+					})
+					.attr('height', d => {
+						const lo = Math.min(d.b0, d.b1);
+						const hi = Math.max(d.b0, d.b1);
+						const v0 = Math.max(lo, domLo);
+						const v1 = Math.min(hi, domHi);
+						const y0 = y(v0);
+						const y1 = y(v1);
+						if (!Number.isFinite(y0) || !Number.isFinite(y1)) return 0;
+						let top = Math.min(y0, y1);
+						let bottom = Math.max(y0, y1);
+						top = Math.max(0, Math.min(innerHeight, top));
+						bottom = Math.max(0, Math.min(innerHeight, bottom));
+						return Math.max(0, bottom - top);
+					});
+			}
+		} else {
+			yScaleSwatchesG.style('display', 'none').selectAll('rect').remove();
+		}
 
 		const line = d3.line()
 			.defined(d => d.v !== null)
@@ -991,7 +1080,8 @@ function updateChart() {
 		meanSeries,
 		timeIndex: state.timeIndex,
 		areaName,
-		colourScale: state.colour
+		colourScale: state.colour,
+		breaks: state.breaks
 	});
 }
 

@@ -96,6 +96,8 @@ config = {
 	// Line chart
 	chartHeight: 220,
 	showMeanLine: true,
+	// If true, show the choropleth colour scale as swatches beside the chart y-axis
+	chartShowBreaks: true,
 	// Chart margins (top, right, bottom, left)
 	chartMargin: { top: 10, right: 20, bottom: 30, left: 30 },
 

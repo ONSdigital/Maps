@@ -743,10 +743,28 @@ function createChart() {
 
 	const vline = g.append('line')
 		.style('stroke', 'var(--ons-color-grey-50)')
-		.attr('stroke-width', 1)
+		.attr('stroke-width', 2)
+		.attr('stroke-dasharray', '4 3')
 		.attr('y1', 0)
 		.attr('y2', innerHeight)
 		.style('opacity', 0);
+
+	const indicatorTriangle = g.append('path')
+		.attr('class', 'indicator-triangle')
+		.attr('fill', config.chartSolidStroke || 'var(--ons-color-ocean-blue)')
+		.style('opacity', 0)
+		.style('pointer-events', 'none');
+
+	const indicatorValue = g.append('text')
+		.attr('class', 'indicator-value')
+		.attr('text-anchor', 'middle')
+		.attr('x', 0)
+		.attr('y', -4)
+		.style('font-size', '15px')
+		.style('font-weight', '700')
+		.attr('fill', config.chartSolidStroke || 'var(--ons-color-ocean-blue)')
+		.style('opacity', 0)
+		.style('pointer-events', 'none');
 
 	const meanPath = g.append('path')
 		.attr('class', 'line mean')
@@ -793,6 +811,10 @@ function createChart() {
 		.style('opacity', 0);
 
 	function update({ timeColumns, areaSeries, meanSeries, timeIndex, areaName, colourScale, breaks }) {
+		const indicatorColour = config.chartSolidStroke || 'var(--ons-color-ocean-blue)';
+		indicatorTriangle.attr('fill', indicatorColour);
+		indicatorValue.attr('fill', indicatorColour);
+
 		title
 			.text(areaName || '')
 			.style('color', config.chartSolidStroke || 'var(--ons-color-ocean-blue)')
@@ -817,6 +839,8 @@ function createChart() {
 			meanPath.style('opacity', 0);
 			marker.style('opacity', 0);
 			vline.style('opacity', 0);
+			indicatorTriangle.style('opacity', 0);
+			indicatorValue.style('opacity', 0);
 			return;
 		}
 
@@ -1041,10 +1065,43 @@ function createChart() {
 			vline.attr('x1', xPos).attr('x2', xPos).style('opacity', 1);
 		} else {
 			vline.style('opacity', 0);
+			indicatorTriangle.style('opacity', 0);
+			indicatorValue.style('opacity', 0);
+		}
+
+		let activePoint = null;
+		if (areaSeries) {
+			activePoint = areaSeries.find(d => d.t === t) || null;
+		}
+
+		if (activePoint && activePoint.v !== null && Number.isFinite(activePoint.v) && typeof xPos === 'number') {
+			const w = 6;
+			const h = 8;
+			indicatorTriangle
+				// Tip sits on the top of the vline (y=0); triangle extends above the plot area.
+				.attr('d', `M${xPos - w},${-h}L${xPos + w},${-h}L${xPos},0Z`)
+				.style('opacity', 1);
+
+			let valueFormatter = null;
+			try {
+				valueFormatter = d3.format(config.valueFormat || ',.2f');
+			} catch (e) {
+				valueFormatter = (d) => String(d);
+			}
+			const prefix = typeof config.valuePrefix === 'string' ? config.valuePrefix : '';
+			const suffix = typeof config.valueSuffix === 'string' ? config.valueSuffix : '';
+			indicatorValue
+				.text(`${prefix}${valueFormatter(activePoint.v)}${suffix}`)
+				.attr('x', xPos)
+				.attr('y', -h - 4)
+				.style('opacity', 1);
+		} else {
+			indicatorTriangle.style('opacity', 0);
+			indicatorValue.style('opacity', 0);
 		}
 
 		if (areaSeries) {
-			const point = areaSeries.find(d => d.t === t);
+			const point = activePoint;
 			if (point && point.v !== null && typeof xPos === 'number') {
 				let pc = null;
 				if ((config.chartLineStyle || 'gradient') === 'solid') {

@@ -96,15 +96,17 @@ config = {
 	// Line chart
 	chartHeight: 220,
 	showMeanLine: true,
+	// Draw a solid horizontal reference line at this value (set null/undefined to disable)
+	zeroLine: 0,
 	// If true, show the choropleth colour scale as swatches beside the chart y-axis
-	chartShowBreaks: true,
+	chartShowBreaks: false,
 	// Chart margins (top, right, bottom, left)
-	chartMargin: { top: 24, right: 20, bottom: 20, left: 30 },
+	chartMargin: { top: 24, right: 20, bottom: 30, left: 30 },
 
 	// Chart legend for mean/average line
 	chartMeanLegend: {
 		label: "UK Average",
-		color: "var(--ons-color-grey-50)"
+		color: ONScolours.grey25
 	},
 
 	// Stroke style for the selected-area series in the overlay chart:

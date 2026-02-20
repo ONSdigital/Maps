@@ -722,6 +722,17 @@ function createChart() {
 		.style('font-size', '13px')
 		.style('color', 'var(--ons-color-grey-60)');
 
+	const tCfg = getTimelineConfig();
+	const fmtPillDisplay = d3.timeFormat(tCfg.displayFormat);
+	const fmtPillSR = d3.timeFormat(tCfg.screenreaderFormat);
+	const formatPillLabel = (raw) => {
+		const d = parseTimeColumn(raw);
+		return {
+			display: d ? fmtPillDisplay(d) : String(raw ?? ''),
+			srText: d ? fmtPillSR(d) : String(raw ?? '')
+		};
+	};
+
 	const svg = container.append('svg')
 		.attr('width', width)
 		.attr('height', height)
@@ -735,6 +746,17 @@ function createChart() {
 
 	const gridG = g.append('g')
 		.attr('class', 'grid');
+
+	const zeroLineTick = g.append('g')
+		.attr('class', 'tick zero-line-tick')
+		.style('display', 'none')
+		.style('pointer-events', 'none');
+	const zeroLine = zeroLineTick.append('line')
+		.attr('class', 'zero-line')
+		.attr('x1', 0)
+		.attr('x2', innerWidth)
+		.attr('y1', 0)
+		.attr('y2', 0);
 
 	const yScaleSwatchesG = g.append('g')
 		.attr('class', 'y-scale-swatches')
@@ -803,6 +825,41 @@ function createChart() {
 	const yAxisG = g.append('g')
 		.attr('class', 'y axis numeric');
 
+	const chartPillG = g.append('g')
+		.attr('class', 'chart-timeline-pill')
+		.attr('tabindex', 0)
+		.attr('role', 'slider')
+		.attr('aria-label', tCfg.ariaLabel)
+		.style('cursor', 'pointer')
+		.style('display', 'none')
+		.on('pointerdown', (event) => {
+			event.preventDefault();
+			try { svg.node().focus({ preventScroll: true }); } catch (e) { /* ignore */ }
+			beginTimelineDrag(svg.node(), event, event.currentTarget);
+		})
+		.on('keydown', (event) => {
+			const maxIdx = Math.max(0, state.timeColumns.length - 1);
+			const jump = getTimelineKeyboardStep();
+			const delta = event.shiftKey ? jump : 1;
+			if (event.key === 'Home') { event.preventDefault(); setTimeIndex(0); return; }
+			if (event.key === 'End') { event.preventDefault(); setTimeIndex(maxIdx); return; }
+			if (event.key === 'PageUp') { event.preventDefault(); setTimeIndex(state.timeIndex - jump); return; }
+			if (event.key === 'PageDown') { event.preventDefault(); setTimeIndex(state.timeIndex + jump); return; }
+			if (event.key === 'ArrowLeft') { event.preventDefault(); setTimeIndex(state.timeIndex - delta); return; }
+			if (event.key === 'ArrowRight') { event.preventDefault(); setTimeIndex(state.timeIndex + delta); return; }
+		});
+
+	const chartPillRect = chartPillG.append('rect')
+		.attr('fill', 'var(--ons-color-ocean-blue)')
+		.attr('stroke', 'none');
+
+	const chartPillText = chartPillG.append('text')
+		.attr('text-anchor', 'middle')
+		.attr('dominant-baseline', 'middle')
+		.attr('fill', 'var(--ons-color-white)')
+		.style('font-size', '15px')
+		.style('font-weight', '700');
+
 	const marker = g.append('circle')
 		.attr('r', 4)
 		.style('fill', 'var(--ons-color-ocean-blue)')
@@ -825,6 +882,12 @@ function createChart() {
 
 		x.domain(timeColumns);
 
+		// Cache discrete positions for drag snapping on the chart pill.
+		svg.node().__timelinePositions = timeColumns.map((raw, index) => {
+			const px = x(raw);
+			return { index, x: (typeof px === 'number' ? (margin.left + px) : 0) };
+		});
+
 		const values = [];
 		if (areaSeries) values.push(...areaSeries.filter(d => d.v !== null).map(d => d.v));
 		if (config.showMeanLine && meanSeries) values.push(...meanSeries.filter(d => d.v !== null).map(d => d.v));
@@ -841,19 +904,42 @@ function createChart() {
 			vline.style('opacity', 0);
 			indicatorTriangle.style('opacity', 0);
 			indicatorValue.style('opacity', 0);
+			chartPillG.style('display', 'none');
 			return;
 		}
 
 		const extent = d3.extent(values);
 		y.domain([extent[0], extent[1]]).nice();
 
-		const tickValues = timeColumns.length > 8
-			? timeColumns.filter((_, i) => i % Math.ceil(timeColumns.length / 8) === 0)
-			: timeColumns;
+		let tickValues = [];
+		if (timeColumns.length <= 1) {
+			tickValues = timeColumns.slice();
+		} else {
+			tickValues = [timeColumns[0], timeColumns[timeColumns.length - 1]];
+			if (tickValues[0] === tickValues[1]) tickValues = [tickValues[0]];
+		}
 
 		gridG.call(d3.axisLeft(y).ticks(5).tickSize(-innerWidth).tickFormat(''));
+		gridG.selectAll('line').attr('stroke-width', 2);
 		xAxisG.call(d3.axisBottom(x).tickValues(tickValues));
 		yAxisG.call(d3.axisLeft(y).ticks(5));
+
+		// Optional zero/reference line (e.g., 0) drawn as a solid horizontal line.
+		const zl = config.zeroLine;
+		const zlNum = (zl === null || typeof zl === 'undefined') ? null : +zl;
+		if (Number.isFinite(zlNum)) {
+			const zy = y(zlNum);
+			if (Number.isFinite(zy) && zy >= 0 && zy <= innerHeight) {
+				zeroLine.attr('x2', innerWidth);
+				zeroLineTick
+					.attr('transform', `translate(0,${zy})`)
+					.style('display', null);
+			} else {
+				zeroLineTick.style('display', 'none');
+			}
+		} else {
+			zeroLineTick.style('display', 'none');
+		}
 
 		// Optional: show choropleth scale colours as a vertical strip next to the y-axis.
 		if (config.chartShowBreaks && colourScale && typeof colourScale.range === 'function') {
@@ -1063,10 +1149,51 @@ function createChart() {
 		const xPos = x(t);
 		if (typeof xPos === 'number') {
 			vline.attr('x1', xPos).attr('x2', xPos).style('opacity', 1);
+			const pill = formatPillLabel(t);
+			chartPillG
+				.attr('aria-valuemin', '0')
+				.attr('aria-valuemax', String(Math.max(0, timeColumns.length - 1)))
+				.attr('aria-valuenow', String(timeIndex))
+				.attr('aria-valuetext', pill.srText)
+				.style('display', null);
+
+			chartPillText.text(pill.display);
+			chartPillText.attr('x', 0).attr('y', 0).attr('transform', null);
+			let textW = 0;
+			let textBox = null;
+			try {
+				textBox = chartPillText.node().getBBox();
+				textW = textBox.width;
+			} catch (e) {
+				textW = 0;
+				textBox = null;
+			}
+			const padX = 10;
+			const pillH = 22;
+			const pillW = Math.max(24, textW + padX * 2);
+			// Place within the existing x-axis/tick area (no layout/margin changes).
+			// Axis tick lines extend from y=0 to y=6 below the axis baseline.
+			// Place the pill within that same bottom margin region.
+			const pillY = innerHeight + 6;
+			chartPillG.attr('transform', `translate(${xPos},${pillY})`);
+			chartPillRect
+				.attr('x', -pillW / 2)
+				.attr('y', 0)
+				.attr('width', pillW)
+				.attr('height', pillH)
+				.attr('rx', Math.max(2, Math.round(pillH * 0.35)))
+				.attr('ry', Math.max(2, Math.round(pillH * 0.35)));
+			if (textBox) {
+				const dy = (pillH / 2) - (textBox.y + textBox.height / 2);
+				chartPillText.attr('transform', `translate(0,${dy})`);
+			} else {
+				chartPillText.attr('y', pillH / 2);
+			}
 		} else {
 			vline.style('opacity', 0);
 			indicatorTriangle.style('opacity', 0);
 			indicatorValue.style('opacity', 0);
+			chartPillG.style('display', 'none');
 		}
 
 		let activePoint = null;

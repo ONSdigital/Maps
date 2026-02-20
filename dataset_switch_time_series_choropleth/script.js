@@ -925,7 +925,9 @@ function createChart() {
 			const point = areaSeries.find(d => d.t === t);
 			if (point && point.v !== null && typeof xPos === 'number') {
 				let pc = null;
-				if (colourScale && point.v !== null && Number.isFinite(point.v)) {
+				if ((config.chartLineStyle || 'gradient') === 'solid') {
+					pc = config.chartSolidStroke || 'var(--ons-color-ocean-blue)';
+				} else if (colourScale && point.v !== null && Number.isFinite(point.v)) {
 					try { pc = colourScale(point.v); } catch (e) { pc = null; }
 				}
 				marker.style('fill', pc || 'var(--ons-color-ocean-blue)');

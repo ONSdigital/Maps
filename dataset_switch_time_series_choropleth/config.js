@@ -108,7 +108,7 @@ config = {
 	// Stroke style for the selected-area series in the overlay chart:
 	// - "gradient": colour varies along the line based on choropleth breaks
 	// - "solid": single stroke colour
-	chartLineStyle: "gradient", // "gradient" | "solid"
+	chartLineStyle: "solid", // "gradient" | "solid"
 	chartSolidStroke: "var(--ons-color-ocean-blue)",
 	chartBuild: {}
 };

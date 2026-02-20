@@ -99,7 +99,7 @@ config = {
 	// If true, show the choropleth colour scale as swatches beside the chart y-axis
 	chartShowBreaks: true,
 	// Chart margins (top, right, bottom, left)
-	chartMargin: { top: 10, right: 20, bottom: 30, left: 30 },
+	chartMargin: { top: 10, right: 20, bottom: 20, left: 30 },
 
 	// Chart legend for mean/average line
 	chartMeanLegend: {
@@ -111,6 +111,6 @@ config = {
 	// - "gradient": colour varies along the line based on choropleth breaks
 	// - "solid": single stroke colour
 	chartLineStyle: "solid", // "gradient" | "solid"
-	chartSolidStroke: "var(--ons-color-ocean-blue)",
+	chartSolidStroke: ONScolours.oceanBlue,	
 	chartBuild: {}
 };

@@ -683,6 +683,25 @@ function createChart() {
 	const innerWidth = Math.max(10, width - margin.left - margin.right);
 	const innerHeight = Math.max(10, height - margin.top - margin.bottom);
 
+	const overlay = d3.select('#chart-overlay');
+	overlay.selectAll('.chart-title').remove();
+	const title = overlay.append('div')
+		.attr('class', 'chart-title')
+		.style('position', 'absolute')
+		.style('top', '15px')
+		.style('left', '15px')
+		.style('right', '44px')
+		.style('height', '32px')
+		.style('display', 'none')
+		.style('align-items', 'center')
+		.style('font-size', '15px')
+		.style('font-weight', '700')
+		.style('line-height', '1.2')
+		.style('color', config.chartSolidStroke || 'var(--ons-color-ocean-blue)')
+		.style('pointer-events', 'none')
+		.style('white-space', 'nowrap')
+		.style('overflow', 'hidden');
+
 	const meanLegendCfg = config.chartMeanLegend || { label: 'Average', color: 'var(--ons-color-grey-60)' };
 	const legendId = 'chart-legend';
 	const legend = container.append('div')
@@ -774,6 +793,11 @@ function createChart() {
 		.style('opacity', 0);
 
 	function update({ timeColumns, areaSeries, meanSeries, timeIndex, areaName, colourScale, breaks }) {
+		title
+			.text(areaName || '')
+			.style('color', config.chartSolidStroke || 'var(--ons-color-ocean-blue)')
+			.style('display', areaName ? null : 'none');
+
 		legendSwatch.style('background', meanLegendCfg.color);
 		legendLabel.text(meanLegendCfg.label);
 

@@ -79,6 +79,19 @@
   flex: 1 1 0%;
   word-break: break-word;
 }
+
+.keyscale-rect {
+  cursor: pointer;
+}
+
+.keyscale-rect.is-dimmed {
+  opacity: 0.35;
+}
+
+.keyscale-rect.is-hovered {
+  stroke: var(--ons-color-grey-100, #414042);
+  stroke-width: 1.5px;
+}
 .dataLabels {
   font-weight: 600;
   font-size: 14px;

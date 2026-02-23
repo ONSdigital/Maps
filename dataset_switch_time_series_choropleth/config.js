@@ -93,26 +93,26 @@ config = {
 	scrollZoomGuard: true, // if true, user has to hold shift key to zoom map with scroll
 	keyScaleMargin: { left: 20, right: 27, top: 10, bottom: 10 },
 	elements: { select: 1, nav: 1, legend: 1, titles: 0 },
-	// Line chart
-	chartHeight: 220,
-	showMeanLine: true,
-	// Draw a solid horizontal reference line at this value (set null/undefined to disable)
-	zeroLine: 0,
-	// If true, show the choropleth colour scale as swatches beside the chart y-axis
-	chartShowBreaks: false,
-	// Chart margins (top, right, bottom, left)
-	chartMargin: { top: 24, right: 20, bottom: 30, left: 30 },
 
-	// Chart legend for mean/average line
-	chartMeanLegend: {
-		label: "UK Average",
-		color: ONScolours.grey25
+	// Chart config (overlay time-series)
+	chart: {
+		height: 220,
+		margin: { top: 24, right: 20, bottom: 30, left: 30 },
+		showMeanLine: true,
+		meanLegend: {
+			label: "UK Average",
+			color: ONScolours.grey25
+		},
+		// Stroke style for the selected-area series in the overlay chart:
+		// - "gradient": colour varies along the line based on choropleth breaks
+		// - "solid": single stroke colour
+		lineStyle: "solid", // "gradient" | "solid"
+		solidStroke: ONScolours.oceanBlue,
+		// If true, show the choropleth colour scale as swatches beside the chart y-axis
+		showBreaks: false,
+		// Draw a solid horizontal reference line at this value (set null/undefined to disable)
+		zeroLine: 0,
 	},
 
-	// Stroke style for the selected-area series in the overlay chart:
-	// - "gradient": colour varies along the line based on choropleth breaks
-	// - "solid": single stroke colour
-	chartLineStyle: "solid", // "gradient" | "solid"
-	chartSolidStroke: ONScolours.oceanBlue,	
 	chartBuild: {}
 };

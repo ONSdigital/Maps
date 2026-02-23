@@ -668,6 +668,12 @@ function renderDatasetSwitch() {
 function createChart() {
 	const container = d3.select('#chart');
 	container.html('');
+	const chartCfg = (config && config.chart && typeof config.chart === 'object') ? config.chart : {};
+	const solidStroke = chartCfg.solidStroke || 'var(--ons-color-ocean-blue)';
+	const lineStyleDefault = chartCfg.lineStyle || 'gradient';
+	const showMeanLine = (typeof chartCfg.showMeanLine === 'boolean') ? chartCfg.showMeanLine : true;
+	const showBreaks = (typeof chartCfg.showBreaks === 'boolean') ? chartCfg.showBreaks : false;
+	const zeroLineValue = (chartCfg.zeroLine === null || typeof chartCfg.zeroLine === 'undefined') ? null : +chartCfg.zeroLine;
 	const width = Math.floor(container.node()?.getBoundingClientRect().width || 0);
 	if (!width || width < 50) {
 		// Overlay not visible or not yet laid out.
@@ -676,9 +682,9 @@ function createChart() {
 			update: () => { /* no-op until we have a real width */ }
 		};
 	}
-	const height = config.chartHeight || 220;
-	const margin = (config.chartMargin && typeof config.chartMargin === 'object')
-		? { ...{ top: 10, right: 20, bottom: 30, left: 50 }, ...config.chartMargin }
+	const height = chartCfg.height || 220;
+	const margin = (chartCfg.margin && typeof chartCfg.margin === 'object')
+		? { ...{ top: 10, right: 20, bottom: 30, left: 50 }, ...chartCfg.margin }
 		: { top: 10, right: 20, bottom: 30, left: 50 };
 	const innerWidth = Math.max(10, width - margin.left - margin.right);
 	const innerHeight = Math.max(10, height - margin.top - margin.bottom);
@@ -697,12 +703,12 @@ function createChart() {
 		.style('font-size', '15px')
 		.style('font-weight', '700')
 		.style('line-height', '1.2')
-		.style('color', config.chartSolidStroke || 'var(--ons-color-ocean-blue)')
+		.style('color', solidStroke)
 		.style('pointer-events', 'none')
 		.style('white-space', 'nowrap')
 		.style('overflow', 'hidden');
 
-	const meanLegendCfg = config.chartMeanLegend || { label: 'Average', color: 'var(--ons-color-grey-60)' };
+	const meanLegendCfg = chartCfg.meanLegend || { label: 'Average', color: 'var(--ons-color-grey-60)' };
 	const legendId = 'chart-legend';
 	const legend = container.append('div')
 		.attr('id', legendId)
@@ -773,7 +779,7 @@ function createChart() {
 
 	const indicatorTriangle = g.append('path')
 		.attr('class', 'indicator-triangle')
-		.attr('fill', config.chartSolidStroke || 'var(--ons-color-ocean-blue)')
+		.attr('fill', solidStroke)
 		.style('opacity', 0)
 		.style('pointer-events', 'none');
 
@@ -784,7 +790,7 @@ function createChart() {
 		.attr('y', -4)
 		.style('font-size', '15px')
 		.style('font-weight', '700')
-		.attr('fill', config.chartSolidStroke || 'var(--ons-color-ocean-blue)')
+		.attr('fill', solidStroke)
 		.style('opacity', 0)
 		.style('pointer-events', 'none');
 
@@ -812,8 +818,8 @@ function createChart() {
 		.attr('class', 'line series')
 		.attr('fill', 'none')
 		.attr('stroke-width', 3)
-		.style('stroke', (config.chartLineStyle || 'gradient') === 'solid'
-			? (config.chartSolidStroke || 'var(--ons-color-ocean-blue)')
+		.style('stroke', lineStyleDefault === 'solid'
+			? solidStroke
 			: `url(#${gradientId})`)
 		.style('stroke-linejoin', 'round')
 		.style('stroke-linecap', 'round')
@@ -868,13 +874,13 @@ function createChart() {
 		.style('opacity', 0);
 
 	function update({ timeColumns, areaSeries, meanSeries, timeIndex, areaName, colourScale, breaks }) {
-		const indicatorColour = config.chartSolidStroke || 'var(--ons-color-ocean-blue)';
+		const indicatorColour = solidStroke;
 		indicatorTriangle.attr('fill', indicatorColour);
 		indicatorValue.attr('fill', indicatorColour);
 
 		title
 			.text(areaName || '')
-			.style('color', config.chartSolidStroke || 'var(--ons-color-ocean-blue)')
+			.style('color', solidStroke)
 			.style('display', areaName ? null : 'none');
 
 		legendSwatch.style('background', meanLegendCfg.color);
@@ -890,7 +896,7 @@ function createChart() {
 
 		const values = [];
 		if (areaSeries) values.push(...areaSeries.filter(d => d.v !== null).map(d => d.v));
-		if (config.showMeanLine && meanSeries) values.push(...meanSeries.filter(d => d.v !== null).map(d => d.v));
+		if (showMeanLine && meanSeries) values.push(...meanSeries.filter(d => d.v !== null).map(d => d.v));
 		if (!values.length) {
 			// Empty chart state
 			gridG.call(d3.axisLeft(y).tickValues([]).tickSize(-innerWidth).tickFormat(''));
@@ -925,10 +931,8 @@ function createChart() {
 		yAxisG.call(d3.axisLeft(y).ticks(5));
 
 		// Optional zero/reference line (e.g., 0) drawn as a solid horizontal line.
-		const zl = config.zeroLine;
-		const zlNum = (zl === null || typeof zl === 'undefined') ? null : +zl;
-		if (Number.isFinite(zlNum)) {
-			const zy = y(zlNum);
+		if (Number.isFinite(zeroLineValue)) {
+			const zy = y(zeroLineValue);
 			if (Number.isFinite(zy) && zy >= 0 && zy <= innerHeight) {
 				zeroLine.attr('x2', innerWidth);
 				zeroLineTick
@@ -942,7 +946,7 @@ function createChart() {
 		}
 
 		// Optional: show choropleth scale colours as a vertical strip next to the y-axis.
-		if (config.chartShowBreaks && colourScale && typeof colourScale.range === 'function') {
+		if (showBreaks && colourScale && typeof colourScale.range === 'function') {
 			const palette = colourScale.range() || [];
 			let bins = [];
 			const yd = y.domain();
@@ -1029,7 +1033,7 @@ function createChart() {
 			.x(d => x(d.t))
 			.y(d => y(d.v));
 
-		if (config.showMeanLine && meanSeries) {
+		if (showMeanLine && meanSeries) {
 			meanPath
 				.attr('d', line(meanSeries))
 				.style('opacity', 1);
@@ -1042,9 +1046,9 @@ function createChart() {
 		if (areaSeries) {
 			areaPath.attr('d', line(areaSeries)).style('opacity', 1);
 
-			const lineStyle = (config.chartLineStyle || 'gradient');
+			const lineStyle = lineStyleDefault;
 			if (lineStyle === 'solid') {
-				areaPath.style('stroke', config.chartSolidStroke || 'var(--ons-color-ocean-blue)');
+				areaPath.style('stroke', solidStroke);
 				areaGradient.selectAll('stop').remove();
 			} else {
 				areaPath.style('stroke', `url(#${gradientId})`);
@@ -1231,8 +1235,8 @@ function createChart() {
 			const point = activePoint;
 			if (point && point.v !== null && typeof xPos === 'number') {
 				let pc = null;
-				if ((config.chartLineStyle || 'gradient') === 'solid') {
-					pc = config.chartSolidStroke || 'var(--ons-color-ocean-blue)';
+				if (lineStyleDefault === 'solid') {
+					pc = solidStroke;
 				} else if (colourScale && point.v !== null && Number.isFinite(point.v)) {
 					try { pc = colourScale(point.v); } catch (e) { pc = null; }
 				}

@@ -1117,8 +1117,8 @@ export function setupMap(config, data, rateById, areaById, areas, colour, state)
             );
         });
 
-        const baseFillOpacity = config.fillOpacity || 0.8;
-        const dimFillOpacity = (typeof config.legendDimOpacity === 'number') ? config.legendDimOpacity : 0.2;
+        const baseFillOpacity = (typeof config.fillOpacity === 'number') ? config.fillOpacity : 0.8;
+        const dimFillOpacity = (typeof config.legendDimOpacity === 'number') ? config.legendDimOpacity : 0.5;
 
         state.map.addLayer({
             id: 'area',
@@ -1128,7 +1128,17 @@ export function setupMap(config, data, rateById, areaById, areas, colour, state)
             layout: {},
             paint: {
                 'fill-color': ['feature-state', 'color'],
-                'fill-opacity': config.fillOpacity || 0.8,
+                'fill-opacity': [
+                    'case',
+                    ['==', ['feature-state', 'legendActive'], true],
+                    [
+                        'case',
+                        ['==', ['feature-state', 'legendMatch'], true],
+                        baseFillOpacity,
+                        dimFillOpacity
+                    ],
+                    baseFillOpacity
+                ],
                 // 'fill-outline-color': ONScolours.grey100
             }
         }, 'place_town');
@@ -1141,6 +1151,17 @@ export function setupMap(config, data, rateById, areaById, areas, colour, state)
             layout: {},
             paint: {
                 'line-color': 'grey',
+                'line-opacity': [
+                    'case',
+                    ['==', ['feature-state', 'legendActive'], true],
+                    [
+                        'case',
+                        ['==', ['feature-state', 'legendMatch'], true],
+                        1,
+                        dimFillOpacity
+                    ],
+                    1
+                ],
                 'line-width': ['interpolate', ['linear'], ['zoom'], 6, 0.2, 11, 1]
             }
         }, 'place_town');

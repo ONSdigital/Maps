@@ -104,17 +104,42 @@ export function drawKeyScale({ keyscale, breaks, colour, config, window, state }
 
 
     // Draw colored rectangles for each break interval
-    for (let i = 0; i < breaks.length - 1; i++) {
-        scaleSvg.append('rect')
-            .attr('x', x(breaks[i]))
-            .attr('y', keyScaleMargin.top)
-            .attr('width', x(breaks[i + 1]) - x(breaks[i]))
-            .attr('height', height - 16)
-            .attr('fill', colour((breaks[i] + breaks[i + 1]) / 2))
-            // .attr('stroke', '#fff')
-            // .attr('stroke-width', 1)
-            .attr('class', 'keyscale-rect');
-    }
+    const breakRanges = breaks.slice(0, -1).map((d, i) => ({
+        min: d,
+        max: breaks[i + 1],
+        index: i,
+        isLast: i === breaks.length - 2
+    }));
+
+    scaleSvg.selectAll('rect.keyscale-rect')
+        .data(breakRanges)
+        .enter()
+        .append('rect')
+        .attr('x', d => x(d.min))
+        .attr('y', keyScaleMargin.top)
+        .attr('width', d => x(d.max) - x(d.min))
+        .attr('height', height - 16)
+        .attr('fill', d => colour((d.min + d.max) / 2))
+        .attr('class', 'keyscale-rect')
+        .on('mouseenter', (event, d) => {
+            scaleSvg.selectAll('rect.keyscale-rect')
+                .classed('is-dimmed', true)
+                .classed('is-hovered', false);
+            window.d3.select(event.currentTarget)
+                .classed('is-dimmed', false)
+                .classed('is-hovered', true);
+            if (state && typeof state.onLegendRangeHover === 'function') {
+                state.onLegendRangeHover(d);
+            }
+        })
+        .on('mouseleave', () => {
+            scaleSvg.selectAll('rect.keyscale-rect')
+                .classed('is-dimmed', false)
+                .classed('is-hovered', false);
+            if (state && typeof state.onLegendRangeLeave === 'function') {
+                state.onLegendRangeLeave();
+            }
+        });
 
     // Draw leader lines for dropped ticks if anyOverlap
     if (anyOverlap) {

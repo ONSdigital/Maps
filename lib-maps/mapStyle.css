@@ -1,5 +1,15 @@
 #graphic canvas:focus {
-  /* outline: none !important; */
+  outline: none;
+}
+
+#graphic canvas:focus-visible {
+  outline: 3px solid var(--ons-color-focus);
+  outline-offset: 2px;
+}
+
+#graphic:has(canvas:focus-visible) {
+  outline: 3px solid var(--ons-color-focus);
+  outline-offset: 2px;
 }
 
 #mapwrapper {
@@ -12,6 +22,7 @@
 #graphic {
   position: relative;
 }
+
 
 #keycontainer {
   margin: 8px 0 0 0;
@@ -67,6 +78,19 @@
   min-width: 0;
   flex: 1 1 0%;
   word-break: break-word;
+}
+
+.keyscale-rect {
+  cursor: pointer;
+}
+
+.keyscale-rect.is-dimmed {
+  opacity: 0.35;
+}
+
+.keyscale-rect.is-hovered {
+  stroke: var(--ons-color-grey-100, #414042);
+  stroke-width: 1.5px;
 }
 .dataLabels {
   font-weight: 600;
@@ -142,6 +166,10 @@ div.dataset-switch-buttons {
   border-radius: 8px;
 }
 
+div.dataset-switch-buttons:focus-within {
+  box-shadow: 0 0 0 3px var(--ons-color-focus);
+}
+
 div.dataset-switch-buttons input[type=radio]{
   position: absolute;
   opacity: 0;
@@ -161,6 +189,10 @@ div.dataset-switch-buttons label{
   text-align: center;
 }
 
+div.dataset-switch-buttons input[type=radio]:focus-visible + label {
+  box-shadow: 0 0 0 2px var(--ons-color-black), 0 0 0 4px var(--ons-color-focus);
+}
+
 div.dataset-switch-buttons label.selected {
   background: #fff;
   font-weight: 700;
@@ -170,4 +202,10 @@ div.dataset-switch-buttons label.selected {
 
 div.dataset-switch-buttons label:hover{
   background-color: #e8e8e8;
+}
+
+.maplibregl-ctrl-attrib-button:focus,
+.maplibregl-ctrl-group button:focus,
+.maplibregl-ctrl-group button:focus:focus-visible {
+  box-shadow: 0 0 0 2px var(--ons-color-focus);
 }

@@ -30,7 +30,7 @@
   box-sizing: border-box;
   border-width: 1px;
   border-color: var(--ons-color-grey-15);
-  border-style: solid;
+  /* border-style: solid; */
 }
 
 .maplibregl-cooperative-gesture-screen {

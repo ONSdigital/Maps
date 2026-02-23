@@ -822,14 +822,43 @@ export function setupSearch(areas, config, state, rateById, areaById) {
             if (e.key === 'Escape' || e.key === 'Esc') {
                 // Clear both selection and hover feature-state and info
                 if (typeof state.map !== 'undefined' && state.map !== null) {
+                    suppressSuggestions(300);
+
+                    // Clear the search input but keep focus there after clearing.
+                    const input = document.getElementById(searchBoxId);
+                    if (input) {
+                        input.value = '';
+                        input.dispatchEvent(new Event('input', { bubbles: true }));
+                        input.dispatchEvent(new Event('change', { bubbles: true }));
+                    }
+
                     clearAreaSelection(state, config.geoLayer);
                     state.hoveredAreaCode = null;
                     state.selectedAreaCode = null;
                     state.selectedAreaName = null;
                     // Always clear explainer and value immediately
                     updateKeyInfo(undefined, undefined, state);
-                    // Reset search box to placeholder
-                    setSearchText("");
+
+                    // Reset view back to the configured "home" bounds (matches the clear button behaviour)
+                    const homeBounds = config.mapBounds || config.__autoMapBounds || config.maxBounds;
+                    if (homeBounds) {
+                        const padding = calculateZoomPadding(state.map);
+                        state.map.fitBounds(homeBounds, { padding, animate: true });
+                    }
+
+                    if (typeof toggleClearButton === 'function') {
+                        setTimeout(() => toggleClearButton(), 0);
+                    }
+                    closeListboxTemporarily(300);
+
+                    // Put focus back in the (now cleared) input.
+                    if (input) {
+                        try { input.focus({ preventScroll: true }); } catch (err) { /* ignore */ }
+                        // Keep the autocomplete menu closed until the user interacts again.
+                        forceHideSearchMenuUntilUserInteracts();
+                    }
+
+                    try { e.preventDefault(); } catch (err) { /* ignore */ }
                 }
             }
         });

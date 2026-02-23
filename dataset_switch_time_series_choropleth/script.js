@@ -8,6 +8,7 @@ import {
 	getLegendDecimals,
 	getPalette,
 	resolveAutoMapBounds,
+	setSearchText,
 	setupMap,
 	setupSearch,
 	updateKeyInfo,
@@ -211,13 +212,16 @@ function beginTimelineDrag(container, event, captureElement) {
 
 	// If the user started from a focused marker, keep focus following the active step while scrubbing.
 	const startedOnMarker = Boolean(event.target && event.target.closest && event.target.closest('button.timeline-marker'));
-	// If the user starts dragging on the track/background, ensure the slider itself has focus
-	// so ArrowLeft/ArrowRight works immediately after scrubbing.
-	if (!startedOnMarker && event.pointerType !== 'touch') {
-		try { container.focus({ preventScroll: true }); } catch (e) { /* ignore */ }
-	}
 
 	const captureEl = captureElement || event.currentTarget || container;
+	// If the user starts dragging on the track/background, ensure the intended control has focus
+	// so ArrowLeft/ArrowRight works immediately after scrubbing.
+	const focusTarget = (!startedOnMarker && event.pointerType !== 'touch')
+		? ((captureEl && typeof captureEl.focus === 'function') ? captureEl : container)
+		: null;
+	if (focusTarget) {
+		try { focusTarget.focus({ preventScroll: true }); } catch (e) { /* ignore */ }
+	}
 	try {
 		if (captureEl && captureEl.setPointerCapture) captureEl.setPointerCapture(pointerId);
 	} catch (e) {
@@ -255,8 +259,8 @@ function beginTimelineDrag(container, event, captureElement) {
 		if (e.pointerId !== pointerId) return;
 		container.__timelineDragging = false;
 		container.classList.remove('is-dragging');
-		if (!startedOnMarker && e.pointerType !== 'touch') {
-			try { container.focus({ preventScroll: true }); } catch (err) { /* ignore */ }
+		if (!startedOnMarker && e.pointerType !== 'touch' && focusTarget) {
+			try { focusTarget.focus({ preventScroll: true }); } catch (err) { /* ignore */ }
 		}
 		if (rafId) {
 			cancelAnimationFrame(rafId);
@@ -742,8 +746,7 @@ function createChart() {
 	const svg = container.append('svg')
 		.attr('width', width)
 		.attr('height', height)
-		.attr('class', 'chart')
-		.attr('tabindex', 0);
+		.attr('class', 'chart');
 
 	const g = svg.append('g').attr('transform', `translate(${margin.left},${margin.top})`);
 
@@ -840,7 +843,7 @@ function createChart() {
 		.style('display', 'none')
 		.on('pointerdown', (event) => {
 			event.preventDefault();
-			try { svg.node().focus({ preventScroll: true }); } catch (e) { /* ignore */ }
+			try { event.currentTarget.focus({ preventScroll: true }); } catch (e) { /* ignore */ }
 			beginTimelineDrag(svg.node(), event, event.currentTarget);
 		})
 		.on('keydown', (event) => {
@@ -1420,7 +1423,15 @@ function setupChartOverlayUI() {
 			// Overlay should only be closed when there's no selected area.
 			// So this button clears the current selection.
 			if (state.selectedAreaCode) {
+				// Clear the search input as well, but keep the current map view (no zoom-out).
+				setSearchText('');
 				clearAreaSelection(state, config.geoLayer);
+				state.hoveredAreaCode = null;
+				state.selectedAreaCode = null;
+				state.selectedAreaName = null;
+				updateKeyInfo(undefined, undefined, state);
+				// Ensure overlay is hidden even if external handlers change.
+				setChartOverlayVisible(false);
 			} else {
 				setChartOverlayVisible(false);
 			}

@@ -159,6 +159,15 @@
   background: var(--ons-color-grey-10);
 }
 
+.chart-overlay-close:focus {
+  outline: 3px solid var(--ons-color-highlight-orange);
+  outline-offset: 2px;
+}
+
+.chart-overlay-close:focus:not(:focus-visible) {
+  outline: none;
+}
+
 #chart {
   width: 100%;
 }
@@ -166,5 +175,20 @@
 /* Chart tick label sizing */
 .chart-overlay .axis text {
   font-size: 13px;
+}
+
+/* Chart timeline pill (only focusable element inside the SVG) */
+.chart-timeline-pill:focus {
+  outline: none;
+}
+
+.chart-timeline-pill:focus rect {
+  stroke: var(--ons-color-highlight-orange);
+  stroke-width: 3px;
+  vector-effect: non-scaling-stroke;
+}
+
+.chart-timeline-pill:focus:not(:focus-visible) rect {
+  stroke: none;
 }
 

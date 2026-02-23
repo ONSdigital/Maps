@@ -589,6 +589,26 @@ export function setupSearch(areas, config, state, rateById, areaById) {
             toggle();
         }
 
+        const searchInput = document.getElementById(searchBoxId);
+        const listboxId = `${searchBoxId}__listbox`;
+
+        const syncAutocompleteTabOrder = () => {
+            const listbox = document.getElementById(listboxId);
+            if (!listbox) return;
+            listbox.setAttribute('tabindex', '-1');
+            listbox.querySelectorAll('[role="option"]').forEach(option => {
+                option.setAttribute('tabindex', '-1');
+            });
+        };
+
+        if (searchInput) {
+            const scheduleSync = () => requestAnimationFrame(syncAutocompleteTabOrder);
+            ['focus', 'blur', 'input', 'keydown', 'keyup', 'change'].forEach(evt => {
+                searchInput.addEventListener(evt, scheduleSync);
+            });
+            scheduleSync();
+        }
+
         // Function to populate search results
         async function searchSuggest(query, populateResults) {
             if (suggestionsSuppressed()) {

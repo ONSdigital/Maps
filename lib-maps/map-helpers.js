@@ -82,6 +82,9 @@ export async function setSearchText(value) {
     if (searchBox && searchDropdown) {
         searchDropdown.style.visibility = "hidden";
         searchBox.value = value || "";
+        // Ensure any UI that depends on input value (e.g. clear button) updates
+        searchBox.dispatchEvent(new Event('input', { bubbles: true }));
+        searchBox.dispatchEvent(new Event('change', { bubbles: true }));
         await sleep(110);
         searchBox.focus({ preventScroll: true });
         searchBox.blur();
@@ -130,11 +133,83 @@ export function collectCoords(geometry) {
 
 export function calculateBounds(coords) {
     if (!coords.length) return null;
-    let lons = coords.map(c => c[0]);
-    let lats = coords.map(c => c[1]);
-    let minLon = Math.min(...lons), maxLon = Math.max(...lons);
-    let minLat = Math.min(...lats), maxLat = Math.max(...lats);
+    let minLon = Infinity;
+    let maxLon = -Infinity;
+    let minLat = Infinity;
+    let maxLat = -Infinity;
+
+    for (const coord of coords) {
+        if (!Array.isArray(coord) || coord.length < 2) continue;
+        const lon = coord[0];
+        const lat = coord[1];
+        if (!Number.isFinite(lon) || !Number.isFinite(lat)) continue;
+        if (lon < minLon) minLon = lon;
+        if (lon > maxLon) maxLon = lon;
+        if (lat < minLat) minLat = lat;
+        if (lat > maxLat) maxLat = lat;
+    }
+
+    if (!Number.isFinite(minLon) || !Number.isFinite(minLat)) return null;
     return [[minLon, minLat], [maxLon, maxLat]];
+}
+
+export function boundsContain(outer, inner) {
+    if (!Array.isArray(outer) || !Array.isArray(inner)) return false;
+    if (!outer[0] || !outer[1] || !inner[0] || !inner[1]) return false;
+    return outer[0][0] <= inner[0][0]
+        && outer[0][1] <= inner[0][1]
+        && outer[1][0] >= inner[1][0]
+        && outer[1][1] >= inner[1][1];
+}
+
+export function calculateBoundsFromGeojson(areas) {
+    if (!areas) return null;
+    let allCoords = [];
+
+    if (areas.type === 'FeatureCollection' && Array.isArray(areas.features)) {
+        areas.features.forEach(feature => {
+            if (!feature || !feature.geometry) return;
+            allCoords.push(...collectCoords(feature.geometry));
+        });
+    } else if (areas.type === 'Feature' && areas.geometry) {
+        allCoords = collectCoords(areas.geometry);
+    } else if (areas.type) {
+        allCoords = collectCoords(areas);
+    }
+
+    if (!allCoords.length) return null;
+    return calculateBounds(allCoords);
+}
+
+export function resolveAutoMapBounds(config, areas, geographySource) {
+    if (!config || typeof config.mapBounds !== 'string') return;
+    if (config.mapBounds.toLowerCase() !== 'auto') return;
+
+    if (geographySource === 'vector') {
+        if (config.debugInfo) {
+            console.warn("[Map Debug] mapBounds 'auto' is only supported for GeoJSON/TopoJSON sources. Falling back to maxBounds.");
+        }
+        if (Array.isArray(config.maxBounds)) {
+            config.mapBounds = config.maxBounds;
+        }
+        return;
+    }
+
+    const autoBounds = calculateBoundsFromGeojson(areas);
+    if (autoBounds) {
+        config.mapBounds = autoBounds;
+        config.__autoMapBounds = autoBounds;
+        if (config.debugInfo) {
+            console.log('[Map Debug] mapBounds auto resolved to:', autoBounds);
+        }
+        if (Array.isArray(config.maxBounds) && !boundsContain(config.maxBounds, autoBounds)) {
+            if (config.debugInfo) {
+                console.warn("[Map Debug] mapBounds 'auto' exceeds maxBounds; map view may be constrained.");
+            }
+        }
+    } else if (config.debugInfo) {
+        console.warn("[Map Debug] mapBounds 'auto' could not be resolved from the provided geography.");
+    }
 }
 
 
@@ -292,6 +367,7 @@ export function setupSearch(areas, config, state, rateById, areaById) {
 
     function addSearchBox(areaNames, state) {
         const searchBoxId = 'search-box';
+        const searchStyleId = 'ons-map-search-clear-styles';
         const mapWrapper = document.getElementById('mapwrapper') || document.body;
         const searchDiv = document.createElement('div');
         const searchLabel = document.createElement('label');
@@ -299,6 +375,104 @@ export function setupSearch(areas, config, state, rateById, areaById) {
         searchLabel.htmlFor = searchBoxId;
         searchLabel.innerHTML = "Select an area";
         searchDiv.id = 'search-container';
+
+        // Provide a positioned wrapper so we can place an "x" clear button inside the input
+        searchDiv.classList.add('ons-autocomplete');
+
+        const inputWrapper = document.createElement('div');
+        inputWrapper.className = 'autocomplete__input-wrapper';
+        searchDiv.appendChild(inputWrapper);
+
+        // Will be wired up once the input exists
+        let toggleClearButton = null;
+
+        // Used to prevent the menu popping open as a side-effect of programmatic changes
+        // (e.g. setSearchText from map click, then clearing via the x button)
+        let suppressSuggestionsUntil = 0;
+
+        const suppressSuggestions = (ms = 300) => {
+            suppressSuggestionsUntil = Date.now() + ms;
+        };
+
+        const suggestionsSuppressed = () => Date.now() < suppressSuggestionsUntil;
+
+        const closeListboxTemporarily = (ms = 250) => {
+            const listbox = document.getElementById(`${searchBoxId}__listbox`);
+            if (!listbox) return;
+            listbox.style.display = 'none';
+            listbox.style.visibility = 'hidden';
+            setTimeout(() => {
+                listbox.style.display = '';
+                listbox.style.visibility = 'visible';
+            }, ms);
+        };
+
+        const ensureSearchStyles = () => {
+            if (document.getElementById(searchStyleId)) return;
+            const styleEl = document.createElement('style');
+            styleEl.id = searchStyleId;
+            styleEl.textContent = `
+                #search-container { width: 100%; }
+                #search-container .autocomplete__wrapper { width: 100%; flex: 1 1 auto; }
+                #search-container .autocomplete__input { width: 100% !important; box-sizing: border-box; padding-right: 30px; }
+                #search-container .autocomplete__hint { pointer-events: none; }
+                #search-container .autocomplete__input-wrapper { position: relative; display: flex; width: 100%; }
+                #search-container .autocomplete__clear-button {
+                    position: absolute;
+                    right: 10px;
+                    top: 50%;
+                    transform: translateY(-50%);
+                    background: none;
+                    border: none;
+                    padding: 4px;
+                    cursor: pointer;
+                    color: #222222;
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                    border-radius: 50%;
+                    z-index: 10;
+                    pointer-events: auto;
+                }
+                #search-container .autocomplete__clear-button:hover { background-color: rgba(0, 0, 0, 0.1); }
+                #search-container .autocomplete__clear-button:focus { outline: 2px solid #fbc900; outline-offset: 2px; }
+                #search-container .autocomplete__clear-button.hidden { display: none; }
+                #search-container .autocomplete__input-wrapper.visible-clear .autocomplete__dropdown-arrow-down { display: none; }
+            `;
+            document.head.appendChild(styleEl);
+        };
+
+        const findAutocompleteUiWrapper = (root) => (
+            root.querySelector('.autocomplete__wrapper .autocomplete__input-wrapper')
+            || root.querySelector('.autocomplete__input-wrapper')
+            || root
+        );
+
+        const findAutocompleteInput = (uiWrapper, root) => (
+            uiWrapper.querySelector('.autocomplete__input')
+            || root.querySelector('.autocomplete__input')
+            || null
+        );
+
+        const createClearButton = () => {
+            const btn = document.createElement('button');
+            btn.type = 'button';
+            btn.className = 'autocomplete__clear-button hidden';
+            btn.setAttribute('aria-label', 'Clear selection');
+            btn.innerHTML = `
+                <svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" stroke-width="2" fill="none">
+                    <line x1="18" y1="6" x2="6" y2="18"></line>
+                    <line x1="6" y1="6" x2="18" y2="18"></line>
+                </svg>
+            `;
+            return btn;
+        };
+
+        const stopEvent = (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            if (typeof e.stopImmediatePropagation === 'function') e.stopImmediatePropagation();
+        };
 
         if (mapWrapper === document.body) {
             document.body.appendChild(searchLabel);
@@ -310,7 +484,7 @@ export function setupSearch(areas, config, state, rateById, areaById) {
 
         // Initialise the accessible autocomplete
         accessibleAutocomplete({
-            element: searchDiv,
+            element: inputWrapper,
             id: searchBoxId,
             source: searchSuggest,
             placeholder: "Type a place name or postcode",
@@ -318,14 +492,129 @@ export function setupSearch(areas, config, state, rateById, areaById) {
             autoselect: true,
             confirmOnBlur: false,
             displayMenu: "overlay",
-            onConfirm: (name) =>
-                name.match(/^[A-Z]{1,2}\d[A-Z\d]?\s?\d[A-Z]{2}$/) ? selectAreaByPostcode(name) : selectAreaByName(name),
+            onConfirm: (name) => {
+                if (!name) {
+                    if (typeof toggleClearButton === 'function') toggleClearButton();
+                    return;
+                }
+
+                if (name.match(/^[A-Z]{1,2}\d[A-Z\d]?\s?\d[A-Z]{2}$/)) {
+                    selectAreaByPostcode(name);
+                } else {
+                    selectAreaByName(name);
+                }
+
+                // accessible-autocomplete can update the input value without firing input/change.
+                // Force a UI refresh so the chevron/clear button state matches.
+                if (typeof toggleClearButton === 'function') {
+                    setTimeout(() => toggleClearButton(), 0);
+                }
+            },
             dropdownArrow: (opts) =>
                 `<svg class="${opts?.className}" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" viewBox="0 0 11.75 7.7" width="18" style="z-index:1"><path fill="currentColor" d="m1.37.15 4.5 5.1 4.5-5.1a.37.37 0 0 1 .6 0l.7.7a.45.45 0 0 1 0 .5l-5.5 6.2a.37.37 0 0 1-.6 0l-5.5-6.1a.64.64 0 0 1 0-.6l.7-.7a.64.64 0 0 1 .6 0Z"></path></svg>`
         });
 
+        setupSearchClearButton(inputWrapper);
+
+        function setupSearchClearButton(root) {
+            const uiWrapper = findAutocompleteUiWrapper(root);
+            const input = findAutocompleteInput(uiWrapper, root);
+            if (!input) return;
+
+            ensureSearchStyles();
+
+            const clearButton = createClearButton();
+
+            const toggle = () => {
+                const hasValue = !!input.value;
+                clearButton.classList.toggle('hidden', !hasValue);
+                uiWrapper.classList.toggle('visible-clear', hasValue);
+            };
+
+            toggleClearButton = toggle;
+
+            let clearedByPointer = false;
+
+            const clearSelectionAndReset = () => {
+                suppressSuggestions(300);
+
+                input.value = '';
+                input.dispatchEvent(new Event('input', { bubbles: true }));
+                input.dispatchEvent(new Event('change', { bubbles: true }));
+
+                if (typeof state.map !== 'undefined' && state.map !== null) {
+                    clearAreaSelection(state, config.geoLayer);
+                    state.hoveredAreaCode = null;
+                    state.selectedAreaCode = null;
+                    state.selectedAreaName = null;
+                    updateKeyInfo(undefined, undefined, state);
+
+                    const homeBounds = config.mapBounds || config.__autoMapBounds || config.maxBounds;
+                    if (homeBounds) {
+                        const padding = calculateZoomPadding(state.map);
+                        state.map.fitBounds(homeBounds, { padding, animate: true });
+                    }
+                }
+
+                toggle();
+                closeListboxTemporarily(300);
+                input.blur();
+            };
+
+            // Capture-phase intercept so accessible-autocomplete can't open the menu first
+            clearButton.addEventListener('pointerdown', (e) => {
+                stopEvent(e);
+                clearedByPointer = true;
+                clearSelectionAndReset();
+            }, { capture: true });
+
+            clearButton.addEventListener('mousedown', stopEvent, { capture: true });
+            clearButton.addEventListener('mouseup', stopEvent, { capture: true });
+            clearButton.addEventListener('touchstart', stopEvent, { capture: true, passive: false });
+            clearButton.addEventListener('touchend', stopEvent, { capture: true, passive: false });
+
+            // Keyboard activation (Enter/Space) triggers click
+            clearButton.addEventListener('click', (e) => {
+                stopEvent(e);
+                if (clearedByPointer) {
+                    clearedByPointer = false;
+                    return;
+                }
+                clearSelectionAndReset();
+            });
+
+            input.addEventListener('input', toggle);
+            input.addEventListener('change', toggle);
+            uiWrapper.appendChild(clearButton);
+            toggle();
+        }
+
+        const searchInput = document.getElementById(searchBoxId);
+        const listboxId = `${searchBoxId}__listbox`;
+
+        const syncAutocompleteTabOrder = () => {
+            const listbox = document.getElementById(listboxId);
+            if (!listbox) return;
+            listbox.setAttribute('tabindex', '-1');
+            listbox.querySelectorAll('[role="option"]').forEach(option => {
+                option.setAttribute('tabindex', '-1');
+            });
+        };
+
+        if (searchInput) {
+            const scheduleSync = () => requestAnimationFrame(syncAutocompleteTabOrder);
+            ['focus', 'blur', 'input', 'keydown', 'keyup', 'change'].forEach(evt => {
+                searchInput.addEventListener(evt, scheduleSync);
+            });
+            scheduleSync();
+        }
+
         // Function to populate search results
         async function searchSuggest(query, populateResults) {
+            if (suggestionsSuppressed()) {
+                populateResults([]);
+                return;
+            }
             const safeQuery = query.replace(/[^\w\s]/gi, ""); // Remove special characters
             let results = !safeQuery || query === state.selectedAreaName ? areaNames :
                 areaNames.filter((name) =>
@@ -791,6 +1080,20 @@ export function buildValueAndAreaLookups(data, config, state) {
 export function setupMap(config, data, rateById, areaById, areas, colour, state) {
     state.map.on('load', () => {
 
+        if (config.debugInfo && Array.isArray(config.__autoMapBounds)) {
+            const viewBounds = state.map.getBounds().toArray();
+            if (!boundsContain(viewBounds, config.__autoMapBounds)) {
+                let zoomNote = '';
+                const z = state.map.getZoom();
+                if (typeof config.minZoom === 'number' && z <= config.minZoom + 1e-6) {
+                    zoomNote = ' Current zoom is at minZoom.';
+                } else if (typeof config.maxZoom === 'number' && z >= config.maxZoom - 1e-6) {
+                    zoomNote = ' Current zoom is at maxZoom.';
+                }
+                console.warn("[Map Debug] mapBounds 'auto' exceeds the initial view; maxBounds/minZoom/maxZoom may be constraining the fit." + zoomNote);
+            }
+        }
+
         if (state.geographySource === "vector") {
 
             state.map.addSource('area', { type: 'vector', tiles: [config.geoUrl], promoteId: { [config.geoLayer]: config.geoIdField } });
@@ -825,13 +1128,20 @@ export function setupMap(config, data, rateById, areaById, areas, colour, state)
             layout: {},
             paint: {
                 'fill-color': ['feature-state', 'color'],
-                'fill-opacity': [
-                    'case',
-                    ['boolean', ['feature-state', 'legendActive'], false],
-                    ['case', ['boolean', ['feature-state', 'legendMatch'], false], baseFillOpacity, dimFillOpacity],
-                    baseFillOpacity
-                ],
-                'fill-outline-color': ONScolours.grey100
+                'fill-opacity': config.fillOpacity || 0.8,
+                // 'fill-outline-color': ONScolours.grey100
+            }
+        }, 'place_town');
+
+        state.map.addLayer({
+            id: 'area-border',
+            type: 'line',
+            source: 'area',
+            "source-layer": state.geographySource === "vector" ? config.geoLayer : "",
+            layout: {},
+            paint: {
+                'line-color': 'grey',
+                'line-width': ['interpolate', ['linear'], ['zoom'], 6, 0.2, 11, 1]
             }
         }, 'place_town');
 
@@ -902,31 +1212,7 @@ export function setupMap(config, data, rateById, areaById, areas, colour, state)
         // 	}
         // }));
 
-        const zoomhome = new MapLibreControlZoomHome({
-            resetBounds: config.mapBounds,
-            onReset: function () {
-                // Clear selected area and info
-                if (typeof state.map !== 'undefined' && state.map !== null) {
-                    if (state.selectedAreaCode) {
-                        state.map.setFeatureState({
-                            source: 'area',
-                            sourceLayer: (state.geographySource === "vector" ? geoLayer : ""),
-                            id: state.selectedAreaCode
-                        }, { selected: false });
-                    }
-                    state.selectedAreaCode = null;
-                    state.selectedAreaName = null;
-                    if (window.moveKeyIndicator) window.moveKeyIndicator(undefined);
-                    if (window.moveKeyIndicatorSelected) window.moveKeyIndicatorSelected(undefined);
-                    // Always clear explainer and value immediately
-                    updateKeyInfo(undefined, undefined, state);
-                    // Reset search box to placeholder
-                    setSearchText("");
-                }
-            }
-        });
-
-        state.map.addControl(zoomhome, 'top-right');
+        // Home/reset control removed: reset is now handled via the search clear (x)
 
         // Interactivity
         state.map.on('mousemove', 'area', (e) => {

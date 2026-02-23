@@ -140,6 +140,24 @@
   display: none;
 }
 
+/* Hover preview (tooltip-like): non-interactive and no close button */
+.chart-overlay.is-hover {
+  pointer-events: none;
+  /* leave room for the chart title (and match pinned top padding) */
+  padding: 48px 12px 12px 12px;
+}
+
+/* Pinned (clicked): interactive and shows close button */
+.chart-overlay.is-pinned {
+  pointer-events: auto;
+  padding: 48px 12px 12px 12px;
+}
+
+/* Close button only appears when pinned */
+.chart-overlay:not(.is-pinned) .chart-overlay-close {
+  display: none;
+}
+
 .chart-overlay-close {
   position: absolute;
   top: 6px;

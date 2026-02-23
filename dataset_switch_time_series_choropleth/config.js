@@ -95,7 +95,17 @@ config = {
 	elements: { select: 1, nav: 1, legend: 1, titles: 0 },
 
 	// Chart config (overlay time-series)
+	// Overlay sizing
+	// - pinned: shown after click/search selection
+	// - hover: tooltip-like preview shown on hover
+	chartOverlay: {
+		pinned: { width: 420, height: 313 },
+		hover: { width: 300, height: 250 }
+	},
+
 	chart: {
+		// Chart SVG height is derived automatically from chartOverlay.*.height.
+		// (Font sizes / stroke widths remain constant; only the available plot area changes.)
 		height: 220,
 		margin: { top: 24, right: 20, bottom: 30, left: 30 },
 		showMeanLine: true,

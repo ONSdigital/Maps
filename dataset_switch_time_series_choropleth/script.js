@@ -41,6 +41,13 @@ const state = {
 
 	// chart
 	chart: null,
+
+	// chart overlay (hover preview vs pinned)
+	overlayMode: 'hidden', // 'hidden' | 'hover' | 'pinned'
+	overlayAreaCode: null,
+	overlayAreaName: null,
+	__overlayRaf: null,
+	__overlayLastClient: null,
 };
 
 const graphic = d3.select('#graphic');
@@ -669,7 +676,26 @@ function renderDatasetSwitch() {
 }
 
 
-function createChart() {
+function getOverlayInnerHeightPx() {
+	const overlay = document.getElementById('chart-overlay');
+	if (!overlay || overlay.classList.contains('hidden')) return null;
+	const rect = overlay.getBoundingClientRect();
+	if (!rect || !Number.isFinite(rect.height) || rect.height <= 0) return null;
+	let padTop = 0;
+	let padBottom = 0;
+	try {
+		const cs = window.getComputedStyle(overlay);
+		padTop = parseFloat(cs.paddingTop) || 0;
+		padBottom = parseFloat(cs.paddingBottom) || 0;
+	} catch (e) {
+		padTop = 0;
+		padBottom = 0;
+	}
+	const inner = rect.height - padTop - padBottom;
+	return Number.isFinite(inner) && inner > 0 ? inner : null;
+}
+
+function createChart({ overlayInnerHeight = null } = {}) {
 	const container = d3.select('#chart');
 	container.html('');
 	const chartCfg = (config && config.chart && typeof config.chart === 'object') ? config.chart : {};
@@ -686,12 +712,10 @@ function createChart() {
 			update: () => { /* no-op until we have a real width */ }
 		};
 	}
-	const height = chartCfg.height || 220;
 	const margin = (chartCfg.margin && typeof chartCfg.margin === 'object')
 		? { ...{ top: 10, right: 20, bottom: 30, left: 50 }, ...chartCfg.margin }
 		: { top: 10, right: 20, bottom: 30, left: 50 };
 	const innerWidth = Math.max(10, width - margin.left - margin.right);
-	const innerHeight = Math.max(10, height - margin.top - margin.bottom);
 
 	const overlay = d3.select('#chart-overlay');
 	overlay.selectAll('.chart-title').remove();
@@ -731,6 +755,24 @@ function createChart() {
 		.text(meanLegendCfg.label)
 		.style('font-size', '13px')
 		.style('color', 'var(--ons-color-grey-60)');
+
+	const heightFallback = chartCfg.height || 220;
+	let height = heightFallback;
+	if (overlayInnerHeight !== null && Number.isFinite(+overlayInnerHeight)) {
+		let legendH = 0;
+		try {
+			const node = legend.node();
+			const r = node ? node.getBoundingClientRect() : null;
+			legendH = r ? r.height : 0;
+			// include the inline margin-bottom (8px)
+			legendH += 8;
+		} catch (e) {
+			legendH = 28;
+		}
+		height = Math.max(120, Math.floor(overlayInnerHeight - legendH));
+	}
+
+	const innerHeight = Math.max(10, height - margin.top - margin.bottom);
 
 	const tCfg = getTimelineConfig();
 	const fmtPillDisplay = d3.timeFormat(tCfg.displayFormat);
@@ -1259,14 +1301,20 @@ function createChart() {
 	}
 
 
-	return { __width: width, update };
+	return { __width: width, __height: height, __overlayInnerHeight: overlayInnerHeight, update };
 }
 
 function updateChart() {
 	const chartEl = document.getElementById('chart');
 	const width = Math.floor(chartEl?.getBoundingClientRect().width || 0);
 	if (!width || width < 50) return;
-	if (!state.chart || state.chart.__width !== width) state.chart = createChart();
+	const overlayInnerHeight = getOverlayInnerHeightPx();
+	const overlayKey = overlayInnerHeight === null ? null : Math.round(overlayInnerHeight);
+	if (!state.chart
+		|| state.chart.__width !== width
+		|| (overlayKey !== null && Math.round(state.chart.__overlayInnerHeight || 0) !== overlayKey)) {
+		state.chart = createChart({ overlayInnerHeight });
+	}
 	const timeColumns = state.timeColumns;
 	if (!timeColumns.length) {
 		state.chart.update({ timeColumns: [], areaSeries: null, meanSeries: null, timeIndex: 0, areaName: null, colourScale: null });
@@ -1275,9 +1323,10 @@ function updateChart() {
 
 	let areaSeries = null;
 	let areaName = null;
-	if (state.selectedAreaCode && state.seriesById[state.selectedAreaCode]) {
-		const s = state.seriesById[state.selectedAreaCode];
-		areaName = s.areaName;
+	const activeCode = state.overlayAreaCode || state.selectedAreaCode;
+	if (activeCode && state.seriesById[activeCode]) {
+		const s = state.seriesById[activeCode];
+		areaName = state.overlayAreaName || s.areaName;
 		areaSeries = timeColumns.map((t, idx) => {
 			const v = s.values[idx];
 			let c = null;
@@ -1297,6 +1346,159 @@ function updateChart() {
 		areaName,
 		colourScale: state.colour,
 		breaks: state.breaks
+	});
+}
+
+let __overlayWired = false;
+
+function setChartOverlayVisible(visible) {
+	const overlay = document.getElementById('chart-overlay');
+	if (!overlay) return;
+	const show = Boolean(visible);
+	overlay.classList.toggle('hidden', !show);
+	overlay.setAttribute('aria-hidden', show ? 'false' : 'true');
+}
+
+function setOverlayMode(mode) {
+	const overlay = document.getElementById('chart-overlay');
+	if (!overlay) return;
+	const prevMode = state.overlayMode;
+	state.overlayMode = mode;
+	const hidden = mode === 'hidden';
+	setChartOverlayVisible(!hidden);
+	overlay.classList.toggle('is-hover', mode === 'hover');
+	overlay.classList.toggle('is-pinned', mode === 'pinned');
+
+	applyOverlayDimensionsForMode(mode);
+	if (prevMode !== mode) {
+		// Force a rebuild so the SVG height changes without scaling styles.
+		state.chart = null;
+	}
+
+	if (mode === 'pinned') {
+		// Revert to CSS anchored placement.
+		overlay.style.left = '';
+		overlay.style.top = '';
+		overlay.style.right = '';
+		overlay.style.bottom = '';
+	} else if (mode === 'hidden') {
+		// Clear inline positioning so next show starts clean.
+		overlay.style.left = '';
+		overlay.style.top = '';
+		overlay.style.right = '';
+		overlay.style.bottom = '';
+	}
+}
+
+function applyOverlayDimensionsForMode(mode) {
+	const overlay = document.getElementById('chart-overlay');
+	const stage = document.getElementById('mapstage');
+	if (!overlay || !stage) return;
+
+	if (mode === 'hidden') {
+		overlay.style.width = '';
+		overlay.style.height = '';
+		return;
+	}
+
+	const sizes = (config && config.chartOverlay && typeof config.chartOverlay === 'object') ? config.chartOverlay : {};
+	const desired = (mode === 'hover' ? sizes.hover : sizes.pinned) || {};
+	const desiredW = Number.isFinite(+desired.width) ? +desired.width : (mode === 'hover' ? 300 : 420);
+	const desiredH = Number.isFinite(+desired.height) ? +desired.height : (mode === 'hover' ? 200 : 313);
+
+	const stageRect = stage.getBoundingClientRect();
+	const maxW = Math.max(120, Math.floor(stageRect.width - 24));
+	const maxH = Math.max(120, Math.floor(stageRect.height - 24));
+	const w = Math.max(180, Math.min(desiredW, maxW));
+	const h = Math.max(140, Math.min(desiredH, maxH));
+
+	overlay.style.width = `${w}px`;
+	overlay.style.height = `${h}px`;
+}
+
+function positionOverlayNearClientPoint(clientX, clientY) {
+	const overlay = document.getElementById('chart-overlay');
+	const stage = document.getElementById('mapstage');
+	if (!overlay || !stage) return;
+
+	const stageRect = stage.getBoundingClientRect();
+	const overlayRect = overlay.getBoundingClientRect();
+	if (!stageRect.width || !stageRect.height) return;
+
+	const gutter = 12;
+	const localX = clientX - stageRect.left;
+	const localY = clientY - stageRect.top;
+
+	let left = localX + gutter;
+	if (left + overlayRect.width > stageRect.width - gutter) {
+		left = localX - gutter - overlayRect.width;
+	}
+	left = Math.max(gutter, Math.min(left, stageRect.width - overlayRect.width - gutter));
+
+	let top = localY - gutter;
+	top = Math.max(gutter, Math.min(top, stageRect.height - overlayRect.height - gutter));
+
+	overlay.style.left = `${Math.round(left)}px`;
+	overlay.style.top = `${Math.round(top)}px`;
+	overlay.style.bottom = 'auto';
+	overlay.style.right = 'auto';
+}
+
+function showHoverOverlay({ code, areaName, clientX, clientY }) {
+	if (!code) return;
+	if (state.selectedAreaCode) return; // pinned takes precedence
+
+	const changed = code !== state.overlayAreaCode || state.overlayMode !== 'hover';
+	state.overlayAreaCode = code;
+	state.overlayAreaName = areaName || state.areaById[code] || null;
+	setOverlayMode('hover');
+	if (changed) updateChart();
+	// Position immediately to avoid a one-frame flash in the default (pinned) position.
+	positionOverlayNearClientPoint(clientX, clientY);
+
+	state.__overlayLastClient = { x: clientX, y: clientY };
+	if (state.__overlayRaf) return;
+	state.__overlayRaf = requestAnimationFrame(() => {
+		state.__overlayRaf = null;
+		const pt = state.__overlayLastClient;
+		if (!pt) return;
+		positionOverlayNearClientPoint(pt.x, pt.y);
+	});
+}
+
+function hideHoverOverlay() {
+	if (state.overlayMode !== 'hover') return;
+	state.overlayAreaCode = null;
+	state.overlayAreaName = null;
+	setOverlayMode('hidden');
+}
+
+function showPinnedOverlay({ code, areaName }) {
+	state.overlayAreaCode = code || null;
+	state.overlayAreaName = areaName || null;
+	setOverlayMode(code ? 'pinned' : 'hidden');
+	updateChart();
+}
+
+function wireOverlayHoverEvents() {
+	if (__overlayWired) return;
+	__overlayWired = true;
+	if (!state.map) return;
+
+	state.map.on('mousemove', 'area', (e) => {
+		if (state.selectedAreaCode) return;
+		const f = e && e.features && e.features[0];
+		if (!f || !f.properties) return;
+		const code = f.properties[config.geoIdField];
+		const areaName = f.properties[config.geoNameField];
+		const evt = e.originalEvent || e;
+		const clientX = evt && typeof evt.clientX === 'number' ? evt.clientX : 0;
+		const clientY = evt && typeof evt.clientY === 'number' ? evt.clientY : 0;
+		showHoverOverlay({ code, areaName, clientX, clientY });
+	});
+
+	state.map.on('mouseleave', 'area', () => {
+		if (!state.selectedAreaCode) hideHoverOverlay();
 	});
 }
 
@@ -1375,9 +1577,8 @@ function drawMap(areas) {
 		// state.selectedAreaCode/name are already set by map/search helpers; this ensures chart refreshes
 		state.selectedAreaCode = code;
 		state.selectedAreaName = areaName;
-		setChartOverlayVisible(Boolean(code));
-
-		updateChart();
+		// Click selection becomes a pinned overlay (close button visible)
+		showPinnedOverlay({ code, areaName });
 		if (code) deferFocusSelectedArea();
 	};
 
@@ -1395,6 +1596,10 @@ function drawMap(areas) {
 
 	setupSearch(areas, config, state, state.rateById, state.areaById);
 	setupMap(config, state.dataForMap, state.rateById, state.areaById, areas, state.colour, state);
+	// Wire hover preview overlay after setupMap has added the area layer (setupMap registers on 'load')
+	state.map.on('load', () => {
+		wireOverlayHoverEvents();
+	});
 
 	updateKeyInfo(undefined, undefined, state);
 	updateChart();
@@ -1430,23 +1635,15 @@ function setupChartOverlayUI() {
 				state.selectedAreaCode = null;
 				state.selectedAreaName = null;
 				updateKeyInfo(undefined, undefined, state);
-				// Ensure overlay is hidden even if external handlers change.
-				setChartOverlayVisible(false);
+				// Hide pinned overlay; hover preview will re-appear on next hover.
+				showPinnedOverlay({ code: null, areaName: null });
 			} else {
-				setChartOverlayVisible(false);
+				showPinnedOverlay({ code: null, areaName: null });
 			}
 		});
 	}
 
-	setChartOverlayVisible(false);
-}
-
-function setChartOverlayVisible(visible) {
-	const overlay = document.getElementById('chart-overlay');
-	if (!overlay) return;
-	const show = Boolean(visible);
-	overlay.classList.toggle('hidden', !show);
-	overlay.setAttribute('aria-hidden', show ? 'false' : 'true');
+	setOverlayMode('hidden');
 }
 
 function getChartOverlayPadding() {

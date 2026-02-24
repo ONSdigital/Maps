@@ -295,6 +295,87 @@ function beginTimelineDrag(container, event, captureElement) {
 	apply();
 }
 
+function beginTimelineTouchDrag(container, event, captureElement) {
+	if (!container || !event) return;
+	const touches = event.changedTouches || event.touches;
+	if (!touches || !touches.length) return;
+	const touch0 = touches[0];
+	const touchId = touch0.identifier;
+	if (typeof touchId !== 'number') return;
+
+	// Avoid double-binding if something already captured.
+	if (container.__timelineDragging) return;
+	container.__timelineDragging = true;
+	container.classList.add('is-dragging');
+
+	const captureEl = captureElement || event.currentTarget || container;
+	let latestX = touch0.clientX;
+	let rafId = null;
+
+	const apply = () => {
+		rafId = null;
+		const next = getNearestTimelineIndexFromClientX(container, latestX);
+		setTimeIndex(next);
+	};
+
+	const findTouch = (e) => {
+		const changed = e.changedTouches || null;
+		if (changed && changed.length) {
+			for (let i = 0; i < changed.length; i++) {
+				const t = changed[i];
+				if (t && t.identifier === touchId) return t;
+			}
+		}
+		const touchesNow = e.touches || null;
+		if (touchesNow && touchesNow.length) {
+			for (let i = 0; i < touchesNow.length; i++) {
+				const t = touchesNow[i];
+				if (t && t.identifier === touchId) return t;
+			}
+		}
+		return null;
+	};
+
+	const onMove = (e) => {
+		const t = findTouch(e);
+		if (!t) return;
+		// Prevent the browser from interpreting this as a scroll while scrubbing.
+		try { if (e.cancelable) e.preventDefault(); } catch (err) { /* ignore */ }
+		latestX = t.clientX;
+		if (rafId) return;
+		rafId = requestAnimationFrame(apply);
+	};
+
+	const end = (e) => {
+		const t = findTouch(e);
+		if (!t) return;
+		container.__timelineDragging = false;
+		container.classList.remove('is-dragging');
+		if (rafId) {
+			cancelAnimationFrame(rafId);
+			rafId = null;
+		}
+		window.removeEventListener('touchmove', onMove);
+		window.removeEventListener('touchend', end);
+		window.removeEventListener('touchcancel', end);
+	};
+
+	window.addEventListener('touchmove', onMove, { passive: false });
+	window.addEventListener('touchend', end);
+	window.addEventListener('touchcancel', end);
+
+	// Apply immediately at the start position.
+	apply();
+
+	// Best-effort to prevent synthetic mouse events after touch.
+	try {
+		if (event.cancelable) event.preventDefault();
+		if (event.stopPropagation) event.stopPropagation();
+	} catch (err) {
+		// ignore
+	}
+}
+
 function getTimelineConfig() {
 	const t = (config && config.timeline) ? config.timeline : {};
 	return {
@@ -953,11 +1034,18 @@ function createChart({ overlayInnerHeight = null } = {}) {
 		.attr('role', 'slider')
 		.attr('aria-label', tCfg.ariaLabel)
 		.style('cursor', 'pointer')
+		.style('touch-action', 'none')
 		.style('display', 'none')
 		.on('pointerdown', (event) => {
+			// On some mobile browsers (notably Safari/SVG), pointer events can be unreliable.
+			// Prefer the explicit touch handlers for touch interactions.
+			if (event && event.pointerType === 'touch') return;
 			event.preventDefault();
 			try { event.currentTarget.focus({ preventScroll: true }); } catch (e) { /* ignore */ }
 			beginTimelineDrag(svg.node(), event, event.currentTarget);
+		})
+		.on('touchstart', (event) => {
+			beginTimelineTouchDrag(svg.node(), event, event.currentTarget);
 		})
 		.on('keydown', (event) => {
 			const maxIdx = Math.max(0, state.timeColumns.length - 1);

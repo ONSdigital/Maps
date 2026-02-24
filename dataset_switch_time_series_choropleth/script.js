@@ -638,7 +638,7 @@ function renderDatasetSwitch() {
 	fieldset.setAttribute('role', 'radiogroup');
 
 	const legend = document.createElement('legend');
-	legend.textContent = 'Select dataset';
+	// legend.textContent = 'Select dataset';
 	fieldset.appendChild(legend);
 
 	const buttonsWrapper = document.createElement('div');

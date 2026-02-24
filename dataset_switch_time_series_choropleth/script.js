@@ -934,9 +934,9 @@ function createChart({ overlayInnerHeight = null } = {}) {
 		.attr('text-anchor', 'middle')
 		.attr('dominant-baseline', 'middle')
 		.attr('fill', solidStroke)
-		.attr('fill-opacity', 0.8)
-		.style('font-size', '18px')
-		.style('font-weight', '500')
+		.attr('fill-opacity', 0.6)
+		.style('font-size', '19px')
+		.style('font-weight', '700')
 		.style('pointer-events', 'none')
 		.style('opacity', 0)
 		.text('Data Unavailable');

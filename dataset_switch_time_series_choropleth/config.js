@@ -16,6 +16,7 @@ Multi-dataset behaviour:
     - explainerSuffix
     - unavailablePrefix
     - unavailableSuffix
+	- chart.subTitle
   you can provide either:
     - an array (one value per dataset, in the same order as the columns), or
     - a single value (used for all datasets).
@@ -75,13 +76,6 @@ config = {
 	legendFormat: ",.0f",
 	legendPrefix: "",
 	legendSuffix: "",
-	explainerAlignment: "right", // left or right
-	explainerPlaceholder: "Select an area",
-	explainerPlaceholderTextSize: "0.9em", // font-size for placeholder text (e.g., "0.9em", "14px", or a number for px)
-	explainerPrefix: "First time buyer mortgages in</br>",
-	explainerSuffix: ["<br>per 1,000 people</br>","</br>per 100 house sales"],
-	unavailablePrefix: "The value for",
-	unavailableSuffix: "is unavailable", //could change to suppressed if purposefully suppressed
 	mapBounds: [[-7, 50.2], [1.77, 59]], // Set to "auto" to use GeoJSON/TopoJSON extents (not supported for vector tiles). Ensure maxBounds and minZoom are set so the auto view displays correctly. UK bounds (Shetland cut off a bit): [[-8.62, 48.87], [1.77, 60.84]] England and Wales: [[-6.43, 50], [1.77, 55.81]]
 	maxBounds: [[-14, 46], [8, 62]], // restrict panning to these bounds
 
@@ -95,18 +89,18 @@ config = {
 	elements: { select: 1, nav: 1, legend: 1, titles: 0 },
 
 	// Chart config (overlay time-series)
-	// Overlay sizing
-	// - pinned: shown after click/search selection
-	// - hover: tooltip-like preview shown on hover
-	chartOverlay: {
-		pinned: { width: 420, height: 313 },
-		hover: { width: 300, height: 250 }
-	},
-
 	chart: {
-		// Chart SVG height is derived automatically from chartOverlay.*.height.
+		// Overlay sizing
+		// - pinned: shown after click/search selection
+		// - hover: tooltip-like preview shown on hover
+		dimensions: {
+			pinned: { width: 420, height: 313 },
+			hover: { width: 300, height: 250 }
+		},
+
+		// Chart SVG height is derived automatically from chart.dimensions.*.height.
 		// (Font sizes / stroke widths remain constant; only the available plot area changes.)
-		height: 220,
+		subTitle: ["First time buyers per 1,000 people","First time buyers per 100 house sales"],
 		margin: { top: 24, right: 20, bottom: 30, left: 30 },
 		showMeanLine: true,
 		meanLegend: {

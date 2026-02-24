@@ -53,6 +53,10 @@ const state = {
 const graphic = d3.select('#graphic');
 const keyscale = d3.select('#keyscale');
 
+// This template uses the chart overlay for explanatory text.
+// Hide the standard keyinfo (value/explainer) block above the map key.
+config.showKeyInfo = false;
+
 graphic
 	.style('width', '100%')
 	.style('height', config.mapHeight || '650px')
@@ -699,6 +703,16 @@ function createChart({ overlayInnerHeight = null } = {}) {
 	const container = d3.select('#chart');
 	container.html('');
 	const chartCfg = (config && config.chart && typeof config.chart === 'object') ? config.chart : {};
+	const resolveChartValue = (val) => {
+		if (!Array.isArray(val)) return val;
+		const idx = (state && typeof state.datasetIndex === 'number') ? state.datasetIndex : 0;
+		if (idx >= 0 && idx < val.length) return val[idx];
+		return val[0];
+	};
+	const getChartSubTitle = () => {
+		const v = resolveChartValue(chartCfg.subTitle);
+		return (typeof v === 'string') ? v : (v === null || typeof v === 'undefined') ? '' : String(v);
+	};
 	const solidStroke = chartCfg.solidStroke || 'var(--ons-color-ocean-blue)';
 	const lineStyleDefault = chartCfg.lineStyle || 'gradient';
 	const showMeanLine = (typeof chartCfg.showMeanLine === 'boolean') ? chartCfg.showMeanLine : true;
@@ -736,6 +750,19 @@ function createChart({ overlayInnerHeight = null } = {}) {
 		.style('white-space', 'nowrap')
 		.style('overflow', 'hidden');
 
+	const subtitle = container.append('div')
+		.attr('class', 'chart-subtitle')
+		.style('margin', '0 0 8px 0')
+		.style('font-size', '13px')
+		.style('line-height', '1.25')
+		.style('color', 'var(--ons-color-grey-60)');
+	const initialSubTitle = getChartSubTitle();
+	if (initialSubTitle) {
+		subtitle.html(initialSubTitle).style('display', null);
+	} else {
+		subtitle.html('').style('display', 'none');
+	}
+
 	const meanLegendCfg = chartCfg.meanLegend || { label: 'Average', color: 'var(--ons-color-grey-60)' };
 	const legendId = 'chart-legend';
 	const legend = container.append('div')
@@ -756,10 +783,20 @@ function createChart({ overlayInnerHeight = null } = {}) {
 		.style('font-size', '13px')
 		.style('color', 'var(--ons-color-grey-60)');
 
-	const heightFallback = chartCfg.height || 220;
+	const heightFallback = 220;
 	let height = heightFallback;
 	if (overlayInnerHeight !== null && Number.isFinite(+overlayInnerHeight)) {
+		let subtitleH = 0;
 		let legendH = 0;
+		try {
+			const subNode = subtitle.node();
+			const sr = subNode ? subNode.getBoundingClientRect() : null;
+			subtitleH = (sr && Number.isFinite(sr.height)) ? sr.height : 0;
+			// include the inline margin-bottom (8px)
+			subtitleH += initialSubTitle ? 8 : 0;
+		} catch (e) {
+			subtitleH = initialSubTitle ? 20 : 0;
+		}
 		try {
 			const node = legend.node();
 			const r = node ? node.getBoundingClientRect() : null;
@@ -769,7 +806,7 @@ function createChart({ overlayInnerHeight = null } = {}) {
 		} catch (e) {
 			legendH = 28;
 		}
-		height = Math.max(120, Math.floor(overlayInnerHeight - legendH));
+		height = Math.max(120, Math.floor(overlayInnerHeight - subtitleH - legendH));
 	}
 
 	const innerHeight = Math.max(10, height - margin.top - margin.bottom);
@@ -927,6 +964,13 @@ function createChart({ overlayInnerHeight = null } = {}) {
 			.text(areaName || '')
 			.style('color', solidStroke)
 			.style('display', areaName ? null : 'none');
+
+		const sub = getChartSubTitle();
+		if (sub) {
+			subtitle.html(sub).style('display', null);
+		} else {
+			subtitle.html('').style('display', 'none');
+		}
 
 		legendSwatch.style('background', meanLegendCfg.color);
 		legendLabel.text(meanLegendCfg.label);
@@ -1297,7 +1341,7 @@ function createChart({ overlayInnerHeight = null } = {}) {
 			marker.style('opacity', 0);
 		}
 
-		// Title/subtitle are intentionally omitted in the overlay UI.
+		// Title/subtitle are handled by the overlay container (title) and chart header (subtitle).
 	}
 
 
@@ -1401,7 +1445,17 @@ function applyOverlayDimensionsForMode(mode) {
 		return;
 	}
 
-	const sizes = (config && config.chartOverlay && typeof config.chartOverlay === 'object') ? config.chartOverlay : {};
+	const sizes = (
+		config
+		&& config.chart
+		&& typeof config.chart === 'object'
+		&& config.chart.dimensions
+		&& typeof config.chart.dimensions === 'object'
+	)
+		? config.chart.dimensions
+		: (config && config.chartOverlay && typeof config.chartOverlay === 'object')
+			? config.chartOverlay
+			: {};
 	const desired = (mode === 'hover' ? sizes.hover : sizes.pinned) || {};
 	const desiredW = Number.isFinite(+desired.width) ? +desired.width : (mode === 'hover' ? 300 : 420);
 	const desiredH = Number.isFinite(+desired.height) ? +desired.height : (mode === 'hover' ? 200 : 313);
@@ -1506,6 +1560,9 @@ async function loadDataset(datasetIndex) {
 	const datasets = Array.isArray(config.datasets) && config.datasets.length ? config.datasets : [{ label: 'Data', url: config.dataUrl }];
 	const ds = datasets[datasetIndex] || datasets[0];
 	state.datasetIndex = datasetIndex;
+	// Chart subtitle and other chart config can be dataset-dependent.
+	// Force a rebuild so height calculations (subtitle+legend) stay correct.
+	state.chart = null;
 
 	// Capture the current selection so we can retain it across dataset switches.
 	const prevSelectedRaw = state.selectedTimeRaw || state.timeColumns[state.timeIndex] || null;

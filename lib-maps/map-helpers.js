@@ -866,28 +866,77 @@ export function setupSearch(areas, config, state, rateById, areaById) {
     }
 }
 
-// Use D3 to populate the info area above the keyscale
-const keyInfoSel = d3.select('#keyinfo')
-    .classed('keyinfo', true)
-    .style('margin-left', (config.keyScaleMargin && typeof config.keyScaleMargin.left === 'number') ? config.keyScaleMargin.left + 'px' : null);
-// Value
-let valueSel = keyInfoSel.select('#keyinfo-value');
-if (valueSel.empty()) {
-    valueSel = keyInfoSel.append('div').attr('id', 'keyinfo-value');
+function isKeyInfoEnabled() {
+    // Default: enabled.
+    // Templates can disable this by setting either:
+    // - config.showKeyInfo = false
+    // - config.keyInfo = false
+    // (Both supported to avoid forcing a naming convention across templates.)
+    if (config && typeof config.showKeyInfo === 'boolean') return config.showKeyInfo;
+    if (config && typeof config.keyInfo === 'boolean') return config.keyInfo;
+    return true;
 }
-// Explainer
-let explainerSel = keyInfoSel.select('#keyinfo-explainer');
-if (explainerSel.empty()) {
-    explainerSel = keyInfoSel.append('div').attr('id', 'keyinfo-explainer');
+
+let __keyInfoSel = null;
+let __valueSel = null;
+let __explainerSel = null;
+let __explainerLine1 = null;
+let __explainerLine2 = null;
+
+function ensureKeyInfoDom() {
+    const enabled = isKeyInfoEnabled();
+    const keyInfoNode = document.getElementById('keyinfo');
+
+    // If the template doesn't include the element, nothing to do.
+    if (!keyInfoNode) return null;
+
+    // Hide the block entirely if disabled.
+    if (!enabled) {
+        keyInfoNode.style.display = 'none';
+        return null;
+    }
+
+    // Re-enable if it was previously hidden.
+    if (keyInfoNode.style.display === 'none') keyInfoNode.style.display = '';
+
+    // Use D3 to populate the info area above the keyscale
+    __keyInfoSel = __keyInfoSel && !__keyInfoSel.empty() ? __keyInfoSel : d3.select('#keyinfo');
+    __keyInfoSel
+        .classed('keyinfo', true)
+        .style('margin-left', (config.keyScaleMargin && typeof config.keyScaleMargin.left === 'number') ? config.keyScaleMargin.left + 'px' : null);
+
+    // Value
+    __valueSel = __keyInfoSel.select('#keyinfo-value');
+    if (__valueSel.empty()) {
+        __valueSel = __keyInfoSel.append('div').attr('id', 'keyinfo-value');
+    }
+    // Explainer
+    __explainerSel = __keyInfoSel.select('#keyinfo-explainer');
+    if (__explainerSel.empty()) {
+        __explainerSel = __keyInfoSel.append('div').attr('id', 'keyinfo-explainer');
+    }
+    // Two lines for explainer
+    __explainerLine1 = __explainerSel.select('span.line1');
+    if (__explainerLine1.empty()) __explainerLine1 = __explainerSel.append('span').classed('line1', true);
+    __explainerLine2 = __explainerSel.select('span.line2');
+    if (__explainerLine2.empty()) __explainerLine2 = __explainerSel.append('span').classed('line2', true);
+
+    return {
+        keyInfoNode,
+        valueSel: __valueSel,
+        explainerSel: __explainerSel,
+        explainerLine1: __explainerLine1,
+        explainerLine2: __explainerLine2
+    };
 }
-// Two lines for explainer
-let explainerLine1 = explainerSel.select('span.line1');
-if (explainerLine1.empty()) explainerLine1 = explainerSel.append('span').classed('line1', true);
-let explainerLine2 = explainerSel.select('span.line2');
-if (explainerLine2.empty()) explainerLine2 = explainerSel.append('span').classed('line2', true);
 
 
 export function updateKeyInfo(value, areaName, state) {
+    const keyInfo = ensureKeyInfoDom();
+    if (!keyInfo) return;
+
+    const { valueSel, explainerLine1, explainerLine2 } = keyInfo;
+
     // Alignment logic for explainer/value
     const keyInfoNode = document.getElementById('keyinfo');
     const valueNode = document.getElementById('keyinfo-value');

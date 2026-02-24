@@ -1183,9 +1183,145 @@ export function buildValueAndAreaLookups(data, config, state) {
     return { rateById, areaById };
 }
 
+function debugReportDataGeographyMatch({ data, areas, config, state, rateById, areaById }) {
+    if (!config || config.debugInfo !== true) return;
+
+    // For vector tiles we don't have the full feature list client-side.
+    if (state && state.geographySource === 'vector') {
+        console.log('[Map Debug] Skipping data↔geography match report (vector tiles do not expose full feature list).');
+        return;
+    }
+
+    if (!areas || !Array.isArray(areas.features)) {
+        console.log('[Map Debug] Skipping data↔geography match report (no GeoJSON features available).');
+        return;
+    }
+
+    const dataIdField = config.dataIdField;
+    const geoIdField = config.geoIdField;
+    const geoNameField = config.geoNameField;
+
+    const limit = (typeof config.debugMatchLimit === 'number' && Number.isFinite(config.debugMatchLimit))
+        ? Math.max(10, Math.floor(config.debugMatchLimit))
+        : 200;
+
+    const dataCodes = new Set();
+    let blankDataCodes = 0;
+    for (const row of (Array.isArray(data) ? data : [])) {
+        const raw = row ? row[dataIdField] : null;
+        const code = (raw === null || typeof raw === 'undefined') ? '' : String(raw).trim();
+        if (!code) {
+            blankDataCodes += 1;
+            continue;
+        }
+        dataCodes.add(code);
+    }
+
+    const geoCodes = new Set();
+    const geoNameByCode = {};
+    let blankGeoCodes = 0;
+    for (const f of areas.features) {
+        const props = (f && f.properties) ? f.properties : {};
+        const raw = props ? props[geoIdField] : null;
+        const code = (raw === null || typeof raw === 'undefined') ? '' : String(raw).trim();
+        if (!code) {
+            blankGeoCodes += 1;
+            continue;
+        }
+        geoCodes.add(code);
+        if (!geoNameByCode[code]) {
+            const nm = props ? (props[geoNameField] ?? props[config.dataNameField]) : null;
+            if (nm !== null && typeof nm !== 'undefined' && String(nm).trim()) {
+                geoNameByCode[code] = String(nm);
+            }
+        }
+    }
+
+    const dataNotInGeo = [];
+    for (const code of dataCodes) {
+        if (!geoCodes.has(code)) {
+            const rawVal = rateById ? rateById[code] : undefined;
+            const v = (rawVal === null || typeof rawVal === 'undefined' || rawVal === '') ? NaN : +rawVal;
+            dataNotInGeo.push({
+                code,
+                name: (areaById && areaById[code]) ? areaById[code] : undefined,
+                value: Number.isFinite(v) ? v : null
+            });
+        }
+    }
+    dataNotInGeo.sort((a, b) => String(a.code).localeCompare(String(b.code)));
+
+    const geoMissingFromData = [];
+    const geoPresentButNoValue = [];
+    for (const code of geoCodes) {
+        const presentInData = dataCodes.has(code);
+        const rawVal = rateById ? rateById[code] : undefined;
+        const v = (rawVal === null || typeof rawVal === 'undefined' || rawVal === '') ? NaN : +rawVal;
+        const name = (geoNameByCode && geoNameByCode[code])
+            ? geoNameByCode[code]
+            : (areaById && areaById[code])
+                ? areaById[code]
+                : undefined;
+
+        if (!presentInData) {
+            geoMissingFromData.push({ code, name });
+            continue;
+        }
+
+        if (!Number.isFinite(v)) {
+            geoPresentButNoValue.push({ code, name });
+        }
+    }
+    geoMissingFromData.sort((a, b) => String(a.code).localeCompare(String(b.code)));
+    geoPresentButNoValue.sort((a, b) => String(a.code).localeCompare(String(b.code)));
+
+    const commonNote = `data rows: ${(Array.isArray(data) ? data.length : 0)}, unique data codes: ${dataCodes.size}${blankDataCodes ? ` (${blankDataCodes} blank)` : ''} | geography features: ${areas.features.length}, unique geo codes: ${geoCodes.size}${blankGeoCodes ? ` (${blankGeoCodes} blank)` : ''}`;
+
+    // Entry 1: data IDs missing from geography
+    console.groupCollapsed(`[Map Debug] Data IDs not found in geography (${dataNotInGeo.length})`);
+    console.log(commonNote);
+    if (dataNotInGeo.length) {
+        console.table(dataNotInGeo.slice(0, limit));
+        if (dataNotInGeo.length > limit) console.log(`…and ${dataNotInGeo.length - limit} more`);
+    } else {
+        console.log('None');
+    }
+    console.groupEnd();
+
+    // Entry 2: geography IDs with no data
+    const geoNoDataTotal = geoMissingFromData.length + geoPresentButNoValue.length;
+    console.groupCollapsed(`[Map Debug] Geography IDs with no data value (${geoNoDataTotal})`);
+    console.log(commonNote);
+    console.log(`Missing from data (no row/code): ${geoMissingFromData.length} | Present in data but value is null/blank/NaN: ${geoPresentButNoValue.length}`);
+
+    if (!geoNoDataTotal) {
+        console.log('None');
+        console.groupEnd();
+        return;
+    }
+
+    if (geoMissingFromData.length) {
+        console.groupCollapsed('Missing from data');
+        console.table(geoMissingFromData.slice(0, limit));
+        if (geoMissingFromData.length > limit) console.log(`…and ${geoMissingFromData.length - limit} more`);
+        console.groupEnd();
+    }
+
+    if (geoPresentButNoValue.length) {
+        console.groupCollapsed('Present in data but no value');
+        console.table(geoPresentButNoValue.slice(0, limit));
+        if (geoPresentButNoValue.length > limit) console.log(`…and ${geoPresentButNoValue.length - limit} more`);
+        console.groupEnd();
+    }
+    console.groupEnd();
+}
+
 
 export function setupMap(config, data, rateById, areaById, areas, colour, state) {
     state.map.on('load', () => {
+
+        // Optional debug report to help diagnose ID mismatches between the data and the geography.
+        debugReportDataGeographyMatch({ data, areas, config, state, rateById, areaById });
 
         if (config.debugInfo && Array.isArray(config.__autoMapBounds)) {
             const viewBounds = state.map.getBounds().toArray();
@@ -1211,18 +1347,44 @@ export function setupMap(config, data, rateById, areaById, areas, colour, state)
 
         }
 
-        data.forEach(d => {
-            const code = d[config.dataIdField];
-            const raw = rateById ? rateById[code] : d.value;
-            const value = (raw === null || typeof raw === 'undefined' || raw === '') ? NaN : +raw;
-            const hasData = Number.isFinite(value);
-            const unavailableColour = getConfigValue('colourUnavailable', state) ?? config.colourUnavailable ?? ONScolours.noData;
-            const fillColor = hasData ? colour(value) : unavailableColour;
-            state.map.setFeatureState(
-                { source: 'area', sourceLayer: (state.geographySource === "vector" ? config.geoLayer : ""), id: code },
-                { value: hasData ? value : null, color: fillColor }
-            );
-        });
+        const unavailableColour = getConfigValue('colourUnavailable', state) ?? config.colourUnavailable ?? ONScolours.noData;
+
+        // Initialise feature-state values/colours.
+        // - For GeoJSON we can iterate every feature, including those missing from the data entirely.
+        // - For vector tiles we can only set feature-state for IDs we have in the data.
+        if (state.geographySource !== 'vector' && areas && Array.isArray(areas.features)) {
+            for (const f of areas.features) {
+                const props = (f && f.properties) ? f.properties : null;
+                const rawCode = props ? props[config.geoIdField] : null;
+                const code = (rawCode === null || typeof rawCode === 'undefined') ? '' : String(rawCode).trim();
+                if (!code) continue;
+
+                const raw = rateById ? rateById[code] : undefined;
+                const value = (raw === null || typeof raw === 'undefined' || raw === '') ? NaN : +raw;
+                const hasData = Number.isFinite(value);
+                const fillColor = hasData ? colour(value) : unavailableColour;
+
+                state.map.setFeatureState(
+                    { source: 'area', sourceLayer: '', id: code },
+                    { value: hasData ? value : null, color: fillColor }
+                );
+            }
+        } else {
+            (Array.isArray(data) ? data : []).forEach(d => {
+                const rawCode = d ? d[config.dataIdField] : null;
+                const code = (rawCode === null || typeof rawCode === 'undefined') ? '' : String(rawCode).trim();
+                if (!code) return;
+
+                const raw = rateById ? rateById[code] : (d ? d.value : undefined);
+                const value = (raw === null || typeof raw === 'undefined' || raw === '') ? NaN : +raw;
+                const hasData = Number.isFinite(value);
+                const fillColor = hasData ? colour(value) : unavailableColour;
+                state.map.setFeatureState(
+                    { source: 'area', sourceLayer: (state.geographySource === "vector" ? config.geoLayer : ""), id: code },
+                    { value: hasData ? value : null, color: fillColor }
+                );
+            });
+        }
 
         const baseFillOpacity = (typeof config.fillOpacity === 'number') ? config.fillOpacity : 0.8;
         const dimFillOpacity = (typeof config.legendDimOpacity === 'number') ? config.legendDimOpacity : 0.5;
@@ -1234,7 +1396,9 @@ export function setupMap(config, data, rateById, areaById, areas, colour, state)
             "source-layer": state.geographySource === "vector" ? config.geoLayer : "",
             layout: {},
             paint: {
-                'fill-color': ['feature-state', 'color'],
+                // If feature-state isn't set (e.g. geography areas missing from the data entirely),
+                // fall back to the configured unavailable colour.
+                'fill-color': ['coalesce', ['feature-state', 'color'], unavailableColour],
                 'fill-opacity': [
                     'case',
                     ['==', ['feature-state', 'legendActive'], true],

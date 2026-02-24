@@ -783,6 +783,11 @@ function createChart({ overlayInnerHeight = null } = {}) {
 		.style('font-size', '13px')
 		.style('color', 'var(--ons-color-grey-60)');
 
+	// Plot wrapper so we can overlay a "no data" message without affecting layout.
+	const plotWrap = container.append('div')
+		.attr('class', 'chart-plotwrap')
+		.style('position', 'relative');
+
 	const heightFallback = 220;
 	let height = heightFallback;
 	if (overlayInnerHeight !== null && Number.isFinite(+overlayInnerHeight)) {
@@ -822,7 +827,7 @@ function createChart({ overlayInnerHeight = null } = {}) {
 		};
 	};
 
-	const svg = container.append('svg')
+	const svg = plotWrap.append('svg')
 		.attr('width', width)
 		.attr('height', height)
 		.attr('class', 'chart');
@@ -907,6 +912,23 @@ function createChart({ overlayInnerHeight = null } = {}) {
 		.style('stroke-linecap', 'round')
 		.style('opacity', 0);
 
+	// In-chart message for selected areas with no usable data (missing row or all-null values).
+	// Inserted after the mean/series lines so it sits on top of them.
+	const noDataText = g.append('text')
+		.attr('class', 'chart-nodata-text')
+		.attr('x', innerWidth / 2)
+		// Slightly below vertical center for readability.
+		.attr('y', (innerHeight / 2) + 8)
+		.attr('text-anchor', 'middle')
+		.attr('dominant-baseline', 'middle')
+		.attr('fill', solidStroke)
+		.attr('fill-opacity', 0.8)
+		.style('font-size', '18px')
+		.style('font-weight', '500')
+		.style('pointer-events', 'none')
+		.style('opacity', 0)
+		.text('Data Unavailable');
+
 	const xAxisG = g.append('g')
 		.attr('class', 'x axis')
 		.attr('transform', `translate(0,${innerHeight})`);
@@ -970,6 +992,14 @@ function createChart({ overlayInnerHeight = null } = {}) {
 			subtitle.html(sub).style('display', null);
 		} else {
 			subtitle.html('').style('display', 'none');
+		}
+
+		const hasAreaData = Array.isArray(areaSeries)
+			&& areaSeries.some(d => d && d.v !== null && Number.isFinite(d.v));
+		if (areaName && !hasAreaData) {
+			noDataText.style('opacity', 1);
+		} else {
+			noDataText.style('opacity', 0);
 		}
 
 		legendSwatch.style('background', meanLegendCfg.color);
@@ -1368,17 +1398,23 @@ function updateChart() {
 	let areaSeries = null;
 	let areaName = null;
 	const activeCode = state.overlayAreaCode || state.selectedAreaCode;
-	if (activeCode && state.seriesById[activeCode]) {
-		const s = state.seriesById[activeCode];
-		areaName = state.overlayAreaName || s.areaName;
-		areaSeries = timeColumns.map((t, idx) => {
-			const v = s.values[idx];
-			let c = null;
-			if (state.colour && v !== null && Number.isFinite(v)) {
-				try { c = state.colour(v); } catch (e) { c = null; }
-			}
-			return { t, v, c };
-		});
+	if (activeCode) {
+		// Prefer explicit names from the overlay/selection (from geography), then fall back to data-derived lookups.
+		areaName = state.overlayAreaName || state.selectedAreaName || state.areaById[activeCode] || null;
+
+		if (state.seriesById[activeCode]) {
+			const s = state.seriesById[activeCode];
+			// If the geography provided a name, keep it; otherwise use the series store's name.
+			if (!areaName) areaName = s.areaName;
+			areaSeries = timeColumns.map((t, idx) => {
+				const v = s.values[idx];
+				let c = null;
+				if (state.colour && v !== null && Number.isFinite(v)) {
+					try { c = state.colour(v); } catch (e) { c = null; }
+				}
+				return { t, v, c };
+			});
+		}
 	}
 	const meanSeries = timeColumns.map((t, idx) => ({ t, v: state.meanSeries[idx]?.v ?? null }));
 
@@ -1399,6 +1435,26 @@ function setChartOverlayVisible(visible) {
 	const overlay = document.getElementById('chart-overlay');
 	if (!overlay) return;
 	const show = Boolean(visible);
+	if (!show) {
+		// If focus is inside the overlay (e.g. on the close button), move it out
+		// before applying aria-hidden/display changes, otherwise Chrome warns.
+		try {
+			const active = document.activeElement;
+			if (active && overlay.contains(active)) {
+				if (active && typeof active.blur === 'function') {
+					active.blur();
+				}
+				// Prefer focusing the map container (keeps keyboard focus in a sensible place
+				// without triggering the autocomplete menu to open/unhide).
+				const mapContainer = document.getElementById('graphic');
+				if (mapContainer && typeof mapContainer.focus === 'function') {
+					try { mapContainer.focus({ preventScroll: true }); } catch (e) { mapContainer.focus(); }
+				}
+			}
+		} catch (e) {
+			// ignore
+		}
+	}
 	overlay.classList.toggle('hidden', !show);
 	overlay.setAttribute('aria-hidden', show ? 'false' : 'true');
 }

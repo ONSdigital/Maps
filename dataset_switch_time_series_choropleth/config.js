@@ -85,7 +85,7 @@ config = {
 	sourceText: "Office for National Statistics",
 	accessibleSummary: "Here is the screenreader text describing the chart.",
 	scrollZoomGuard: true, // if true, user has to hold shift key to zoom map with scroll
-	keyScaleMargin: { left: 20, right: 27, top: 10, bottom: 10 },
+	keyScaleMargin: { left: 20, right: 10, top: 10, bottom: 10 },
 	elements: { select: 1, nav: 1, legend: 1, titles: 0 },
 
 	// Chart config (overlay time-series)

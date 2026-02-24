@@ -97,7 +97,6 @@ config = {
 			pinned: { width: 420, height: 313 },
 			hover: { width: 300, height: 250 }
 		},
-
 		// Chart SVG height is derived automatically from chart.dimensions.*.height.
 		// (Font sizes / stroke widths remain constant; only the available plot area changes.)
 		subTitle: ["First time buyers per 1,000 people","First time buyers per 100 house sales"],
@@ -106,6 +105,10 @@ config = {
 		meanLegend: {
 			label: "UK Average",
 			color: ONScolours.grey25
+		},
+		yTicks: {
+			pinned: 5,
+			hover: 3
 		},
 		// Stroke style for the selected-area series in the overlay chart:
 		// - "gradient": colour varies along the line based on choropleth breaks

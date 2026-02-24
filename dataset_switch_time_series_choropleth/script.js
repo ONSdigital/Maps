@@ -709,6 +709,18 @@ function createChart({ overlayInnerHeight = null } = {}) {
 		if (idx >= 0 && idx < val.length) return val[idx];
 		return val[0];
 	};
+	const resolveYTicks = (fallback) => {
+		const modeKey = state.overlayMode === 'hover' ? 'hover' : 'pinned';
+		const cfg = resolveChartValue(chartCfg.yTicks);
+		let v = cfg;
+		if (cfg && typeof cfg === 'object' && !Array.isArray(cfg)) {
+			v = cfg[modeKey];
+			if (v === null || typeof v === 'undefined') v = cfg.default;
+		}
+		const n = (v === null || typeof v === 'undefined') ? NaN : Math.round(+v);
+		if (Number.isFinite(n) && n > 0) return n;
+		return fallback;
+	};
 	const getChartSubTitle = () => {
 		const v = resolveChartValue(chartCfg.subTitle);
 		return (typeof v === 'string') ? v : (v === null || typeof v === 'undefined') ? '' : String(v);
@@ -978,6 +990,8 @@ function createChart({ overlayInnerHeight = null } = {}) {
 		.style('opacity', 0);
 
 	function update({ timeColumns, areaSeries, meanSeries, timeIndex, areaName, colourScale, breaks }) {
+		const yTicks = resolveYTicks(5);
+		const yTicksEmpty = resolveYTicks(4);
 		const indicatorColour = solidStroke;
 		indicatorTriangle.attr('fill', indicatorColour);
 		indicatorValue.attr('fill', indicatorColour);
@@ -1020,7 +1034,7 @@ function createChart({ overlayInnerHeight = null } = {}) {
 			// Empty chart state
 			gridG.call(d3.axisLeft(y).tickValues([]).tickSize(-innerWidth).tickFormat(''));
 			xAxisG.call(d3.axisBottom(x).tickValues([]));
-			yAxisG.call(d3.axisLeft(y).ticks(4));
+			yAxisG.call(d3.axisLeft(y).ticks(yTicksEmpty));
 			yScaleSwatchesG.style('display', 'none').selectAll('rect').remove();
 			areaPath.style('opacity', 0);
 			areaGradient.selectAll('stop').remove();
@@ -1044,10 +1058,10 @@ function createChart({ overlayInnerHeight = null } = {}) {
 			if (tickValues[0] === tickValues[1]) tickValues = [tickValues[0]];
 		}
 
-		gridG.call(d3.axisLeft(y).ticks(5).tickSize(-innerWidth).tickFormat(''));
+		gridG.call(d3.axisLeft(y).ticks(yTicks).tickSize(-innerWidth).tickFormat(''));
 		gridG.selectAll('line').attr('stroke-width', 2);
 		xAxisG.call(d3.axisBottom(x).tickValues(tickValues));
-		yAxisG.call(d3.axisLeft(y).ticks(5));
+		yAxisG.call(d3.axisLeft(y).ticks(yTicks));
 
 		// Optional zero/reference line (e.g., 0) drawn as a solid horizontal line.
 		if (Number.isFinite(zeroLineValue)) {

@@ -1686,16 +1686,19 @@ function positionOverlayNearClientPoint(clientX, clientY) {
 	if (!stageRect.width || !stageRect.height) return;
 
 	const gutter = 12;
+	// Extra separation between pointer and overlay (hover only)
+	const hoverOffsetX = 26;
+	const hoverOffsetY = 14;
 	const localX = clientX - stageRect.left;
 	const localY = clientY - stageRect.top;
 
-	let left = localX + gutter;
+	let left = localX + hoverOffsetX;
 	if (left + overlayRect.width > stageRect.width - gutter) {
-		left = localX - gutter - overlayRect.width;
+		left = localX - hoverOffsetX - overlayRect.width;
 	}
 	left = Math.max(gutter, Math.min(left, stageRect.width - overlayRect.width - gutter));
 
-	let top = localY - gutter;
+	let top = localY - hoverOffsetY;
 	top = Math.max(gutter, Math.min(top, stageRect.height - overlayRect.height - gutter));
 
 	overlay.style.left = `${Math.round(left)}px`;

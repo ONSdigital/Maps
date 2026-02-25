@@ -1953,14 +1953,17 @@ function startOnce() {
 	setupData();
 }
 
-// Start immediately (script is loaded at end of body).
-startOnce();
+// Start as soon as the DOM is ready (works whether the script is in <head> or end of <body>).
+if (document.readyState === 'loading') {
+	document.addEventListener('DOMContentLoaded', startOnce, { once: true });
+} else {
+	startOnce();
+}
 
-// Also hook load (and pym when available) for embed resizing.
+// Hook load (and pym when available) for embed resizing.
 window.addEventListener('load', () => {
 	if (window.self !== window.top && typeof pym !== 'undefined') {
 		state.pymChild = new pym.Child({ renderCallback: startOnce });
 		setTimeout(startOnce, 250);
 	}
-	startOnce();
 });

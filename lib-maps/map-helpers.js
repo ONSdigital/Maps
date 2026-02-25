@@ -1814,31 +1814,35 @@ export function redrawMapFill(data, rateById, colour, state) {
 
 export function redeclareMouseEvents(rateById, state) {
     state.map.on('mousemove', 'area', (e) => {
-        const areaName = e.features[0].properties[config.geoNameField];
+        const feature = e.features && e.features[0];
+        if (!feature || !feature.properties) return;
 
-        const value = rateById[e.features[0].properties[config.geoIdField]];
-        // Always show hover info if hovering, but if an area is selected, show faded indicator for it
-        if (typeof value !== 'undefined' && value !== null && !isNaN(value)) {
-            window.moveKeyIndicator(value);
-            if (state.selectedAreaCode && state.selectedAreaCode !== code) {
+        const areaName = feature.properties[config.geoNameField];
+        const hoveredCode = feature.properties[config.geoIdField];
+        const value = rateById[hoveredCode];
+
+        const showSelectedIndicatorIfNeeded = () => {
+            const isHoveringSelected = !!(state.selectedAreaCode && hoveredCode && state.selectedAreaCode === hoveredCode);
+            if (state.selectedAreaCode && !isHoveringSelected) {
                 const selectedVal = rateById[state.selectedAreaCode];
                 window.moveKeyIndicatorSelected(selectedVal);
             } else {
                 window.moveKeyIndicatorSelected(undefined);
             }
+        };
+
+        // Always show hover info if hovering, but if an area is selected, show faded indicator for it
+        if (typeof value !== 'undefined' && value !== null && !isNaN(value)) {
+            window.moveKeyIndicator(value);
+            showSelectedIndicatorIfNeeded();
             updateKeyInfo(value, areaName, state);
         } else {
             // Value is missing, show unavailable message
             window.moveKeyIndicator(undefined);
-            if (state.selectedAreaCode && state.selectedAreaCode !== code) {
-                const selectedVal = rateById[state.selectedAreaCode];
-                window.moveKeyIndicatorSelected(selectedVal);
-            } else {
-                window.moveKeyIndicatorSelected(undefined);
-            }
+            showSelectedIndicatorIfNeeded();
             updateKeyInfo(undefined, areaName, state);
         }
-    })
+    });
     state.map.on('click', 'area', (e) => {
         const areaName = e.features[0].properties[config.geoNameField];
 

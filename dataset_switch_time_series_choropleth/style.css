@@ -127,6 +127,7 @@
   z-index: 2000;
 
   width: min(420px, calc(100% - 24px));
+  box-sizing: border-box;
   overflow: hidden;
 
   background: var(--ons-color-white);
@@ -208,5 +209,15 @@
 
 .chart-timeline-pill:focus:not(:focus-visible) rect {
   stroke: none;
+}
+
+/* Full-width pinned overlay mode (typically mobile)
+   Applied dynamically when the pinned overlay would exceed ~65% of viewport width. */
+.chart-overlay.is-fullwidth {
+  left: 12px;
+  right: 12px;
+  bottom: 12px;
+  width: auto;
+  max-width: none;
 }
 

@@ -48,6 +48,7 @@ const state = {
 	overlayAreaName: null,
 	__overlayRaf: null,
 	__overlayLastClient: null,
+	__overlayResizeRaf: null,
 };
 
 const graphic = d3.select('#graphic');
@@ -1566,6 +1567,16 @@ function setOverlayMode(mode) {
 	if (!overlay) return;
 	const prevMode = state.overlayMode;
 	state.overlayMode = mode;
+
+	// If we're leaving hover mode, cancel any pending pointer-follow positioning.
+	if (mode !== 'hover') {
+		if (state.__overlayRaf) {
+			try { cancelAnimationFrame(state.__overlayRaf); } catch (e) { /* ignore */ }
+			state.__overlayRaf = null;
+		}
+		state.__overlayLastClient = null;
+	}
+
 	const hidden = mode === 'hidden';
 	setChartOverlayVisible(!hidden);
 	overlay.classList.toggle('is-hover', mode === 'hover');
@@ -1577,12 +1588,15 @@ function setOverlayMode(mode) {
 		state.chart = null;
 	}
 
+
 	if (mode === 'pinned') {
-		// Revert to CSS anchored placement.
-		overlay.style.left = '';
-		overlay.style.top = '';
-		overlay.style.right = '';
-		overlay.style.bottom = '';
+		// Revert to CSS anchored placement unless we're explicitly in full-width mode.
+		if (!overlay.classList.contains('is-fullwidth')) {
+			overlay.style.left = '';
+			overlay.style.top = '';
+			overlay.style.right = '';
+			overlay.style.bottom = '';
+		}
 	} else if (mode === 'hidden') {
 		// Clear inline positioning so next show starts clean.
 		overlay.style.left = '';
@@ -1624,11 +1638,45 @@ function applyOverlayDimensionsForMode(mode) {
 	const w = Math.max(180, Math.min(desiredW, maxW));
 	const h = Math.max(140, Math.min(desiredH, maxH));
 
-	overlay.style.width = `${w}px`;
-	overlay.style.height = `${h}px`;
+	// Decide whether the pinned overlay should become full-width.
+	// Rule of thumb: if the overlay would consume >65% of the page width, it's better as a bottom sheet.
+	let shouldFullWidth = false;
+	if (mode === 'pinned') {
+		const pageW = Math.floor(document.documentElement?.clientWidth || window.innerWidth || 0);
+		if (pageW > 0 && w / pageW > 0.65) shouldFullWidth = true;
+	}
+
+	overlay.classList.toggle('is-fullwidth', shouldFullWidth);
+
+	if (shouldFullWidth) {
+		// Stretch across the map stage.
+		overlay.style.left = '12px';
+		overlay.style.right = '12px';
+		overlay.style.bottom = '12px';
+		overlay.style.top = 'auto';
+		overlay.style.width = 'auto';
+		overlay.style.height = `${h}px`;
+	} else {
+		overlay.style.width = `${w}px`;
+		overlay.style.height = `${h}px`;
+		// If we are leaving full-width pinned mode, clear the stretch positioning.
+		const leavingFullWidth = mode === 'pinned'
+			&& overlay.style.width === 'auto'
+			&& overlay.style.left
+			&& overlay.style.right;
+		if (leavingFullWidth) {
+			overlay.style.left = '';
+			overlay.style.right = '';
+			overlay.style.top = '';
+			overlay.style.bottom = '';
+			overlay.style.width = '';
+		}
+	}
 }
 
 function positionOverlayNearClientPoint(clientX, clientY) {
+	// Only hover previews should follow the pointer.
+	if (state.overlayMode !== 'hover') return;
 	const overlay = document.getElementById('chart-overlay');
 	const stage = document.getElementById('mapstage');
 	if (!overlay || !stage) return;
@@ -1672,6 +1720,7 @@ function showHoverOverlay({ code, areaName, clientX, clientY }) {
 	if (state.__overlayRaf) return;
 	state.__overlayRaf = requestAnimationFrame(() => {
 		state.__overlayRaf = null;
+		if (state.overlayMode !== 'hover') return;
 		const pt = state.__overlayLastClient;
 		if (!pt) return;
 		positionOverlayNearClientPoint(pt.x, pt.y);
@@ -1827,8 +1876,26 @@ function setupUI() {
 	// Ensure timeline is positioned correctly once layout is stable.
 	requestAnimationFrame(() => renderTimeline());
 
+	// Keep overlay layout in sync with container size changes (e.g., orientation changes).
+	const stage = document.getElementById('mapstage');
+	if (stage && typeof ResizeObserver !== 'undefined') {
+		const ro = new ResizeObserver(() => {
+			if (state.__overlayResizeRaf) return;
+			state.__overlayResizeRaf = requestAnimationFrame(() => {
+				state.__overlayResizeRaf = null;
+				applyOverlayDimensionsForMode(state.overlayMode);
+				state.chart = null;
+				updateChart();
+				renderTimeline();
+				if (state.selectedAreaCode) deferFocusSelectedArea();
+			});
+		});
+		try { ro.observe(stage); } catch (e) { /* ignore */ }
+	}
+
 	// Keep chart responsive
 	window.addEventListener('resize', () => {
+		applyOverlayDimensionsForMode(state.overlayMode);
 		state.chart = null;
 		updateChart();
 		renderTimeline();
@@ -1868,11 +1935,12 @@ function getChartOverlayPadding() {
 	}
 	const rect = overlay.getBoundingClientRect();
 	const extra = 18;
+	const fullWidth = overlay.classList.contains('is-fullwidth');
 	return {
 		top: 10,
 		right: 10,
 		bottom: Math.round(rect.height + extra),
-		left: Math.round(rect.width + extra),
+		left: fullWidth ? 10 : Math.round(rect.width + extra),
 	};
 }
 

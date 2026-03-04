@@ -23,6 +23,7 @@ const state = {
 	geographySource: null,
 	pymChild: null,
 	areasGeojson: null,
+	disableSelectionZoom: true,
 
 	// dataset/time series
 	datasetIndex: 0,
@@ -49,6 +50,11 @@ const state = {
 	__overlayRaf: null,
 	__overlayLastClient: null,
 	__overlayResizeRaf: null,
+	__focusRaf1: null,
+	__focusRaf2: null,
+	__focusTimeout: null,
+	__lastFocusKey: null,
+	__lastFocusAt: 0,
 };
 
 const graphic = d3.select('#graphic');
@@ -1981,20 +1987,44 @@ function maybeFocusSelectedArea() {
 	}
 	if (!bounds || !bounds[0] || !bounds[1]) return;
 
+	const padding = getChartOverlayPadding();
+	const focusKey = `${code}|${padding.top},${padding.right},${padding.bottom},${padding.left}|${state.overlayMode}`;
+	const now = Date.now();
+	if (state.__lastFocusKey === focusKey && (now - (state.__lastFocusAt || 0)) < 500) return;
+	state.__lastFocusKey = focusKey;
+	state.__lastFocusAt = now;
+
 	state.map.fitBounds(bounds, {
-		padding: getChartOverlayPadding(),
+		padding,
 		maxZoom: Math.min((config.maxZoom || 13), 9.5),
-		duration: 650,
+		duration: 1000,
 	});
 }
 
 function deferFocusSelectedArea() {
 	if (!state.selectedAreaCode) return;
+	if (state.__focusRaf1) {
+		try { cancelAnimationFrame(state.__focusRaf1); } catch (e) { /* ignore */ }
+		state.__focusRaf1 = null;
+	}
+	if (state.__focusRaf2) {
+		try { cancelAnimationFrame(state.__focusRaf2); } catch (e) { /* ignore */ }
+		state.__focusRaf2 = null;
+	}
+	if (state.__focusTimeout) {
+		try { clearTimeout(state.__focusTimeout); } catch (e) { /* ignore */ }
+		state.__focusTimeout = null;
+	}
 	// Allow overlay and SVG layout to settle, especially on small screens.
-	requestAnimationFrame(() => {
-		requestAnimationFrame(() => {
+	state.__focusRaf1 = requestAnimationFrame(() => {
+		state.__focusRaf1 = null;
+		state.__focusRaf2 = requestAnimationFrame(() => {
+			state.__focusRaf2 = null;
 			maybeFocusSelectedArea();
-			setTimeout(maybeFocusSelectedArea, 160);
+			state.__focusTimeout = setTimeout(() => {
+				state.__focusTimeout = null;
+				maybeFocusSelectedArea();
+			}, 160);
 		});
 	});
 }
@@ -2024,6 +2054,31 @@ function startOnce() {
 	setupData();
 }
 
+function onResize() {
+	// Keep the map canvas and legend in sync with container changes.
+	try { ensureBreaksAndLegend(); } catch (e) { /* ignore */ }
+	if (state.map && typeof state.map.resize === 'function') {
+		try { state.map.resize(); } catch (e) { /* ignore */ }
+	}
+
+	// Keep chart overlay + timeline responsive in embeds.
+	try { applyOverlayDimensionsForMode(state.overlayMode); } catch (e) { /* ignore */ }
+	state.chart = null;
+	try { updateChart(); } catch (e) { /* ignore */ }
+	try { renderTimeline(); } catch (e) { /* ignore */ }
+	if (state.selectedAreaCode) deferFocusSelectedArea();
+
+	if (state.pymChild && typeof state.pymChild.sendHeight === 'function') {
+		try { state.pymChild.sendHeight(); } catch (e) { /* ignore */ }
+	}
+}
+
+function renderCallback() {
+	startOnce();
+	// Let layout settle before measuring widths.
+	requestAnimationFrame(onResize);
+}
+
 // Start as soon as the DOM is ready (works whether the script is in <head> or end of <body>).
 if (document.readyState === 'loading') {
 	document.addEventListener('DOMContentLoaded', startOnce, { once: true });
@@ -2034,7 +2089,7 @@ if (document.readyState === 'loading') {
 // Hook load (and pym when available) for embed resizing.
 window.addEventListener('load', () => {
 	if (window.self !== window.top && typeof pym !== 'undefined') {
-		state.pymChild = new pym.Child({ renderCallback: startOnce });
-		setTimeout(startOnce, 250);
+		state.pymChild = new pym.Child({ renderCallback });
+		setTimeout(renderCallback, 250);
 	}
 });

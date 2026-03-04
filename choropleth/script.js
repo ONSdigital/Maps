@@ -9,6 +9,14 @@ const state = {
 	selectedAreaName: null,
 	geographySource: null,
 	pymChild: null,
+	// cached data for redraw/resize
+	data: null,
+	areas: null,
+	rateById: null,
+	areaById: null,
+	breaks: null,
+	colour: null,
+	__started: false,
 };
 
 const keyscale = d3.select('#keyscale');
@@ -21,74 +29,116 @@ graphic.style('width', '100%')
 	.style('height', config.mapHeight || '650px')
 	.style('max-width', '800px');
 
-function drawMap(rateById, areaById, colour, data, breaks, areas) {
-	//Initialise for pym, not sure if it should go here, just copied from drawGraphic() on other templates
-	const size = initialise();
+function createMap() {
+	// Initialise once (clears any fallback markup and sets accessible summary)
+	initialise();
 
 	// Set up source text
 	addSource('source', config.sourceText || 'Office for National Statistics.');
 
-	// Set up Maplibre GL map
+	// If we ever re-create the map (e.g. hot reload), clean up first.
+	if (state.map && typeof state.map.remove === 'function') {
+		try { state.map.remove(); } catch (e) { /* ignore */ }
+		state.map = null;
+	}
+
 	state.map = new maplibregl.Map({
 		container: 'graphic',
 		style: '../lib-maps/style.json',
 		cooperativeGestures: config.scrollZoomGuard || false,
 		minZoom: config.minZoom || 3.5,
 		maxZoom: config.maxZoom || 13,
-		bounds: config.mapBounds, // UK bounds
+		bounds: config.mapBounds,
 		maxBounds: config.maxBounds || undefined,
 		fitBoundsOptions: { padding: { top: 20, left: 10, right: 10, bottom: 20 } },
 		attributionControl: false,
 	});
 
-	// Draw the key scale
-	drawKeyScale({ keyscale, breaks, colour, config, window, state });
+	if (state.breaks && state.colour) {
+		drawKeyScale({ keyscale, breaks: state.breaks, colour: state.colour, config, window, state });
+	}
 
-	// adds map and interactivity
-	setupMap(config, data, rateById, areaById, areas, colour, state)
+	if (state.data && state.rateById && state.areaById) {
+		setupMap(config, state.data, state.rateById, state.areaById, state.areas, state.colour, state);
+	}
 }
 
-async function setupData() {
+function onResize() {
+	// Redraw legend width and ensure the map canvas matches its container.
+	if (state.breaks && state.colour) {
+		drawKeyScale({ keyscale, breaks: state.breaks, colour: state.colour, config, window, state });
+	}
+	if (state.map && typeof state.map.resize === 'function') {
+		try { state.map.resize(); } catch (e) { /* ignore */ }
+	}
+	if (state.pymChild && typeof state.pymChild.sendHeight === 'function') {
+		state.pymChild.sendHeight();
+	}
+}
+
+async function setupOnce() {
 	const geoUrl = config.geoUrl || "../lib-maps/master-topo.json";
 	state.geographySource = await detectGeographySource(geoUrl);
 
-	Promise.all([
-		d3.csv(config.dataUrl),
-		state.geographySource === "vector" ? null : d3.json(geoUrl)
-	]).then(([csv, geog]) => {
-		const data = csv;
-		let areas = geog;
+	try {
+		const [csv, geog] = await Promise.all([
+			d3.csv(config.dataUrl),
+			state.geographySource === "vector" ? null : d3.json(geoUrl)
+		]);
 
-		areas = convertTopoJSONtoGeojson(areas, state.geographySource)
-		resolveAutoMapBounds(config, areas, state.geographySource);
+		state.data = csv;
+		state.areas = convertTopoJSONtoGeojson(geog, state.geographySource);
+		resolveAutoMapBounds(config, state.areas, state.geographySource);
 
-		// Set up value lookup and breaks
-		const { rateById, areaById } = buildValueAndAreaLookups(data, config, state)
+		const { rateById, areaById } = buildValueAndAreaLookups(state.data, config, state);
+		state.rateById = rateById;
+		state.areaById = areaById;
 
-		// Calculate breaks and colour scale
-		let breaks;
 		let palette = getPalette(config);
 		const legendDecimals = getLegendDecimals(config.legendFormat || ',.2f');
 		if (Array.isArray(config.breaks)) {
-			breaks = config.breaks;
+			state.breaks = config.breaks;
 		} else {
-			breaks = calculateBreaks(data.map(d => +d.value).filter(v => !isNaN(v)).sort(d3.ascending), config.breaks, palette.length, legendDecimals)
+			state.breaks = calculateBreaks(
+				state.data.map(d => +d.value).filter(v => !isNaN(v)).sort(d3.ascending),
+				config.breaks,
+				palette.length,
+				legendDecimals
+			);
 		}
-		const colour = d3.scaleThreshold()
-			.domain(breaks.slice(1))
-			.range(palette);
+		state.colour = d3.scaleThreshold().domain(state.breaks.slice(1)).range(palette);
 
-		// Add search box
-		setupSearch(areas, config, state, rateById, areaById)
-
-		drawMap(rateById, areaById, colour, data, breaks, areas);
-
-	}).catch(error => {
+		setupSearch(state.areas, config, state, state.rateById, state.areaById);
+		createMap();
+		onResize();
+	} catch (error) {
 		console.error("Fatal error loading map data or geography:", error);
-	});
+	}
 }
 
-// Initialise pym and load data
-window.onload = () => {
-	state.pymChild = new pym.Child({ renderCallback: setupData });
-};
+function startOnce() {
+	if (state.__started) return;
+	state.__started = true;
+	setupOnce();
+}
+
+function renderCallback() {
+	startOnce();
+	// Let layout settle before we measure widths for legend.
+	requestAnimationFrame(onResize);
+}
+
+// Start as soon as the DOM is ready.
+if (document.readyState === 'loading') {
+	document.addEventListener('DOMContentLoaded', startOnce, { once: true });
+} else {
+	startOnce();
+}
+
+// Hook pym (when embedded) for resize callbacks.
+window.addEventListener('load', () => {
+	if (window.self !== window.top && typeof pym !== 'undefined') {
+		state.pymChild = new pym.Child({ renderCallback });
+		setTimeout(renderCallback, 250);
+	}
+});

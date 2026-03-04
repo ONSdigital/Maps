@@ -361,9 +361,18 @@ export function calculateBreaks(values, method, numClasses, decimals) {
 }
 
 export function setupSearch(areas, config, state, rateById, areaById) {
-    const { areaNames, areaNameToCode, areaCodeToFeature } = setupAreaSearchIndex(areas);
+    // Pym renderCallback can fire repeatedly on resize.
+    // Search UI (DOM + document-level key handlers) must only be wired once.
+    if (document.getElementById('search-container')) {
+        if (state) state.__onsSearchWired = true;
+        return;
+    }
+    if (state && state.__onsSearchWired) return;
+
+    const { areaNames = [], areaNameToCode = {}, areaCodeToFeature = {} } = setupAreaSearchIndex(areas) || {};
 
     addSearchBox(areaNames, state)
+    if (state) state.__onsSearchWired = true;
 
     function setupAreaSearchIndex(areas) {
         if (!areas || !areas.features) return {};
@@ -703,6 +712,7 @@ export function setupSearch(areas, config, state, rateById, areaById) {
         function selectAreaByLngLat(lon, lat) {
             //Jank way of selecting area by postcode - don't think it works properly - need to see how energyefficiencyofhousing does it
             if (state.geographySource === 'vector') {
+                const disableSelectionZoom = (config && config.disableSelectionZoom) || (state && state.disableSelectionZoom);
                 // Project lat/lng to screen pixel
                 if (!state.map) return;
                 const point = state.map.project([lon, lat]);
@@ -748,7 +758,7 @@ export function setupSearch(areas, config, state, rateById, areaById) {
                     }
 
                     // Zoom to area bounds (if geometry is available)
-                    if (feature && feature.geometry) {
+                    if (!disableSelectionZoom && feature && feature.geometry) {
                         let allCoords = collectCoords(feature.geometry);
                         if (allCoords.length) {
                             let bounds = calculateBounds(allCoords)
@@ -795,6 +805,7 @@ export function setupSearch(areas, config, state, rateById, areaById) {
         }
 
         function selectAreaFeature(feature) {
+            const disableSelectionZoom = (config && config.disableSelectionZoom) || (state && state.disableSelectionZoom);
             // This mimics the click event logic
             const code = feature.properties[config.geoIdField];
             const areaName = feature.properties[config.geoNameField];
@@ -836,7 +847,7 @@ export function setupSearch(areas, config, state, rateById, areaById) {
 
             // Zoom to area bounds (same as click logic)
 
-            if (feature && feature.geometry) {
+            if (!disableSelectionZoom && feature && feature.geometry) {
                 let allCoords = collectCoords(feature.geometry);
                 if (allCoords.length) {
                     let bounds = calculateBounds(allCoords)
@@ -1609,6 +1620,7 @@ export function setupMap(config, data, rateById, areaById, areas, colour, state)
             }
         });
         state.map.on('click', 'area', (e) => {
+            const disableSelectionZoom = (config && config.disableSelectionZoom) || (state && state.disableSelectionZoom);
             // On click, lock the info display to this area until mouse leaves
             const code = e.features[0].properties[config.geoIdField];
             const areaName = e.features[0].properties[config.geoNameField];
@@ -1655,8 +1667,9 @@ export function setupMap(config, data, rateById, areaById, areas, colour, state)
             }
 
             // --- Zoom to area bounds (40% of map, centered on unobscured area) ---
-            const feature = e.features[0];
-            if (feature && feature.geometry) {
+            if (!disableSelectionZoom) {
+                const feature = e.features[0];
+                if (feature && feature.geometry) {
                 // Collect all coordinates from all polygons (Polygon or MultiPolygon)
                 let allCoords = [];
                 function collectCoords(geom) {
@@ -1683,6 +1696,7 @@ export function setupMap(config, data, rateById, areaById, areas, colour, state)
                     state.map.fitBounds(bounds, options);
 
                 }
+            }
             }
         });
 
@@ -1906,6 +1920,12 @@ export function updateDataset(keyscale, data, state) {
     let colour = d3.scaleThreshold()
         .domain(breaks.slice(1))
         .range(palette);
+
+    // Persist for resize/redraw handlers in templates.
+    if (state) {
+        state.breaks = breaks;
+        state.colour = colour;
+    }
 
     drawKeyScale({ keyscale, breaks, colour, config, window, state });
     redrawMapFill(data, rateById, colour, state);

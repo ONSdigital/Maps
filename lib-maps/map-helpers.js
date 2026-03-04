@@ -636,6 +636,41 @@ export function setupSearch(areas, config, state, rateById, areaById) {
                 searchInput.addEventListener(evt, scheduleSync);
             });
             scheduleSync();
+
+            // On Windows browsers, grabbing the listbox scrollbar can blur the input,
+            // which makes accessible-autocomplete collapse the menu. This keeps focus on the input so the menu stays open
+            const attachScrollbarFocusGuard = () => {
+                const listbox = document.getElementById(listboxId);
+                if (!listbox || listbox.__onsScrollbarFocusGuard) return;
+                listbox.__onsScrollbarFocusGuard = true;
+
+                const guard = (e) => {
+                    // Only relevant for mouse interactions (touch doesn't have a scrollbar).
+                    if (e.pointerType && e.pointerType !== 'mouse') return;
+                    if (e.type === 'mousedown' && typeof e.button === 'number' && e.button !== 0) return;
+
+                    // If the event originates from an option element, let accessible-autocomplete
+                    // handle selection normally.
+                    if (e.target && e.target !== listbox) return;
+
+                    // Prevent focus from leaving the input (blur closes the menu).
+                    if (typeof e.preventDefault === 'function') e.preventDefault();
+                    try {
+                        searchInput.focus({ preventScroll: true });
+                    } catch (err) {
+                        try { searchInput.focus(); } catch (err2) { /* ignore */ }
+                    }
+                };
+
+                // Capture-phase so we run before blur handlers.
+                listbox.addEventListener('pointerdown', guard, { capture: true });
+                listbox.addEventListener('mousedown', guard, { capture: true });
+            };
+
+            // Listbox is created by accessible-autocomplete; ensure we attach after init and
+            // again whenever the input is focused (in case of re-render).
+            setTimeout(attachScrollbarFocusGuard, 0);
+            searchInput.addEventListener('focus', attachScrollbarFocusGuard);
         }
 
         // Function to populate search results

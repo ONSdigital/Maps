@@ -78,18 +78,47 @@ export function getElementHeightById(id) {
  */
 export async function setSearchText(value) {
     const searchBox = document.getElementById('search-box');
-    const searchDropdown = document.getElementById('search-box__listbox');
-    if (searchBox && searchDropdown) {
-        searchDropdown.style.visibility = "hidden";
+    if (searchBox) {
+        // Avoid focusing the input here: on mobile/narrow layouts this can
+        // expand the autocomplete dropdown and obscure the map after a map click.
         searchBox.value = value || "";
         // Ensure any UI that depends on input value (e.g. clear button) updates
         searchBox.dispatchEvent(new Event('input', { bubbles: true }));
         searchBox.dispatchEvent(new Event('change', { bubbles: true }));
-        await sleep(110);
-        searchBox.focus({ preventScroll: true });
-        searchBox.blur();
-        searchDropdown.style.visibility = "visible";
+
+        if (document.activeElement === searchBox) searchBox.blur();
+
+        // Force-close the accessible-autocomplete menu if it is open.
+        forceHideSearchMenuUntilUserInteracts();
     }
+}
+
+function forceHideSearchMenuUntilUserInteracts() {
+    const input = document.getElementById('search-box');
+    if (!input) return;
+
+    const hide = () => {
+        const menu = document.querySelector('#search-container .autocomplete__menu');
+        const listbox = document.getElementById('search-box__listbox');
+        input.setAttribute('aria-expanded', 'false');
+        if (menu) menu.style.display = 'none';
+        if (listbox) listbox.style.display = 'none';
+    };
+
+    const unhide = () => {
+        const menu = document.querySelector('#search-container .autocomplete__menu');
+        const listbox = document.getElementById('search-box__listbox');
+        if (menu) menu.style.display = '';
+        if (listbox) listbox.style.display = '';
+    };
+
+    hide();
+
+    // Re-enable on next real user interaction with the input.
+    // (Use once listeners so we don't accumulate handlers.)
+    input.addEventListener('focus', unhide, { once: true });
+    input.addEventListener('input', unhide, { once: true });
+    input.addEventListener('keydown', unhide, { once: true });
 }
 
 // Sleep function. Used to synchronise actions
@@ -793,14 +822,43 @@ export function setupSearch(areas, config, state, rateById, areaById) {
             if (e.key === 'Escape' || e.key === 'Esc') {
                 // Clear both selection and hover feature-state and info
                 if (typeof state.map !== 'undefined' && state.map !== null) {
+                    suppressSuggestions(300);
+
+                    // Clear the search input but keep focus there after clearing.
+                    const input = document.getElementById(searchBoxId);
+                    if (input) {
+                        input.value = '';
+                        input.dispatchEvent(new Event('input', { bubbles: true }));
+                        input.dispatchEvent(new Event('change', { bubbles: true }));
+                    }
+
                     clearAreaSelection(state, config.geoLayer);
                     state.hoveredAreaCode = null;
                     state.selectedAreaCode = null;
                     state.selectedAreaName = null;
                     // Always clear explainer and value immediately
                     updateKeyInfo(undefined, undefined, state);
-                    // Reset search box to placeholder
-                    setSearchText("");
+
+                    // Reset view back to the configured "home" bounds (matches the clear button behaviour)
+                    const homeBounds = config.mapBounds || config.__autoMapBounds || config.maxBounds;
+                    if (homeBounds) {
+                        const padding = calculateZoomPadding(state.map);
+                        state.map.fitBounds(homeBounds, { padding, animate: true });
+                    }
+
+                    if (typeof toggleClearButton === 'function') {
+                        setTimeout(() => toggleClearButton(), 0);
+                    }
+                    closeListboxTemporarily(300);
+
+                    // Put focus back in the (now cleared) input.
+                    if (input) {
+                        try { input.focus({ preventScroll: true }); } catch (err) { /* ignore */ }
+                        // Keep the autocomplete menu closed until the user interacts again.
+                        forceHideSearchMenuUntilUserInteracts();
+                    }
+
+                    try { e.preventDefault(); } catch (err) { /* ignore */ }
                 }
             }
         });
@@ -808,28 +866,77 @@ export function setupSearch(areas, config, state, rateById, areaById) {
     }
 }
 
-// Use D3 to populate the info area above the keyscale
-const keyInfoSel = d3.select('#keyinfo')
-    .classed('keyinfo', true)
-    .style('margin-left', (config.keyScaleMargin && typeof config.keyScaleMargin.left === 'number') ? config.keyScaleMargin.left + 'px' : null);
-// Value
-let valueSel = keyInfoSel.select('#keyinfo-value');
-if (valueSel.empty()) {
-    valueSel = keyInfoSel.append('div').attr('id', 'keyinfo-value');
+function isKeyInfoEnabled() {
+    // Default: enabled.
+    // Templates can disable this by setting either:
+    // - config.showKeyInfo = false
+    // - config.keyInfo = false
+    // (Both supported to avoid forcing a naming convention across templates.)
+    if (config && typeof config.showKeyInfo === 'boolean') return config.showKeyInfo;
+    if (config && typeof config.keyInfo === 'boolean') return config.keyInfo;
+    return true;
 }
-// Explainer
-let explainerSel = keyInfoSel.select('#keyinfo-explainer');
-if (explainerSel.empty()) {
-    explainerSel = keyInfoSel.append('div').attr('id', 'keyinfo-explainer');
+
+let __keyInfoSel = null;
+let __valueSel = null;
+let __explainerSel = null;
+let __explainerLine1 = null;
+let __explainerLine2 = null;
+
+function ensureKeyInfoDom() {
+    const enabled = isKeyInfoEnabled();
+    const keyInfoNode = document.getElementById('keyinfo');
+
+    // If the template doesn't include the element, nothing to do.
+    if (!keyInfoNode) return null;
+
+    // Hide the block entirely if disabled.
+    if (!enabled) {
+        keyInfoNode.style.display = 'none';
+        return null;
+    }
+
+    // Re-enable if it was previously hidden.
+    if (keyInfoNode.style.display === 'none') keyInfoNode.style.display = '';
+
+    // Use D3 to populate the info area above the keyscale
+    __keyInfoSel = __keyInfoSel && !__keyInfoSel.empty() ? __keyInfoSel : d3.select('#keyinfo');
+    __keyInfoSel
+        .classed('keyinfo', true)
+        .style('margin-left', (config.keyScaleMargin && typeof config.keyScaleMargin.left === 'number') ? config.keyScaleMargin.left + 'px' : null);
+
+    // Value
+    __valueSel = __keyInfoSel.select('#keyinfo-value');
+    if (__valueSel.empty()) {
+        __valueSel = __keyInfoSel.append('div').attr('id', 'keyinfo-value');
+    }
+    // Explainer
+    __explainerSel = __keyInfoSel.select('#keyinfo-explainer');
+    if (__explainerSel.empty()) {
+        __explainerSel = __keyInfoSel.append('div').attr('id', 'keyinfo-explainer');
+    }
+    // Two lines for explainer
+    __explainerLine1 = __explainerSel.select('span.line1');
+    if (__explainerLine1.empty()) __explainerLine1 = __explainerSel.append('span').classed('line1', true);
+    __explainerLine2 = __explainerSel.select('span.line2');
+    if (__explainerLine2.empty()) __explainerLine2 = __explainerSel.append('span').classed('line2', true);
+
+    return {
+        keyInfoNode,
+        valueSel: __valueSel,
+        explainerSel: __explainerSel,
+        explainerLine1: __explainerLine1,
+        explainerLine2: __explainerLine2
+    };
 }
-// Two lines for explainer
-let explainerLine1 = explainerSel.select('span.line1');
-if (explainerLine1.empty()) explainerLine1 = explainerSel.append('span').classed('line1', true);
-let explainerLine2 = explainerSel.select('span.line2');
-if (explainerLine2.empty()) explainerLine2 = explainerSel.append('span').classed('line2', true);
 
 
 export function updateKeyInfo(value, areaName, state) {
+    const keyInfo = ensureKeyInfoDom();
+    if (!keyInfo) return;
+
+    const { valueSel, explainerLine1, explainerLine2 } = keyInfo;
+
     // Alignment logic for explainer/value
     const keyInfoNode = document.getElementById('keyinfo');
     const valueNode = document.getElementById('keyinfo-value');
@@ -1076,9 +1183,145 @@ export function buildValueAndAreaLookups(data, config, state) {
     return { rateById, areaById };
 }
 
+function debugReportDataGeographyMatch({ data, areas, config, state, rateById, areaById }) {
+    if (!config || config.debugInfo !== true) return;
+
+    // For vector tiles we don't have the full feature list client-side.
+    if (state && state.geographySource === 'vector') {
+        console.log('[Map Debug] Skipping data↔geography match report (vector tiles do not expose full feature list).');
+        return;
+    }
+
+    if (!areas || !Array.isArray(areas.features)) {
+        console.log('[Map Debug] Skipping data↔geography match report (no GeoJSON features available).');
+        return;
+    }
+
+    const dataIdField = config.dataIdField;
+    const geoIdField = config.geoIdField;
+    const geoNameField = config.geoNameField;
+
+    const limit = (typeof config.debugMatchLimit === 'number' && Number.isFinite(config.debugMatchLimit))
+        ? Math.max(10, Math.floor(config.debugMatchLimit))
+        : 200;
+
+    const dataCodes = new Set();
+    let blankDataCodes = 0;
+    for (const row of (Array.isArray(data) ? data : [])) {
+        const raw = row ? row[dataIdField] : null;
+        const code = (raw === null || typeof raw === 'undefined') ? '' : String(raw).trim();
+        if (!code) {
+            blankDataCodes += 1;
+            continue;
+        }
+        dataCodes.add(code);
+    }
+
+    const geoCodes = new Set();
+    const geoNameByCode = {};
+    let blankGeoCodes = 0;
+    for (const f of areas.features) {
+        const props = (f && f.properties) ? f.properties : {};
+        const raw = props ? props[geoIdField] : null;
+        const code = (raw === null || typeof raw === 'undefined') ? '' : String(raw).trim();
+        if (!code) {
+            blankGeoCodes += 1;
+            continue;
+        }
+        geoCodes.add(code);
+        if (!geoNameByCode[code]) {
+            const nm = props ? (props[geoNameField] ?? props[config.dataNameField]) : null;
+            if (nm !== null && typeof nm !== 'undefined' && String(nm).trim()) {
+                geoNameByCode[code] = String(nm);
+            }
+        }
+    }
+
+    const dataNotInGeo = [];
+    for (const code of dataCodes) {
+        if (!geoCodes.has(code)) {
+            const rawVal = rateById ? rateById[code] : undefined;
+            const v = (rawVal === null || typeof rawVal === 'undefined' || rawVal === '') ? NaN : +rawVal;
+            dataNotInGeo.push({
+                code,
+                name: (areaById && areaById[code]) ? areaById[code] : undefined,
+                value: Number.isFinite(v) ? v : null
+            });
+        }
+    }
+    dataNotInGeo.sort((a, b) => String(a.code).localeCompare(String(b.code)));
+
+    const geoMissingFromData = [];
+    const geoPresentButNoValue = [];
+    for (const code of geoCodes) {
+        const presentInData = dataCodes.has(code);
+        const rawVal = rateById ? rateById[code] : undefined;
+        const v = (rawVal === null || typeof rawVal === 'undefined' || rawVal === '') ? NaN : +rawVal;
+        const name = (geoNameByCode && geoNameByCode[code])
+            ? geoNameByCode[code]
+            : (areaById && areaById[code])
+                ? areaById[code]
+                : undefined;
+
+        if (!presentInData) {
+            geoMissingFromData.push({ code, name });
+            continue;
+        }
+
+        if (!Number.isFinite(v)) {
+            geoPresentButNoValue.push({ code, name });
+        }
+    }
+    geoMissingFromData.sort((a, b) => String(a.code).localeCompare(String(b.code)));
+    geoPresentButNoValue.sort((a, b) => String(a.code).localeCompare(String(b.code)));
+
+    const commonNote = `data rows: ${(Array.isArray(data) ? data.length : 0)}, unique data codes: ${dataCodes.size}${blankDataCodes ? ` (${blankDataCodes} blank)` : ''} | geography features: ${areas.features.length}, unique geo codes: ${geoCodes.size}${blankGeoCodes ? ` (${blankGeoCodes} blank)` : ''}`;
+
+    // Entry 1: data IDs missing from geography
+    console.groupCollapsed(`[Map Debug] Data IDs not found in geography (${dataNotInGeo.length})`);
+    console.log(commonNote);
+    if (dataNotInGeo.length) {
+        console.table(dataNotInGeo.slice(0, limit));
+        if (dataNotInGeo.length > limit) console.log(`…and ${dataNotInGeo.length - limit} more`);
+    } else {
+        console.log('None');
+    }
+    console.groupEnd();
+
+    // Entry 2: geography IDs with no data
+    const geoNoDataTotal = geoMissingFromData.length + geoPresentButNoValue.length;
+    console.groupCollapsed(`[Map Debug] Geography IDs with no data value (${geoNoDataTotal})`);
+    console.log(commonNote);
+    console.log(`Missing from data (no row/code): ${geoMissingFromData.length} | Present in data but value is null/blank/NaN: ${geoPresentButNoValue.length}`);
+
+    if (!geoNoDataTotal) {
+        console.log('None');
+        console.groupEnd();
+        return;
+    }
+
+    if (geoMissingFromData.length) {
+        console.groupCollapsed('Missing from data');
+        console.table(geoMissingFromData.slice(0, limit));
+        if (geoMissingFromData.length > limit) console.log(`…and ${geoMissingFromData.length - limit} more`);
+        console.groupEnd();
+    }
+
+    if (geoPresentButNoValue.length) {
+        console.groupCollapsed('Present in data but no value');
+        console.table(geoPresentButNoValue.slice(0, limit));
+        if (geoPresentButNoValue.length > limit) console.log(`…and ${geoPresentButNoValue.length - limit} more`);
+        console.groupEnd();
+    }
+    console.groupEnd();
+}
+
 
 export function setupMap(config, data, rateById, areaById, areas, colour, state) {
     state.map.on('load', () => {
+
+        // Optional debug report to help diagnose ID mismatches between the data and the geography.
+        debugReportDataGeographyMatch({ data, areas, config, state, rateById, areaById });
 
         if (config.debugInfo && Array.isArray(config.__autoMapBounds)) {
             const viewBounds = state.map.getBounds().toArray();
@@ -1104,18 +1347,44 @@ export function setupMap(config, data, rateById, areaById, areas, colour, state)
 
         }
 
-        data.forEach(d => {
-            const code = d[config.dataIdField];
-            const raw = rateById ? rateById[code] : d.value;
-            const value = (raw === null || typeof raw === 'undefined' || raw === '') ? NaN : +raw;
-            const hasData = Number.isFinite(value);
-            const unavailableColour = getConfigValue('colourUnavailable', state) ?? config.colourUnavailable ?? ONScolours.noData;
-            const fillColor = hasData ? colour(value) : unavailableColour;
-            state.map.setFeatureState(
-                { source: 'area', sourceLayer: (state.geographySource === "vector" ? config.geoLayer : ""), id: code },
-                { value: hasData ? value : null, color: fillColor }
-            );
-        });
+        const unavailableColour = getConfigValue('colourUnavailable', state) ?? config.colourUnavailable ?? ONScolours.noData;
+
+        // Initialise feature-state values/colours.
+        // - For GeoJSON we can iterate every feature, including those missing from the data entirely.
+        // - For vector tiles we can only set feature-state for IDs we have in the data.
+        if (state.geographySource !== 'vector' && areas && Array.isArray(areas.features)) {
+            for (const f of areas.features) {
+                const props = (f && f.properties) ? f.properties : null;
+                const rawCode = props ? props[config.geoIdField] : null;
+                const code = (rawCode === null || typeof rawCode === 'undefined') ? '' : String(rawCode).trim();
+                if (!code) continue;
+
+                const raw = rateById ? rateById[code] : undefined;
+                const value = (raw === null || typeof raw === 'undefined' || raw === '') ? NaN : +raw;
+                const hasData = Number.isFinite(value);
+                const fillColor = hasData ? colour(value) : unavailableColour;
+
+                state.map.setFeatureState(
+                    { source: 'area', sourceLayer: '', id: code },
+                    { value: hasData ? value : null, color: fillColor }
+                );
+            }
+        } else {
+            (Array.isArray(data) ? data : []).forEach(d => {
+                const rawCode = d ? d[config.dataIdField] : null;
+                const code = (rawCode === null || typeof rawCode === 'undefined') ? '' : String(rawCode).trim();
+                if (!code) return;
+
+                const raw = rateById ? rateById[code] : (d ? d.value : undefined);
+                const value = (raw === null || typeof raw === 'undefined' || raw === '') ? NaN : +raw;
+                const hasData = Number.isFinite(value);
+                const fillColor = hasData ? colour(value) : unavailableColour;
+                state.map.setFeatureState(
+                    { source: 'area', sourceLayer: (state.geographySource === "vector" ? config.geoLayer : ""), id: code },
+                    { value: hasData ? value : null, color: fillColor }
+                );
+            });
+        }
 
         const baseFillOpacity = (typeof config.fillOpacity === 'number') ? config.fillOpacity : 0.8;
         const dimFillOpacity = (typeof config.legendDimOpacity === 'number') ? config.legendDimOpacity : 0.5;
@@ -1127,7 +1396,9 @@ export function setupMap(config, data, rateById, areaById, areas, colour, state)
             "source-layer": state.geographySource === "vector" ? config.geoLayer : "",
             layout: {},
             paint: {
-                'fill-color': ['feature-state', 'color'],
+                // If feature-state isn't set (e.g. geography areas missing from the data entirely),
+                // fall back to the configured unavailable colour.
+                'fill-color': ['coalesce', ['feature-state', 'color'], unavailableColour],
                 'fill-opacity': [
                     'case',
                     ['==', ['feature-state', 'legendActive'], true],
@@ -1543,31 +1814,35 @@ export function redrawMapFill(data, rateById, colour, state) {
 
 export function redeclareMouseEvents(rateById, state) {
     state.map.on('mousemove', 'area', (e) => {
-        const areaName = e.features[0].properties[config.geoNameField];
+        const feature = e.features && e.features[0];
+        if (!feature || !feature.properties) return;
 
-        const value = rateById[e.features[0].properties[config.geoIdField]];
-        // Always show hover info if hovering, but if an area is selected, show faded indicator for it
-        if (typeof value !== 'undefined' && value !== null && !isNaN(value)) {
-            window.moveKeyIndicator(value);
-            if (state.selectedAreaCode && state.selectedAreaCode !== code) {
+        const areaName = feature.properties[config.geoNameField];
+        const hoveredCode = feature.properties[config.geoIdField];
+        const value = rateById[hoveredCode];
+
+        const showSelectedIndicatorIfNeeded = () => {
+            const isHoveringSelected = !!(state.selectedAreaCode && hoveredCode && state.selectedAreaCode === hoveredCode);
+            if (state.selectedAreaCode && !isHoveringSelected) {
                 const selectedVal = rateById[state.selectedAreaCode];
                 window.moveKeyIndicatorSelected(selectedVal);
             } else {
                 window.moveKeyIndicatorSelected(undefined);
             }
+        };
+
+        // Always show hover info if hovering, but if an area is selected, show faded indicator for it
+        if (typeof value !== 'undefined' && value !== null && !isNaN(value)) {
+            window.moveKeyIndicator(value);
+            showSelectedIndicatorIfNeeded();
             updateKeyInfo(value, areaName, state);
         } else {
             // Value is missing, show unavailable message
             window.moveKeyIndicator(undefined);
-            if (state.selectedAreaCode && state.selectedAreaCode !== code) {
-                const selectedVal = rateById[state.selectedAreaCode];
-                window.moveKeyIndicatorSelected(selectedVal);
-            } else {
-                window.moveKeyIndicatorSelected(undefined);
-            }
+            showSelectedIndicatorIfNeeded();
             updateKeyInfo(undefined, areaName, state);
         }
-    })
+    });
     state.map.on('click', 'area', (e) => {
         const areaName = e.features[0].properties[config.geoNameField];
 

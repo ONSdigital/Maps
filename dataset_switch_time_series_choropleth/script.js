@@ -2,11 +2,13 @@ import { initialise, addSource } from "../lib/helpers.js";
 import { drawKeyScale } from "../lib-maps/legend.js";
 import {
 	calculateBreaks,
+	clearAreaSelection,
 	convertTopoJSONtoGeojson,
 	detectGeographySource,
 	getLegendDecimals,
 	getPalette,
 	resolveAutoMapBounds,
+	setSearchText,
 	setupMap,
 	setupSearch,
 	updateKeyInfo,
@@ -20,11 +22,13 @@ const state = {
 	selectedAreaName: null,
 	geographySource: null,
 	pymChild: null,
+	areasGeojson: null,
 
 	// dataset/time series
 	datasetIndex: 0,
 	timeColumns: [],
 	timeIndex: 0,
+	selectedTimeRaw: null,
 	seriesById: {},
 	meanSeries: [],
 	breaks: null,
@@ -37,10 +41,22 @@ const state = {
 
 	// chart
 	chart: null,
+
+	// chart overlay (hover preview vs pinned)
+	overlayMode: 'hidden', // 'hidden' | 'hover' | 'pinned'
+	overlayAreaCode: null,
+	overlayAreaName: null,
+	__overlayRaf: null,
+	__overlayLastClient: null,
+	__overlayResizeRaf: null,
 };
 
 const graphic = d3.select('#graphic');
 const keyscale = d3.select('#keyscale');
+
+// This template uses the chart overlay for explanatory text.
+// Hide the standard keyinfo (value/explainer) block above the map key.
+config.showKeyInfo = false;
 
 graphic
 	.style('width', '100%')
@@ -175,21 +191,504 @@ function ensureBreaksAndLegend() {
 	drawKeyScale({ keyscale, breaks: state.breaks, colour: state.colour, config, window, state });
 }
 
-function setTimelineUI() {
-	const slider = document.getElementById('timeline-slider');
-	const label = document.getElementById('timeline-label');
-	if (!slider || !label) return;
+let __timelineWired = false;
 
-	slider.min = '0';
-	slider.max = String(Math.max(0, state.timeColumns.length - 1));
-	slider.step = '1';
-	slider.value = String(state.timeIndex);
-	label.textContent = state.timeColumns[state.timeIndex] || '';
+function getNearestTimelineIndexFromClientX(container, clientX) {
+	if (!container) return 0;
+	const positions = container.__timelinePositions || null;
+	if (!positions || !positions.length) return 0;
+	const rect = container.getBoundingClientRect();
+	const localX = clientX - rect.left;
+
+	let bestIndex = 0;
+	let bestDist = Infinity;
+	for (const p of positions) {
+		const dist = Math.abs(p.x - localX);
+		if (dist < bestDist) {
+			bestDist = dist;
+			bestIndex = p.index;
+		}
+	}
+	return bestIndex;
+}
+
+function beginTimelineDrag(container, event, captureElement) {
+	if (!container || !event) return;
+	const pointerId = event.pointerId;
+	if (typeof pointerId !== 'number') return;
+
+	// Avoid double-binding if something already captured.
+	if (container.__timelineDragging) return;
+	container.__timelineDragging = true;
+	container.classList.add('is-dragging');
+
+	// If the user started from a focused marker, keep focus following the active step while scrubbing.
+	const startedOnMarker = Boolean(event.target && event.target.closest && event.target.closest('button.timeline-marker'));
+
+	const captureEl = captureElement || event.currentTarget || container;
+	// If the user starts dragging on the track/background, ensure the intended control has focus
+	// so ArrowLeft/ArrowRight works immediately after scrubbing.
+	const focusTarget = (!startedOnMarker && event.pointerType !== 'touch')
+		? ((captureEl && typeof captureEl.focus === 'function') ? captureEl : container)
+		: null;
+	if (focusTarget) {
+		try { focusTarget.focus({ preventScroll: true }); } catch (e) { /* ignore */ }
+	}
+	try {
+		if (captureEl && captureEl.setPointerCapture) captureEl.setPointerCapture(pointerId);
+	} catch (e) {
+		// ignore
+	}
+
+	let latestX = event.clientX;
+	let rafId = null;
+
+	const apply = () => {
+		rafId = null;
+		const next = getNearestTimelineIndexFromClientX(container, latestX);
+		setTimeIndex(next);
+
+		if (startedOnMarker) {
+			const activeBtn = container.querySelector(`button.timeline-marker[data-index="${state.timeIndex}"]`);
+			if (activeBtn && document.activeElement && document.activeElement.classList && document.activeElement.classList.contains('timeline-marker')) {
+				try { activeBtn.focus(); } catch (e) { /* ignore */ }
+			}
+		}
+	};
+
+	const onMove = (e) => {
+		if (e.pointerId !== pointerId) return;
+		// Prevent the browser from interpreting this as a scroll while scrubbing.
+		if (e.pointerType === 'touch') {
+			try { e.preventDefault(); } catch (err) { /* ignore */ }
+		}
+		latestX = e.clientX;
+		if (rafId) return;
+		rafId = requestAnimationFrame(apply);
+	};
+
+	const end = (e) => {
+		if (e.pointerId !== pointerId) return;
+		container.__timelineDragging = false;
+		container.classList.remove('is-dragging');
+		if (!startedOnMarker && e.pointerType !== 'touch' && focusTarget) {
+			try { focusTarget.focus({ preventScroll: true }); } catch (err) { /* ignore */ }
+		}
+		if (rafId) {
+			cancelAnimationFrame(rafId);
+			rafId = null;
+		}
+		window.removeEventListener('pointermove', onMove);
+		window.removeEventListener('pointerup', end);
+		window.removeEventListener('pointercancel', end);
+		try {
+			if (captureEl && captureEl.releasePointerCapture) captureEl.releasePointerCapture(pointerId);
+		} catch (err) {
+			// ignore
+		}
+	};
+
+	window.addEventListener('pointermove', onMove, { passive: false });
+	window.addEventListener('pointerup', end);
+	window.addEventListener('pointercancel', end);
+
+	// Apply immediately at the start position.
+	apply();
+}
+
+function beginTimelineTouchDrag(container, event, captureElement) {
+	if (!container || !event) return;
+	const touches = event.changedTouches || event.touches;
+	if (!touches || !touches.length) return;
+	const touch0 = touches[0];
+	const touchId = touch0.identifier;
+	if (typeof touchId !== 'number') return;
+
+	// Avoid double-binding if something already captured.
+	if (container.__timelineDragging) return;
+	container.__timelineDragging = true;
+	container.classList.add('is-dragging');
+
+	const captureEl = captureElement || event.currentTarget || container;
+	let latestX = touch0.clientX;
+	let rafId = null;
+
+	const apply = () => {
+		rafId = null;
+		const next = getNearestTimelineIndexFromClientX(container, latestX);
+		setTimeIndex(next);
+	};
+
+	const findTouch = (e) => {
+		const changed = e.changedTouches || null;
+		if (changed && changed.length) {
+			for (let i = 0; i < changed.length; i++) {
+				const t = changed[i];
+				if (t && t.identifier === touchId) return t;
+			}
+		}
+		const touchesNow = e.touches || null;
+		if (touchesNow && touchesNow.length) {
+			for (let i = 0; i < touchesNow.length; i++) {
+				const t = touchesNow[i];
+				if (t && t.identifier === touchId) return t;
+			}
+		}
+		return null;
+	};
+
+	const onMove = (e) => {
+		const t = findTouch(e);
+		if (!t) return;
+		// Prevent the browser from interpreting this as a scroll while scrubbing.
+		try { if (e.cancelable) e.preventDefault(); } catch (err) { /* ignore */ }
+		latestX = t.clientX;
+		if (rafId) return;
+		rafId = requestAnimationFrame(apply);
+	};
+
+	const end = (e) => {
+		const t = findTouch(e);
+		if (!t) return;
+		container.__timelineDragging = false;
+		container.classList.remove('is-dragging');
+		if (rafId) {
+			cancelAnimationFrame(rafId);
+			rafId = null;
+		}
+		window.removeEventListener('touchmove', onMove);
+		window.removeEventListener('touchend', end);
+		window.removeEventListener('touchcancel', end);
+	};
+
+	window.addEventListener('touchmove', onMove, { passive: false });
+	window.addEventListener('touchend', end);
+	window.addEventListener('touchcancel', end);
+
+	// Apply immediately at the start position.
+	apply();
+
+	// Best-effort to prevent synthetic mouse events after touch.
+	try {
+		if (event.cancelable) event.preventDefault();
+		if (event.stopPropagation) event.stopPropagation();
+	} catch (err) {
+		// ignore
+	}
+}
+
+function getTimelineConfig() {
+	const t = (config && config.timeline) ? config.timeline : {};
+	return {
+		displayFormat: t.displayFormat || '%Y',
+		screenreaderFormat: t.screenreaderFormat || t.displayFormat || '%Y',
+		parseFormat: t.parseFormat || null,
+		ariaLabel: t.ariaLabel || 'Timeline',
+		keyboardStep: Number.isFinite(+t.keyboardStep) && +t.keyboardStep > 1 ? Math.floor(+t.keyboardStep) : 5
+	};
+}
+
+function getTimelineKeyboardStep() {
+	return getTimelineConfig().keyboardStep;
+}
+
+function parseTimeColumn(raw) {
+	const str = String(raw ?? '').trim();
+	if (!str) return null;
+
+	const t = getTimelineConfig();
+	if (t.parseFormat) {
+		const parse = d3.timeParse(t.parseFormat);
+		const d = parse(str);
+		return d && Number.isFinite(d.getTime()) ? d : null;
+	}
+
+	// Heuristic parsing for common header formats
+	if (/^\d{4}$/.test(str)) return new Date(+str, 0, 1);
+	if (/^\d{4}-\d{2}$/.test(str)) return new Date(+str.slice(0, 4), +str.slice(5, 7) - 1, 1);
+	if (/^\d{4}-\d{2}-\d{2}$/.test(str)) {
+		const d = new Date(`${str}T00:00:00`);
+		return Number.isFinite(d.getTime()) ? d : null;
+	}
+
+	// Last resort: try Date parsing
+	const d = new Date(str);
+	return Number.isFinite(d.getTime()) ? d : null;
+}
+
+function buildTimelineItems() {
+	const t = getTimelineConfig();
+	const fmtDisplay = d3.timeFormat(t.displayFormat);
+	const fmtSR = d3.timeFormat(t.screenreaderFormat);
+
+	return state.timeColumns.map((raw, index) => {
+		const date = parseTimeColumn(raw);
+		const display = date ? fmtDisplay(date) : String(raw);
+		const srText = date ? fmtSR(date) : String(raw);
+		return { raw: String(raw), index, date, display, srText };
+	});
+}
+
+function ensureTimelineScaffold(container) {
+	container.classList.add('timeline-slider');
+	container.setAttribute('role', 'slider');
+	container.setAttribute('tabindex', '0');
+
+	const t = getTimelineConfig();
+	container.setAttribute('aria-label', t.ariaLabel);
+
+	if (!container.querySelector('.timeline-track')) {
+		const track = document.createElement('div');
+		track.className = 'timeline-track';
+		container.appendChild(track);
+	}
+	if (!container.querySelector('.timeline-pill')) {
+		const pill = document.createElement('div');
+		pill.className = 'timeline-pill';
+		container.appendChild(pill);
+	}
+}
+
+function renderTimeline() {
+	const container = document.getElementById('timeline-slider');
+	if (!container) return;
+	ensureTimelineScaffold(container);
+
+	const items = buildTimelineItems();
+	const maxIdx = Math.max(0, items.length - 1);
+	const clamped = Math.max(0, Math.min(state.timeIndex, maxIdx));
+	state.timeIndex = clamped;
+
+	container.setAttribute('aria-valuemin', '0');
+	container.setAttribute('aria-valuemax', String(maxIdx));
+	container.setAttribute('aria-valuenow', String(state.timeIndex));
+	container.setAttribute('aria-valuetext', items[state.timeIndex] ? items[state.timeIndex].srText : '');
+
+	const width = container.clientWidth || 0;
+	if (!width || items.length === 0) return;
+	const padding = 10;
+
+	let allHaveDates = items.length > 1 && items.every(d => d.date instanceof Date && Number.isFinite(d.date.getTime()));
+	let timeDomain = null;
+	if (allHaveDates) {
+		timeDomain = d3.extent(items, d => d.date);
+		if (!timeDomain || !timeDomain[0] || !timeDomain[1] || timeDomain[0].getTime() === timeDomain[1].getTime()) {
+			allHaveDates = false;
+		}
+	}
+
+	const x = allHaveDates
+		? d3.scaleTime().domain(timeDomain).range([padding, width - padding])
+		: d3.scalePoint().domain(items.map(d => d.index)).range([padding, width - padding]);
+
+	// Cache discrete positions for drag snapping.
+	container.__timelinePositions = items.map(d => {
+		const px = allHaveDates ? x(d.date) : x(d.index);
+		return { index: d.index, x: px };
+	});
+
+	const markersSel = d3.select(container)
+		.selectAll('button.timeline-marker')
+		.data(items, d => d.raw);
+
+	markersSel.exit().remove();
+
+	const markersEnter = markersSel.enter()
+		.append('button')
+		.attr('type', 'button')
+		.attr('class', 'timeline-marker')
+		.attr('role', 'button')
+		.attr('tabindex', 0)
+		.on('pointerdown', (event, d) => {
+			// Allow click-to-set and drag-to-scrub from a marker (especially the active one)
+			event.preventDefault();
+			try { event.currentTarget.focus(); } catch (e) { /* ignore */ }
+			beginTimelineDrag(container, event, event.currentTarget);
+			setTimeIndex(d.index);
+		})
+		.on('keydown', (event, d) => {
+			const key = event.key;
+			if (key === 'Enter' || key === ' ') {
+				event.preventDefault();
+				event.stopPropagation();
+				setTimeIndex(d.index);
+				const activeBtn = container.querySelector(`button.timeline-marker[data-index="${state.timeIndex}"]`);
+				if (activeBtn) {
+					try { activeBtn.focus(); } catch (e) { /* ignore */ }
+				}
+				return;
+			}
+			if (key === 'Home') {
+				event.preventDefault();
+				event.stopPropagation();
+				setTimeIndex(0);
+				const first = container.querySelector(`button.timeline-marker[data-index="0"]`);
+				if (first) {
+					try { first.focus(); } catch (e) { /* ignore */ }
+				}
+				return;
+			}
+			if (key === 'End') {
+				event.preventDefault();
+				event.stopPropagation();
+				setTimeIndex(maxIdx);
+				const last = container.querySelector(`button.timeline-marker[data-index="${state.timeIndex}"]`);
+				if (last) {
+					try { last.focus(); } catch (e) { /* ignore */ }
+				}
+				return;
+			}
+			if (key === 'PageUp') {
+				event.preventDefault();
+				event.stopPropagation();
+				setTimeIndex(state.timeIndex - getTimelineKeyboardStep());
+				const btn = container.querySelector(`button.timeline-marker[data-index="${state.timeIndex}"]`);
+				if (btn) {
+					try { btn.focus(); } catch (e) { /* ignore */ }
+				}
+				return;
+			}
+			if (key === 'PageDown') {
+				event.preventDefault();
+				event.stopPropagation();
+				setTimeIndex(state.timeIndex + getTimelineKeyboardStep());
+				const btn = container.querySelector(`button.timeline-marker[data-index="${state.timeIndex}"]`);
+				if (btn) {
+					try { btn.focus(); } catch (e) { /* ignore */ }
+				}
+				return;
+			}
+			if (key === 'ArrowLeft') {
+				event.preventDefault();
+				event.stopPropagation();
+				setTimeIndex(state.timeIndex - (event.shiftKey ? getTimelineKeyboardStep() : 1));
+				const prev = container.querySelector(`button.timeline-marker[data-index="${state.timeIndex}"]`);
+				if (prev) {
+					try { prev.focus(); } catch (e) { /* ignore */ }
+				}
+				return;
+			}
+			if (key === 'ArrowRight') {
+				event.preventDefault();
+				event.stopPropagation();
+				setTimeIndex(state.timeIndex + (event.shiftKey ? getTimelineKeyboardStep() : 1));
+				const next = container.querySelector(`button.timeline-marker[data-index="${state.timeIndex}"]`);
+				if (next) {
+					try { next.focus(); } catch (e) { /* ignore */ }
+				}
+				return;
+			}
+		});
+
+	const markersAll = markersEnter.merge(markersSel);
+	markersAll
+		.attr('data-index', d => String(d.index))
+		.attr('aria-label', d => d.srText)
+		.classed('is-complete', d => d.index <= state.timeIndex)
+		.classed('is-active', d => d.index === state.timeIndex)
+		.style('left', d => {
+			const px = allHaveDates ? x(d.date) : x(d.index);
+			return `${px}px`;
+		});
+
+	// Tick labels
+	const ticksSel = d3.select(container)
+		.selectAll('div.timeline-tick')
+		.data(items, d => d.raw);
+
+	ticksSel.exit().remove();
+
+	const ticksEnter = ticksSel.enter()
+		.append('div')
+		.attr('class', 'timeline-tick');
+
+	ticksEnter.merge(ticksSel)
+		.text(d => d.display)
+		.style('left', d => {
+			const px = allHaveDates ? x(d.date) : x(d.index);
+			return `${px}px`;
+		});
+
+	// Active pill label
+	const pill = container.querySelector('.timeline-pill');
+	if (pill && items[state.timeIndex]) {
+		const active = items[state.timeIndex];
+		pill.textContent = active.display;
+		const px = allHaveDates ? x(active.date) : x(active.index);
+		pill.style.left = `${px}px`;
+		pill.style.display = '';
+	} else if (pill) {
+		pill.style.display = 'none';
+	}
+}
+
+function wireTimelineEvents() {
+	if (__timelineWired) return;
+	__timelineWired = true;
+	const container = document.getElementById('timeline-slider');
+	if (!container) return;
+
+	// Click/drag on the track area should scrub too (useful on touch).
+	container.addEventListener('pointerdown', (event) => {
+		// Buttons handle their own pointerdown; avoid starting a second drag.
+		if (event.target && event.target.closest && event.target.closest('button.timeline-marker')) return;
+		event.preventDefault();
+		if (event.pointerType !== 'touch') {
+			try { container.focus({ preventScroll: true }); } catch (e) { /* ignore */ }
+		}
+		beginTimelineDrag(container, event, container);
+	});
+
+	container.addEventListener('keydown', (event) => {
+		// If a marker has focus, it handles its own keydown.
+		if (event.target !== container) return;
+
+		const maxIdx = Math.max(0, state.timeColumns.length - 1);
+		const jump = getTimelineKeyboardStep();
+		const delta = event.shiftKey ? jump : 1;
+
+		if (event.key === 'Home') {
+			event.preventDefault();
+			setTimeIndex(0);
+			return;
+		}
+		if (event.key === 'End') {
+			event.preventDefault();
+			setTimeIndex(maxIdx);
+			return;
+		}
+		if (event.key === 'PageUp') {
+			event.preventDefault();
+			setTimeIndex(state.timeIndex - jump);
+			return;
+		}
+		if (event.key === 'PageDown') {
+			event.preventDefault();
+			setTimeIndex(state.timeIndex + jump);
+			return;
+		}
+		if (event.key === 'ArrowLeft') {
+			event.preventDefault();
+			setTimeIndex(state.timeIndex - delta);
+			return;
+		}
+		if (event.key === 'ArrowRight') {
+			event.preventDefault();
+			setTimeIndex(state.timeIndex + delta);
+			return;
+		}
+	});
+}
+
+function setTimelineUI() {
+	wireTimelineEvents();
+	renderTimeline();
 }
 
 function setTimeIndex(nextIndex) {
 	const clamped = Math.max(0, Math.min(nextIndex, state.timeColumns.length - 1));
 	state.timeIndex = clamped;
+	state.selectedTimeRaw = state.timeColumns[clamped] ?? null;
 	setTimelineUI();
 
 	updateRateByIdForTime();
@@ -221,7 +720,7 @@ function renderDatasetSwitch() {
 	fieldset.setAttribute('role', 'radiogroup');
 
 	const legend = document.createElement('legend');
-	legend.textContent = 'Select dataset';
+	// legend.textContent = 'Select dataset';
 	fieldset.appendChild(legend);
 
 	const buttonsWrapper = document.createElement('div');
@@ -262,115 +761,708 @@ function renderDatasetSwitch() {
 	container.appendChild(fieldset);
 }
 
-function createChart() {
+
+function getOverlayInnerHeightPx() {
+	const overlay = document.getElementById('chart-overlay');
+	if (!overlay || overlay.classList.contains('hidden')) return null;
+	const rect = overlay.getBoundingClientRect();
+	if (!rect || !Number.isFinite(rect.height) || rect.height <= 0) return null;
+	let padTop = 0;
+	let padBottom = 0;
+	try {
+		const cs = window.getComputedStyle(overlay);
+		padTop = parseFloat(cs.paddingTop) || 0;
+		padBottom = parseFloat(cs.paddingBottom) || 0;
+	} catch (e) {
+		padTop = 0;
+		padBottom = 0;
+	}
+	const inner = rect.height - padTop - padBottom;
+	return Number.isFinite(inner) && inner > 0 ? inner : null;
+}
+
+function createChart({ overlayInnerHeight = null } = {}) {
 	const container = d3.select('#chart');
 	container.html('');
-
-	const width = container.node()?.getBoundingClientRect().width || 800;
-	const height = config.chartHeight || 220;
-	const margin = { top: 10, right: 20, bottom: 30, left: 50 };
+	const chartCfg = (config && config.chart && typeof config.chart === 'object') ? config.chart : {};
+	const resolveChartValue = (val) => {
+		if (!Array.isArray(val)) return val;
+		const idx = (state && typeof state.datasetIndex === 'number') ? state.datasetIndex : 0;
+		if (idx >= 0 && idx < val.length) return val[idx];
+		return val[0];
+	};
+	const resolveYTicks = (fallback) => {
+		const modeKey = state.overlayMode === 'hover' ? 'hover' : 'pinned';
+		const cfg = resolveChartValue(chartCfg.yTicks);
+		let v = cfg;
+		if (cfg && typeof cfg === 'object' && !Array.isArray(cfg)) {
+			v = cfg[modeKey];
+			if (v === null || typeof v === 'undefined') v = cfg.default;
+		}
+		const n = (v === null || typeof v === 'undefined') ? NaN : Math.round(+v);
+		if (Number.isFinite(n) && n > 0) return n;
+		return fallback;
+	};
+	const getChartSubTitle = () => {
+		const v = resolveChartValue(chartCfg.subTitle);
+		return (typeof v === 'string') ? v : (v === null || typeof v === 'undefined') ? '' : String(v);
+	};
+	const solidStroke = chartCfg.solidStroke || 'var(--ons-color-ocean-blue)';
+	const lineStyleDefault = chartCfg.lineStyle || 'gradient';
+	const showMeanLine = (typeof chartCfg.showMeanLine === 'boolean') ? chartCfg.showMeanLine : true;
+	const showBreaks = (typeof chartCfg.showBreaks === 'boolean') ? chartCfg.showBreaks : false;
+	const zeroLineValue = (chartCfg.zeroLine === null || typeof chartCfg.zeroLine === 'undefined') ? null : +chartCfg.zeroLine;
+	const width = Math.floor(container.node()?.getBoundingClientRect().width || 0);
+	if (!width || width < 50) {
+		// Overlay not visible or not yet laid out.
+		return {
+			__width: 0,
+			update: () => { /* no-op until we have a real width */ }
+		};
+	}
+	const margin = (chartCfg.margin && typeof chartCfg.margin === 'object')
+		? { ...{ top: 10, right: 20, bottom: 30, left: 50 }, ...chartCfg.margin }
+		: { top: 10, right: 20, bottom: 30, left: 50 };
 	const innerWidth = Math.max(10, width - margin.left - margin.right);
+
+	const overlay = d3.select('#chart-overlay');
+	overlay.selectAll('.chart-title').remove();
+	const title = overlay.append('div')
+		.attr('class', 'chart-title')
+		.style('position', 'absolute')
+		.style('top', '15px')
+		.style('left', '15px')
+		.style('right', '44px')
+		.style('height', '32px')
+		.style('display', 'none')
+		.style('align-items', 'center')
+		.style('font-size', '15px')
+		.style('font-weight', '700')
+		.style('line-height', '1.2')
+		.style('color', solidStroke)
+		.style('pointer-events', 'none')
+		.style('white-space', 'nowrap')
+		.style('overflow', 'hidden');
+
+	const subtitle = container.append('div')
+		.attr('class', 'chart-subtitle')
+		.style('margin', '0 0 8px 0')
+		.style('font-size', '13px')
+		.style('line-height', '1.25')
+		.style('color', 'var(--ons-color-grey-60)');
+	const initialSubTitle = getChartSubTitle();
+	if (initialSubTitle) {
+		subtitle.html(initialSubTitle).style('display', null);
+	} else {
+		subtitle.html('').style('display', 'none');
+	}
+
+	const meanLegendCfg = chartCfg.meanLegend || { label: 'Average', color: 'var(--ons-color-grey-60)' };
+	const legendId = 'chart-legend';
+	const legend = container.append('div')
+		.attr('id', legendId)
+		.style('display', 'flex')
+		.style('align-items', 'center')
+		.style('gap', '8px')
+		.style('margin', '0 0 8px 0');
+	const legendSwatch = legend.append('span')
+		.style('display', 'inline-block')
+		.style('width', '28px')
+		.style('height', '3px')
+		.style('background', meanLegendCfg.color)
+		.style('border-radius', '2px')
+		.style('vertical-align', 'middle');
+	const legendLabel = legend.append('span')
+		.text(meanLegendCfg.label)
+		.style('font-size', '13px')
+		.style('color', 'var(--ons-color-grey-60)');
+
+	// Plot wrapper so we can overlay a "no data" message without affecting layout.
+	const plotWrap = container.append('div')
+		.attr('class', 'chart-plotwrap')
+		.style('position', 'relative');
+
+	const heightFallback = 220;
+	let height = heightFallback;
+	if (overlayInnerHeight !== null && Number.isFinite(+overlayInnerHeight)) {
+		let subtitleH = 0;
+		let legendH = 0;
+		try {
+			const subNode = subtitle.node();
+			const sr = subNode ? subNode.getBoundingClientRect() : null;
+			subtitleH = (sr && Number.isFinite(sr.height)) ? sr.height : 0;
+			// include the inline margin-bottom (8px)
+			subtitleH += initialSubTitle ? 8 : 0;
+		} catch (e) {
+			subtitleH = initialSubTitle ? 20 : 0;
+		}
+		try {
+			const node = legend.node();
+			const r = node ? node.getBoundingClientRect() : null;
+			legendH = r ? r.height : 0;
+			// include the inline margin-bottom (8px)
+			legendH += 8;
+		} catch (e) {
+			legendH = 28;
+		}
+		height = Math.max(120, Math.floor(overlayInnerHeight - subtitleH - legendH));
+	}
+
 	const innerHeight = Math.max(10, height - margin.top - margin.bottom);
 
-	const svg = container.append('svg')
-		.attr('width', '100%')
+	const tCfg = getTimelineConfig();
+	const fmtPillDisplay = d3.timeFormat(tCfg.displayFormat);
+	const fmtPillSR = d3.timeFormat(tCfg.screenreaderFormat);
+	const formatPillLabel = (raw) => {
+		const d = parseTimeColumn(raw);
+		return {
+			display: d ? fmtPillDisplay(d) : String(raw ?? ''),
+			srText: d ? fmtPillSR(d) : String(raw ?? '')
+		};
+	};
+
+	const svg = plotWrap.append('svg')
+		.attr('width', width)
 		.attr('height', height)
-		.attr('viewBox', `0 0 ${width} ${height}`);
+		.attr('class', 'chart');
 
 	const g = svg.append('g').attr('transform', `translate(${margin.left},${margin.top})`);
 
 	const x = d3.scalePoint().range([0, innerWidth]).padding(0.5);
 	const y = d3.scaleLinear().range([innerHeight, 0]);
 
-	const xAxisG = g.append('g').attr('transform', `translate(0,${innerHeight})`);
-	const yAxisG = g.append('g');
+	const gridG = g.append('g')
+		.attr('class', 'grid');
+
+	const zeroLineTick = g.append('g')
+		.attr('class', 'tick zero-line-tick')
+		.style('display', 'none')
+		.style('pointer-events', 'none');
+	const zeroLine = zeroLineTick.append('line')
+		.attr('class', 'zero-line')
+		.attr('x1', 0)
+		.attr('x2', innerWidth)
+		.attr('y1', 0)
+		.attr('y2', 0);
+
+	const yScaleSwatchesG = g.append('g')
+		.attr('class', 'y-scale-swatches')
+		.style('pointer-events', 'none')
+		.style('display', 'none');
 
 	const vline = g.append('line')
-		.attr('stroke', '#999')
-		.attr('stroke-width', 1)
+		.style('stroke', 'var(--ons-color-grey-50)')
+		.attr('stroke-width', 2)
+		.attr('stroke-dasharray', '4 3')
 		.attr('y1', 0)
 		.attr('y2', innerHeight)
 		.style('opacity', 0);
 
+	const indicatorTriangle = g.append('path')
+		.attr('class', 'indicator-triangle')
+		.attr('fill', solidStroke)
+		.style('opacity', 0)
+		.style('pointer-events', 'none');
+
+	const indicatorValue = g.append('text')
+		.attr('class', 'indicator-value')
+		.attr('text-anchor', 'middle')
+		.attr('x', 0)
+		.attr('y', -4)
+		.style('font-size', '15px')
+		.style('font-weight', '700')
+		.attr('fill', solidStroke)
+		.style('opacity', 0)
+		.style('pointer-events', 'none');
+
 	const meanPath = g.append('path')
+		.attr('class', 'line mean')
 		.attr('fill', 'none')
-		.attr('stroke', '#6f6f6f')
-		.attr('stroke-width', 1.5)
-		.attr('stroke-dasharray', '4 3')
+		.style('stroke', meanLegendCfg.color)
+		.attr('stroke-width', 3)
+		.attr('stroke-dasharray', null)
+		.style('stroke-linejoin', 'round')
+		.style('stroke-linecap', 'round')
 		.style('opacity', 0);
+
+	const defs = svg.append('defs');
+	const gradientId = `area-gradient-${Math.random().toString(16).slice(2)}`;
+	const areaGradient = defs.append('linearGradient')
+		.attr('id', gradientId)
+		.attr('gradientUnits', 'objectBoundingBox')
+		.attr('x1', 0)
+		.attr('y1', 0)
+		.attr('x2', 1)
+		.attr('y2', 0);
 
 	const areaPath = g.append('path')
+		.attr('class', 'line series')
 		.attr('fill', 'none')
-		.attr('stroke', '#206095')
-		.attr('stroke-width', 2)
+		.attr('stroke-width', 3)
+		.style('stroke', lineStyleDefault === 'solid'
+			? solidStroke
+			: `url(#${gradientId})`)
+		.style('stroke-linejoin', 'round')
+		.style('stroke-linecap', 'round')
 		.style('opacity', 0);
 
+	// In-chart message for selected areas with no usable data (missing row or all-null values).
+	// Inserted after the mean/series lines so it sits on top of them.
+	const noDataText = g.append('text')
+		.attr('class', 'chart-nodata-text')
+		.attr('x', innerWidth / 2)
+		// Slightly below vertical center for readability.
+		.attr('y', (innerHeight / 2) + 8)
+		.attr('text-anchor', 'middle')
+		.attr('dominant-baseline', 'middle')
+		.attr('fill', solidStroke)
+		.attr('fill-opacity', 0.6)
+		.style('font-size', '19px')
+		.style('font-weight', '700')
+		.style('pointer-events', 'none')
+		.style('opacity', 0)
+		.text('Data Unavailable');
+
+	const xAxisG = g.append('g')
+		.attr('class', 'x axis')
+		.attr('transform', `translate(0,${innerHeight})`);
+	const yAxisG = g.append('g')
+		.attr('class', 'y axis numeric');
+
+	const chartPillG = g.append('g')
+		.attr('class', 'chart-timeline-pill')
+		.attr('tabindex', 0)
+		.attr('role', 'slider')
+		.attr('aria-label', tCfg.ariaLabel)
+		.style('cursor', 'pointer')
+		.style('touch-action', 'none')
+		.style('display', 'none')
+		.on('pointerdown', (event) => {
+			// On some mobile browsers (notably Safari/SVG), pointer events can be unreliable.
+			// Prefer the explicit touch handlers for touch interactions.
+			if (event && event.pointerType === 'touch') return;
+			event.preventDefault();
+			try { event.currentTarget.focus({ preventScroll: true }); } catch (e) { /* ignore */ }
+			beginTimelineDrag(svg.node(), event, event.currentTarget);
+		})
+		.on('touchstart', (event) => {
+			beginTimelineTouchDrag(svg.node(), event, event.currentTarget);
+		})
+		.on('keydown', (event) => {
+			const maxIdx = Math.max(0, state.timeColumns.length - 1);
+			const jump = getTimelineKeyboardStep();
+			const delta = event.shiftKey ? jump : 1;
+			if (event.key === 'Home') { event.preventDefault(); setTimeIndex(0); return; }
+			if (event.key === 'End') { event.preventDefault(); setTimeIndex(maxIdx); return; }
+			if (event.key === 'PageUp') { event.preventDefault(); setTimeIndex(state.timeIndex - jump); return; }
+			if (event.key === 'PageDown') { event.preventDefault(); setTimeIndex(state.timeIndex + jump); return; }
+			if (event.key === 'ArrowLeft') { event.preventDefault(); setTimeIndex(state.timeIndex - delta); return; }
+			if (event.key === 'ArrowRight') { event.preventDefault(); setTimeIndex(state.timeIndex + delta); return; }
+		});
+
+	const chartPillRect = chartPillG.append('rect')
+		.attr('fill', 'var(--ons-color-ocean-blue)')
+		.attr('stroke', 'none');
+
+	const chartPillText = chartPillG.append('text')
+		.attr('text-anchor', 'middle')
+		.attr('dominant-baseline', 'middle')
+		.attr('fill', 'var(--ons-color-white)')
+		.style('font-size', '15px')
+		.style('font-weight', '700');
+
 	const marker = g.append('circle')
-		.attr('r', 3.5)
-		.attr('fill', '#206095')
-		.attr('stroke', '#ffffff')
+		.attr('r', 4)
+		.style('fill', 'var(--ons-color-ocean-blue)')
+		.style('stroke', 'var(--ons-color-white)')
 		.attr('stroke-width', 1)
 		.style('opacity', 0);
 
-	function update({ timeColumns, areaSeries, meanSeries, timeIndex, areaName }) {
+	function update({ timeColumns, areaSeries, meanSeries, timeIndex, areaName, colourScale, breaks }) {
+		const yTicks = resolveYTicks(5);
+		const yTicksEmpty = resolveYTicks(4);
+		const indicatorColour = solidStroke;
+		indicatorTriangle.attr('fill', indicatorColour);
+		indicatorValue.attr('fill', indicatorColour);
+
+		title
+			.text(areaName || '')
+			.style('color', solidStroke)
+			.style('display', areaName ? null : 'none');
+
+		const sub = getChartSubTitle();
+		if (sub) {
+			subtitle.html(sub).style('display', null);
+		} else {
+			subtitle.html('').style('display', 'none');
+		}
+
+		const hasAreaData = Array.isArray(areaSeries)
+			&& areaSeries.some(d => d && d.v !== null && Number.isFinite(d.v));
+		if (areaName && !hasAreaData) {
+			noDataText.style('opacity', 1);
+		} else {
+			noDataText.style('opacity', 0);
+		}
+
+		legendSwatch.style('background', meanLegendCfg.color);
+		legendLabel.text(meanLegendCfg.label);
+
 		x.domain(timeColumns);
+
+		// Cache discrete positions for drag snapping on the chart pill.
+		svg.node().__timelinePositions = timeColumns.map((raw, index) => {
+			const px = x(raw);
+			return { index, x: (typeof px === 'number' ? (margin.left + px) : 0) };
+		});
 
 		const values = [];
 		if (areaSeries) values.push(...areaSeries.filter(d => d.v !== null).map(d => d.v));
-		if (config.showMeanLine && meanSeries) values.push(...meanSeries.filter(d => d.v !== null).map(d => d.v));
+		if (showMeanLine && meanSeries) values.push(...meanSeries.filter(d => d.v !== null).map(d => d.v));
 		if (!values.length) {
 			// Empty chart state
+			gridG.call(d3.axisLeft(y).tickValues([]).tickSize(-innerWidth).tickFormat(''));
 			xAxisG.call(d3.axisBottom(x).tickValues([]));
-			yAxisG.call(d3.axisLeft(y).ticks(4));
+			yAxisG.call(d3.axisLeft(y).ticks(yTicksEmpty));
+			yScaleSwatchesG.style('display', 'none').selectAll('rect').remove();
 			areaPath.style('opacity', 0);
+			areaGradient.selectAll('stop').remove();
 			meanPath.style('opacity', 0);
 			marker.style('opacity', 0);
 			vline.style('opacity', 0);
+			indicatorTriangle.style('opacity', 0);
+			indicatorValue.style('opacity', 0);
+			chartPillG.style('display', 'none');
 			return;
 		}
 
 		const extent = d3.extent(values);
 		y.domain([extent[0], extent[1]]).nice();
 
-		const tickValues = timeColumns.length > 8
-			? timeColumns.filter((_, i) => i % Math.ceil(timeColumns.length / 8) === 0)
-			: timeColumns;
+		let tickValues = [];
+		if (timeColumns.length <= 1) {
+			tickValues = timeColumns.slice();
+		} else {
+			tickValues = [timeColumns[0], timeColumns[timeColumns.length - 1]];
+			if (tickValues[0] === tickValues[1]) tickValues = [tickValues[0]];
+		}
 
+		gridG.call(d3.axisLeft(y).ticks(yTicks).tickSize(-innerWidth).tickFormat(''));
+		gridG.selectAll('line').attr('stroke-width', 2);
 		xAxisG.call(d3.axisBottom(x).tickValues(tickValues));
-		yAxisG.call(d3.axisLeft(y).ticks(5));
+		yAxisG.call(d3.axisLeft(y).ticks(yTicks));
+
+		// Optional zero/reference line (e.g., 0) drawn as a solid horizontal line.
+		if (Number.isFinite(zeroLineValue)) {
+			const zy = y(zeroLineValue);
+			if (Number.isFinite(zy) && zy >= 0 && zy <= innerHeight) {
+				zeroLine.attr('x2', innerWidth);
+				zeroLineTick
+					.attr('transform', `translate(0,${zy})`)
+					.style('display', null);
+			} else {
+				zeroLineTick.style('display', 'none');
+			}
+		} else {
+			zeroLineTick.style('display', 'none');
+		}
+
+		// Optional: show choropleth scale colours as a vertical strip next to the y-axis.
+		if (showBreaks && colourScale && typeof colourScale.range === 'function') {
+			const palette = colourScale.range() || [];
+			let bins = [];
+			const yd = y.domain();
+			const domLo = Math.min(yd[0], yd[1]);
+			const domHi = Math.max(yd[0], yd[1]);
+
+			if (Array.isArray(breaks) && breaks.length >= 2) {
+				const n = Math.min(palette.length, breaks.length - 1);
+				for (let i = 0; i < n; i++) {
+					const b0 = +breaks[i];
+					const b1 = +breaks[i + 1];
+					if (!Number.isFinite(b0) || !Number.isFinite(b1) || b0 === b1) continue;
+					bins.push({ i, b0, b1, c: palette[i] });
+				}
+			} else if (typeof colourScale.invertExtent === 'function' && palette.length) {
+				bins = palette.map((c, i) => {
+					const ext = colourScale.invertExtent(c) || [undefined, undefined];
+					const d0 = ext[0];
+					const d1 = ext[1];
+					return {
+						i,
+						b0: Number.isFinite(d0) ? d0 : y.domain()[0],
+						b1: Number.isFinite(d1) ? d1 : y.domain()[1],
+						c
+					};
+				}).filter(d => Number.isFinite(d.b0) && Number.isFinite(d.b1) && d.b0 !== d.b1);
+			}
+
+			// Only show bins that overlap the current (data-driven) y-domain.
+			bins = bins.filter(d => {
+				const lo = Math.min(d.b0, d.b1);
+				const hi = Math.max(d.b0, d.b1);
+				return hi > domLo && lo < domHi;
+			});
+
+			if (!bins.length) {
+				yScaleSwatchesG.style('display', 'none').selectAll('rect').remove();
+			} else {
+				yScaleSwatchesG.style('display', null);
+				const swatchX = 2;
+				const swatchW = 10;
+				const rects = yScaleSwatchesG.selectAll('rect').data(bins, d => d.i);
+				rects.exit().remove();
+				rects.enter().append('rect')
+					.merge(rects)
+					.attr('x', swatchX)
+					.attr('width', swatchW)
+					.attr('fill', d => d.c)
+					.attr('y', d => {
+						const lo = Math.min(d.b0, d.b1);
+						const hi = Math.max(d.b0, d.b1);
+						const v0 = Math.max(lo, domLo);
+						const v1 = Math.min(hi, domHi);
+						const y0 = y(v0);
+						const y1 = y(v1);
+						if (!Number.isFinite(y0) || !Number.isFinite(y1)) return 0;
+						let top = Math.min(y0, y1);
+						let bottom = Math.max(y0, y1);
+						top = Math.max(0, Math.min(innerHeight, top));
+						bottom = Math.max(0, Math.min(innerHeight, bottom));
+						return top;
+					})
+					.attr('height', d => {
+						const lo = Math.min(d.b0, d.b1);
+						const hi = Math.max(d.b0, d.b1);
+						const v0 = Math.max(lo, domLo);
+						const v1 = Math.min(hi, domHi);
+						const y0 = y(v0);
+						const y1 = y(v1);
+						if (!Number.isFinite(y0) || !Number.isFinite(y1)) return 0;
+						let top = Math.min(y0, y1);
+						let bottom = Math.max(y0, y1);
+						top = Math.max(0, Math.min(innerHeight, top));
+						bottom = Math.max(0, Math.min(innerHeight, bottom));
+						return Math.max(0, bottom - top);
+					});
+			}
+		} else {
+			yScaleSwatchesG.style('display', 'none').selectAll('rect').remove();
+		}
 
 		const line = d3.line()
 			.defined(d => d.v !== null)
 			.x(d => x(d.t))
 			.y(d => y(d.v));
 
-		if (config.showMeanLine && meanSeries) {
+		if (showMeanLine && meanSeries) {
 			meanPath
 				.attr('d', line(meanSeries))
 				.style('opacity', 1);
+			legend.style('display', meanLegendCfg.label ? 'flex' : 'none');
 		} else {
 			meanPath.style('opacity', 0);
+			legend.style('display', 'none');
 		}
 
 		if (areaSeries) {
-			areaPath
-				.attr('d', line(areaSeries))
-				.style('opacity', 1);
+			areaPath.attr('d', line(areaSeries)).style('opacity', 1);
+
+			const lineStyle = lineStyleDefault;
+			if (lineStyle === 'solid') {
+				areaPath.style('stroke', solidStroke);
+				areaGradient.selectAll('stop').remove();
+			} else {
+				areaPath.style('stroke', `url(#${gradientId})`);
+				// Build hard-stop gradient stops where the series crosses choropleth breaks.
+				const thresholds = (colourScale && typeof colourScale.domain === 'function') ? (colourScale.domain() || []) : [];
+				const segments = [];
+				for (let i = 0; i < areaSeries.length - 1; i++) {
+					const a = areaSeries[i];
+					const b = areaSeries[i + 1];
+					if (!a || !b) continue;
+					if (a.v === null || b.v === null) continue;
+					const x0 = x(a.t);
+					const x1 = x(b.t);
+					if (typeof x0 !== 'number' || typeof x1 !== 'number') continue;
+					const v0 = a.v;
+					const v1 = b.v;
+					if (!Number.isFinite(v0) || !Number.isFinite(v1)) continue;
+
+					const pts = [{ x: x0, v: v0 }];
+					if (v0 !== v1 && thresholds && thresholds.length) {
+						const lo = Math.min(v0, v1);
+						const hi = Math.max(v0, v1);
+						const crosses = thresholds
+							.filter(t => t > lo && t < hi)
+							.map(t => ({ t, f: (t - v0) / (v1 - v0) }))
+							.filter(d => d.f > 0 && d.f < 1)
+							.sort((p, q) => p.f - q.f);
+						for (const c of crosses) {
+							pts.push({ x: x0 + (x1 - x0) * c.f, v: c.t });
+						}
+					}
+					pts.push({ x: x1, v: v1 });
+
+					for (let j = 0; j < pts.length - 1; j++) {
+						const p0 = pts[j];
+						const p1 = pts[j + 1];
+						const vm = (p0.v + p1.v) / 2;
+						let c = null;
+						if (colourScale && Number.isFinite(vm)) {
+							try { c = colourScale(vm); } catch (e) { c = null; }
+						}
+						segments.push({ x0: p0.x, x1: p1.x, c: c || 'var(--ons-color-ocean-blue)' });
+					}
+				}
+
+				// Merge adjacent segments of the same colour.
+				segments.sort((a, b) => a.x0 - b.x0);
+				const merged = [];
+				for (const s of segments) {
+					const last = merged[merged.length - 1];
+					if (last && last.c === s.c && Math.abs(last.x1 - s.x0) < 0.5) {
+						last.x1 = s.x1;
+					} else {
+						merged.push({ ...s });
+					}
+				}
+
+				// Compute normalised offsets based on visible x-range.
+				let minX = Infinity;
+				let maxX = -Infinity;
+				for (const s of merged) {
+					minX = Math.min(minX, s.x0, s.x1);
+					maxX = Math.max(maxX, s.x0, s.x1);
+				}
+				if (!Number.isFinite(minX) || !Number.isFinite(maxX) || maxX <= minX) {
+					minX = 0;
+					maxX = innerWidth;
+				}
+
+				const stops = [];
+				for (const s of merged) {
+					const o0 = Math.max(0, Math.min(1, (s.x0 - minX) / (maxX - minX)));
+					const o1 = Math.max(0, Math.min(1, (s.x1 - minX) / (maxX - minX)));
+					stops.push({ o: o0, c: s.c });
+					stops.push({ o: o1, c: s.c });
+				}
+
+				// Ensure stops are ordered and include endpoints.
+				stops.sort((a, b) => a.o - b.o);
+				if (!stops.length) {
+					stops.push({ o: 0, c: 'var(--ons-color-ocean-blue)' }, { o: 1, c: 'var(--ons-color-ocean-blue)' });
+				} else {
+					if (stops[0].o > 0) stops.unshift({ o: 0, c: stops[0].c });
+					if (stops[stops.length - 1].o < 1) stops.push({ o: 1, c: stops[stops.length - 1].c });
+				}
+
+				const stopSel = areaGradient.selectAll('stop')
+					.data(stops);
+				stopSel.exit().remove();
+				stopSel.enter()
+					.append('stop')
+					.merge(stopSel)
+					.attr('offset', d => `${(d.o * 100).toFixed(2)}%`)
+					.attr('stop-color', d => d.c);
+			}
 		} else {
 			areaPath.style('opacity', 0);
+			areaGradient.selectAll('stop').remove();
 		}
 
 		const t = timeColumns[timeIndex];
 		const xPos = x(t);
 		if (typeof xPos === 'number') {
 			vline.attr('x1', xPos).attr('x2', xPos).style('opacity', 1);
+			const pill = formatPillLabel(t);
+			chartPillG
+				.attr('aria-valuemin', '0')
+				.attr('aria-valuemax', String(Math.max(0, timeColumns.length - 1)))
+				.attr('aria-valuenow', String(timeIndex))
+				.attr('aria-valuetext', pill.srText)
+				.style('display', null);
+
+			chartPillText.text(pill.display);
+			chartPillText.attr('x', 0).attr('y', 0).attr('transform', null);
+			let textW = 0;
+			let textBox = null;
+			try {
+				textBox = chartPillText.node().getBBox();
+				textW = textBox.width;
+			} catch (e) {
+				textW = 0;
+				textBox = null;
+			}
+			const padX = 10;
+			const pillH = 22;
+			const pillW = Math.max(24, textW + padX * 2);
+			// Place within the existing x-axis/tick area (no layout/margin changes).
+			// Axis tick lines extend from y=0 to y=6 below the axis baseline.
+			// Place the pill within that same bottom margin region.
+			const pillY = innerHeight + 6;
+			chartPillG.attr('transform', `translate(${xPos},${pillY})`);
+			chartPillRect
+				.attr('x', -pillW / 2)
+				.attr('y', 0)
+				.attr('width', pillW)
+				.attr('height', pillH)
+				.attr('rx', Math.max(2, Math.round(pillH * 0.35)))
+				.attr('ry', Math.max(2, Math.round(pillH * 0.35)));
+			if (textBox) {
+				const dy = (pillH / 2) - (textBox.y + textBox.height / 2);
+				chartPillText.attr('transform', `translate(0,${dy})`);
+			} else {
+				chartPillText.attr('y', pillH / 2);
+			}
 		} else {
 			vline.style('opacity', 0);
+			indicatorTriangle.style('opacity', 0);
+			indicatorValue.style('opacity', 0);
+			chartPillG.style('display', 'none');
+		}
+
+		let activePoint = null;
+		if (areaSeries) {
+			activePoint = areaSeries.find(d => d.t === t) || null;
+		}
+
+		if (activePoint && activePoint.v !== null && Number.isFinite(activePoint.v) && typeof xPos === 'number') {
+			const w = 6;
+			const h = 8;
+			indicatorTriangle
+				// Tip sits on the top of the vline (y=0); triangle extends above the plot area.
+				.attr('d', `M${xPos - w},${-h}L${xPos + w},${-h}L${xPos},0Z`)
+				.style('opacity', 1);
+
+			let valueFormatter = null;
+			try {
+				valueFormatter = d3.format(config.valueFormat || ',.2f');
+			} catch (e) {
+				valueFormatter = (d) => String(d);
+			}
+			const prefix = typeof config.valuePrefix === 'string' ? config.valuePrefix : '';
+			const suffix = typeof config.valueSuffix === 'string' ? config.valueSuffix : '';
+			indicatorValue
+				.text(`${prefix}${valueFormatter(activePoint.v)}${suffix}`)
+				.attr('x', xPos)
+				.attr('y', -h - 4)
+				.style('opacity', 1);
+		} else {
+			indicatorTriangle.style('opacity', 0);
+			indicatorValue.style('opacity', 0);
 		}
 
 		if (areaSeries) {
-			const point = areaSeries.find(d => d.t === t);
+			const point = activePoint;
 			if (point && point.v !== null && typeof xPos === 'number') {
+				let pc = null;
+				if (lineStyleDefault === 'solid') {
+					pc = solidStroke;
+				} else if (colourScale && point.v !== null && Number.isFinite(point.v)) {
+					try { pc = colourScale(point.v); } catch (e) { pc = null; }
+				}
+				marker.style('fill', pc || 'var(--ons-color-ocean-blue)');
 				marker
 					.attr('cx', xPos)
 					.attr('cy', y(point.v))
@@ -382,29 +1474,50 @@ function createChart() {
 			marker.style('opacity', 0);
 		}
 
-		const title = document.getElementById('chart-title');
-		const subtitle = document.getElementById('chart-subtitle');
-		if (title) title.textContent = areaName ? `${areaName} over time` : 'Selected area over time';
-		if (subtitle) subtitle.textContent = areaName ? `Scrub the slider to see ${t}.` : 'Select an area to see its trend.';
+		// Title/subtitle are handled by the overlay container (title) and chart header (subtitle).
 	}
 
-	return { update };
+
+	return { __width: width, __height: height, __overlayInnerHeight: overlayInnerHeight, update };
 }
 
 function updateChart() {
-	if (!state.chart) state.chart = createChart();
+	const chartEl = document.getElementById('chart');
+	const width = Math.floor(chartEl?.getBoundingClientRect().width || 0);
+	if (!width || width < 50) return;
+	const overlayInnerHeight = getOverlayInnerHeightPx();
+	const overlayKey = overlayInnerHeight === null ? null : Math.round(overlayInnerHeight);
+	if (!state.chart
+		|| state.chart.__width !== width
+		|| (overlayKey !== null && Math.round(state.chart.__overlayInnerHeight || 0) !== overlayKey)) {
+		state.chart = createChart({ overlayInnerHeight });
+	}
 	const timeColumns = state.timeColumns;
 	if (!timeColumns.length) {
-		state.chart.update({ timeColumns: [], areaSeries: null, meanSeries: null, timeIndex: 0, areaName: null });
+		state.chart.update({ timeColumns: [], areaSeries: null, meanSeries: null, timeIndex: 0, areaName: null, colourScale: null });
 		return;
 	}
 
 	let areaSeries = null;
 	let areaName = null;
-	if (state.selectedAreaCode && state.seriesById[state.selectedAreaCode]) {
-		const s = state.seriesById[state.selectedAreaCode];
-		areaName = s.areaName;
-		areaSeries = timeColumns.map((t, idx) => ({ t, v: s.values[idx] }));
+	const activeCode = state.overlayAreaCode || state.selectedAreaCode;
+	if (activeCode) {
+		// Prefer explicit names from the overlay/selection (from geography), then fall back to data-derived lookups.
+		areaName = state.overlayAreaName || state.selectedAreaName || state.areaById[activeCode] || null;
+
+		if (state.seriesById[activeCode]) {
+			const s = state.seriesById[activeCode];
+			// If the geography provided a name, keep it; otherwise use the series store's name.
+			if (!areaName) areaName = s.areaName;
+			areaSeries = timeColumns.map((t, idx) => {
+				const v = s.values[idx];
+				let c = null;
+				if (state.colour && v !== null && Number.isFinite(v)) {
+					try { c = state.colour(v); } catch (e) { c = null; }
+				}
+				return { t, v, c };
+			});
+		}
 	}
 	const meanSeries = timeColumns.map((t, idx) => ({ t, v: state.meanSeries[idx]?.v ?? null }));
 
@@ -413,7 +1526,243 @@ function updateChart() {
 		areaSeries,
 		meanSeries,
 		timeIndex: state.timeIndex,
-		areaName
+		areaName,
+		colourScale: state.colour,
+		breaks: state.breaks
+	});
+}
+
+let __overlayWired = false;
+
+function setChartOverlayVisible(visible) {
+	const overlay = document.getElementById('chart-overlay');
+	if (!overlay) return;
+	const show = Boolean(visible);
+	if (!show) {
+		// If focus is inside the overlay (e.g. on the close button), move it out
+		// before applying aria-hidden/display changes, otherwise Chrome warns.
+		try {
+			const active = document.activeElement;
+			if (active && overlay.contains(active)) {
+				if (active && typeof active.blur === 'function') {
+					active.blur();
+				}
+				// Prefer focusing the map container (keeps keyboard focus in a sensible place
+				// without triggering the autocomplete menu to open/unhide).
+				const mapContainer = document.getElementById('graphic');
+				if (mapContainer && typeof mapContainer.focus === 'function') {
+					try { mapContainer.focus({ preventScroll: true }); } catch (e) { mapContainer.focus(); }
+				}
+			}
+		} catch (e) {
+			// ignore
+		}
+	}
+	overlay.classList.toggle('hidden', !show);
+	overlay.setAttribute('aria-hidden', show ? 'false' : 'true');
+}
+
+function setOverlayMode(mode) {
+	const overlay = document.getElementById('chart-overlay');
+	if (!overlay) return;
+	const prevMode = state.overlayMode;
+	state.overlayMode = mode;
+
+	// If we're leaving hover mode, cancel any pending pointer-follow positioning.
+	if (mode !== 'hover') {
+		if (state.__overlayRaf) {
+			try { cancelAnimationFrame(state.__overlayRaf); } catch (e) { /* ignore */ }
+			state.__overlayRaf = null;
+		}
+		state.__overlayLastClient = null;
+	}
+
+	const hidden = mode === 'hidden';
+	setChartOverlayVisible(!hidden);
+	overlay.classList.toggle('is-hover', mode === 'hover');
+	overlay.classList.toggle('is-pinned', mode === 'pinned');
+
+	applyOverlayDimensionsForMode(mode);
+	if (prevMode !== mode) {
+		// Force a rebuild so the SVG height changes without scaling styles.
+		state.chart = null;
+	}
+
+
+	if (mode === 'pinned') {
+		// Revert to CSS anchored placement unless we're explicitly in full-width mode.
+		if (!overlay.classList.contains('is-fullwidth')) {
+			overlay.style.left = '';
+			overlay.style.top = '';
+			overlay.style.right = '';
+			overlay.style.bottom = '';
+		}
+	} else if (mode === 'hidden') {
+		// Clear inline positioning so next show starts clean.
+		overlay.style.left = '';
+		overlay.style.top = '';
+		overlay.style.right = '';
+		overlay.style.bottom = '';
+	}
+}
+
+function applyOverlayDimensionsForMode(mode) {
+	const overlay = document.getElementById('chart-overlay');
+	const stage = document.getElementById('mapstage');
+	if (!overlay || !stage) return;
+
+	if (mode === 'hidden') {
+		overlay.style.width = '';
+		overlay.style.height = '';
+		return;
+	}
+
+	const sizes = (
+		config
+		&& config.chart
+		&& typeof config.chart === 'object'
+		&& config.chart.dimensions
+		&& typeof config.chart.dimensions === 'object'
+	)
+		? config.chart.dimensions
+		: (config && config.chartOverlay && typeof config.chartOverlay === 'object')
+			? config.chartOverlay
+			: {};
+	const desired = (mode === 'hover' ? sizes.hover : sizes.pinned) || {};
+	const desiredW = Number.isFinite(+desired.width) ? +desired.width : (mode === 'hover' ? 300 : 420);
+	const desiredH = Number.isFinite(+desired.height) ? +desired.height : (mode === 'hover' ? 200 : 313);
+
+	const stageRect = stage.getBoundingClientRect();
+	const maxW = Math.max(120, Math.floor(stageRect.width - 24));
+	const maxH = Math.max(120, Math.floor(stageRect.height - 24));
+	const w = Math.max(180, Math.min(desiredW, maxW));
+	const h = Math.max(140, Math.min(desiredH, maxH));
+
+	// Decide whether the pinned overlay should become full-width.
+	// Rule of thumb: if the overlay would consume >65% of the page width, it's better as a bottom sheet.
+	let shouldFullWidth = false;
+	if (mode === 'pinned') {
+		const pageW = Math.floor(document.documentElement?.clientWidth || window.innerWidth || 0);
+		if (pageW > 0 && w / pageW > 0.65) shouldFullWidth = true;
+	}
+
+	overlay.classList.toggle('is-fullwidth', shouldFullWidth);
+
+	if (shouldFullWidth) {
+		// Stretch across the map stage.
+		overlay.style.left = '12px';
+		overlay.style.right = '12px';
+		overlay.style.bottom = '12px';
+		overlay.style.top = 'auto';
+		overlay.style.width = 'auto';
+		overlay.style.height = `${h}px`;
+	} else {
+		overlay.style.width = `${w}px`;
+		overlay.style.height = `${h}px`;
+		// If we are leaving full-width pinned mode, clear the stretch positioning.
+		const leavingFullWidth = mode === 'pinned'
+			&& overlay.style.width === 'auto'
+			&& overlay.style.left
+			&& overlay.style.right;
+		if (leavingFullWidth) {
+			overlay.style.left = '';
+			overlay.style.right = '';
+			overlay.style.top = '';
+			overlay.style.bottom = '';
+			overlay.style.width = '';
+		}
+	}
+}
+
+function positionOverlayNearClientPoint(clientX, clientY) {
+	// Only hover previews should follow the pointer.
+	if (state.overlayMode !== 'hover') return;
+	const overlay = document.getElementById('chart-overlay');
+	const stage = document.getElementById('mapstage');
+	if (!overlay || !stage) return;
+
+	const stageRect = stage.getBoundingClientRect();
+	const overlayRect = overlay.getBoundingClientRect();
+	if (!stageRect.width || !stageRect.height) return;
+
+	const gutter = 12;
+	// Extra separation between pointer and overlay (hover only)
+	const hoverOffsetX = 26;
+	const hoverOffsetY = 14;
+	const localX = clientX - stageRect.left;
+	const localY = clientY - stageRect.top;
+
+	let left = localX + hoverOffsetX;
+	if (left + overlayRect.width > stageRect.width - gutter) {
+		left = localX - hoverOffsetX - overlayRect.width;
+	}
+	left = Math.max(gutter, Math.min(left, stageRect.width - overlayRect.width - gutter));
+
+	let top = localY - hoverOffsetY;
+	top = Math.max(gutter, Math.min(top, stageRect.height - overlayRect.height - gutter));
+
+	overlay.style.left = `${Math.round(left)}px`;
+	overlay.style.top = `${Math.round(top)}px`;
+	overlay.style.bottom = 'auto';
+	overlay.style.right = 'auto';
+}
+
+function showHoverOverlay({ code, areaName, clientX, clientY }) {
+	if (!code) return;
+	if (state.selectedAreaCode) return; // pinned takes precedence
+
+	const changed = code !== state.overlayAreaCode || state.overlayMode !== 'hover';
+	state.overlayAreaCode = code;
+	state.overlayAreaName = areaName || state.areaById[code] || null;
+	setOverlayMode('hover');
+	if (changed) updateChart();
+	// Position immediately to avoid a one-frame flash in the default (pinned) position.
+	positionOverlayNearClientPoint(clientX, clientY);
+
+	state.__overlayLastClient = { x: clientX, y: clientY };
+	if (state.__overlayRaf) return;
+	state.__overlayRaf = requestAnimationFrame(() => {
+		state.__overlayRaf = null;
+		if (state.overlayMode !== 'hover') return;
+		const pt = state.__overlayLastClient;
+		if (!pt) return;
+		positionOverlayNearClientPoint(pt.x, pt.y);
+	});
+}
+
+function hideHoverOverlay() {
+	if (state.overlayMode !== 'hover') return;
+	state.overlayAreaCode = null;
+	state.overlayAreaName = null;
+	setOverlayMode('hidden');
+}
+
+function showPinnedOverlay({ code, areaName }) {
+	state.overlayAreaCode = code || null;
+	state.overlayAreaName = areaName || null;
+	setOverlayMode(code ? 'pinned' : 'hidden');
+	updateChart();
+}
+
+function wireOverlayHoverEvents() {
+	if (__overlayWired) return;
+	__overlayWired = true;
+	if (!state.map) return;
+
+	state.map.on('mousemove', 'area', (e) => {
+		if (state.selectedAreaCode) return;
+		const f = e && e.features && e.features[0];
+		if (!f || !f.properties) return;
+		const code = f.properties[config.geoIdField];
+		const areaName = f.properties[config.geoNameField];
+		const evt = e.originalEvent || e;
+		const clientX = evt && typeof evt.clientX === 'number' ? evt.clientX : 0;
+		const clientY = evt && typeof evt.clientY === 'number' ? evt.clientY : 0;
+		showHoverOverlay({ code, areaName, clientX, clientY });
+	});
+
+	state.map.on('mouseleave', 'area', () => {
+		if (!state.selectedAreaCode) hideHoverOverlay();
 	});
 }
 
@@ -421,6 +1770,13 @@ async function loadDataset(datasetIndex) {
 	const datasets = Array.isArray(config.datasets) && config.datasets.length ? config.datasets : [{ label: 'Data', url: config.dataUrl }];
 	const ds = datasets[datasetIndex] || datasets[0];
 	state.datasetIndex = datasetIndex;
+	// Chart subtitle and other chart config can be dataset-dependent.
+	// Force a rebuild so height calculations (subtitle+legend) stay correct.
+	state.chart = null;
+
+	// Capture the current selection so we can retain it across dataset switches.
+	const prevSelectedRaw = state.selectedTimeRaw || state.timeColumns[state.timeIndex] || null;
+	const prevSelectedDate = prevSelectedRaw ? parseTimeColumn(prevSelectedRaw) : null;
 
 	const csv = await d3.csv(ds.url);
 	const { timeColumns, seriesById, areaById, meanSeries } = buildSeriesStore(csv);
@@ -432,10 +1788,34 @@ async function loadDataset(datasetIndex) {
 	for (const k of Object.keys(state.areaById)) delete state.areaById[k];
 	Object.assign(state.areaById, areaById);
 
-	// Initial timeline position: config.startTime if present, otherwise default to last.
-	const desired = typeof config.startTime === 'string' ? config.startTime : null;
-	const idx = desired ? state.timeColumns.indexOf(desired) : -1;
-	state.timeIndex = idx >= 0 ? idx : Math.max(0, state.timeColumns.length - 1);
+	// Initial timeline position:
+	// 1) Retain previous selected time (exact header match, else nearest parsed date)
+	// 2) config.startTime if present
+	// 3) default to last
+	let nextIdx = -1;
+	if (prevSelectedRaw) {
+		nextIdx = state.timeColumns.indexOf(prevSelectedRaw);
+		if (nextIdx < 0 && prevSelectedDate && Number.isFinite(prevSelectedDate.getTime())) {
+			let best = -1;
+			let bestDist = Infinity;
+			for (let i = 0; i < state.timeColumns.length; i++) {
+				const d = parseTimeColumn(state.timeColumns[i]);
+				if (!d || !Number.isFinite(d.getTime())) continue;
+				const dist = Math.abs(d.getTime() - prevSelectedDate.getTime());
+				if (dist < bestDist) {
+					bestDist = dist;
+					best = i;
+				}
+			}
+			nextIdx = best;
+		}
+	}
+	if (nextIdx < 0) {
+		const desired = typeof config.startTime === 'string' ? config.startTime : null;
+		nextIdx = desired ? state.timeColumns.indexOf(desired) : -1;
+	}
+	state.timeIndex = nextIdx >= 0 ? nextIdx : Math.max(0, state.timeColumns.length - 1);
+	state.selectedTimeRaw = state.timeColumns[state.timeIndex] ?? null;
 	updateRateByIdForTime();
 	buildDataForMap();
 	computeBreaksForDataset();
@@ -464,7 +1844,9 @@ function drawMap(areas) {
 		// state.selectedAreaCode/name are already set by map/search helpers; this ensures chart refreshes
 		state.selectedAreaCode = code;
 		state.selectedAreaName = areaName;
-		updateChart();
+		// Click selection becomes a pinned overlay (close button visible)
+		showPinnedOverlay({ code, areaName });
+		if (code) deferFocusSelectedArea();
 	};
 
 	state.map = new maplibregl.Map({
@@ -481,6 +1863,10 @@ function drawMap(areas) {
 
 	setupSearch(areas, config, state, state.rateById, state.areaById);
 	setupMap(config, state.dataForMap, state.rateById, state.areaById, areas, state.colour, state);
+	// Wire hover preview overlay after setupMap has added the area layer (setupMap registers on 'load')
+	state.map.on('load', () => {
+		wireOverlayHoverEvents();
+	});
 
 	updateKeyInfo(undefined, undefined, state);
 	updateChart();
@@ -489,18 +1875,127 @@ function drawMap(areas) {
 function setupUI() {
 	renderDatasetSwitch();
 	setTimelineUI();
+	setupChartOverlayUI();
+	// Ensure timeline is positioned correctly once layout is stable.
+	requestAnimationFrame(() => renderTimeline());
 
-	const slider = document.getElementById('timeline-slider');
-	if (slider) {
-		slider.addEventListener('input', () => {
-			setTimeIndex(+slider.value);
+	// Keep overlay layout in sync with container size changes (e.g., orientation changes).
+	const stage = document.getElementById('mapstage');
+	if (stage && typeof ResizeObserver !== 'undefined') {
+		const ro = new ResizeObserver(() => {
+			if (state.__overlayResizeRaf) return;
+			state.__overlayResizeRaf = requestAnimationFrame(() => {
+				state.__overlayResizeRaf = null;
+				applyOverlayDimensionsForMode(state.overlayMode);
+				state.chart = null;
+				updateChart();
+				renderTimeline();
+				if (state.selectedAreaCode) deferFocusSelectedArea();
+			});
 		});
+		try { ro.observe(stage); } catch (e) { /* ignore */ }
 	}
 
 	// Keep chart responsive
 	window.addEventListener('resize', () => {
+		applyOverlayDimensionsForMode(state.overlayMode);
 		state.chart = null;
 		updateChart();
+		renderTimeline();
+		if (state.selectedAreaCode) deferFocusSelectedArea();
+	});
+}
+
+function setupChartOverlayUI() {
+	const closeBtn = document.getElementById('chart-overlay-close');
+	if (closeBtn) {
+		closeBtn.addEventListener('click', () => {
+			// Overlay should only be closed when there's no selected area.
+			// So this button clears the current selection.
+			if (state.selectedAreaCode) {
+				// Clear the search input as well, but keep the current map view (no zoom-out).
+				setSearchText('');
+				clearAreaSelection(state, config.geoLayer);
+				state.hoveredAreaCode = null;
+				state.selectedAreaCode = null;
+				state.selectedAreaName = null;
+				updateKeyInfo(undefined, undefined, state);
+				// Hide pinned overlay; hover preview will re-appear on next hover.
+				showPinnedOverlay({ code: null, areaName: null });
+			} else {
+				showPinnedOverlay({ code: null, areaName: null });
+			}
+		});
+	}
+
+	setOverlayMode('hidden');
+}
+
+function getChartOverlayPadding() {
+	const overlay = document.getElementById('chart-overlay');
+	if (!overlay || overlay.classList.contains('hidden')) {
+		return { top: 10, right: 10, bottom: 20, left: 10 };
+	}
+	const rect = overlay.getBoundingClientRect();
+	const extra = 18;
+	const fullWidth = overlay.classList.contains('is-fullwidth');
+	return {
+		top: 10,
+		right: 10,
+		bottom: Math.round(rect.height + extra),
+		left: fullWidth ? 10 : Math.round(rect.width + extra),
+	};
+}
+
+function maybeFocusSelectedArea() {
+	if (!state.map || !state.selectedAreaCode) return;
+	const overlay = document.getElementById('chart-overlay');
+	if (!overlay || overlay.classList.contains('hidden')) return;
+
+	const code = state.selectedAreaCode;
+	let feature = null;
+
+	if (state.areasGeojson && state.areasGeojson.features) {
+		feature = state.areasGeojson.features.find(f => f && f.properties && f.properties[config.geoIdField] === code) || null;
+	}
+
+	if (!feature) {
+		try {
+			const opts = state.geographySource === 'vector'
+				? { sourceLayer: config.geoLayer, filter: ['==', config.geoIdField, code] }
+				: { filter: ['==', config.geoIdField, code] };
+			const feats = state.map.querySourceFeatures('area', opts) || [];
+			feature = feats[0] || null;
+		} catch (e) {
+			// ignore
+		}
+	}
+
+	if (!feature) return;
+
+	let bounds;
+	try {
+		bounds = d3.geoBounds(feature);
+	} catch (e) {
+		return;
+	}
+	if (!bounds || !bounds[0] || !bounds[1]) return;
+
+	state.map.fitBounds(bounds, {
+		padding: getChartOverlayPadding(),
+		maxZoom: Math.min((config.maxZoom || 13), 9.5),
+		duration: 650,
+	});
+}
+
+function deferFocusSelectedArea() {
+	if (!state.selectedAreaCode) return;
+	// Allow overlay and SVG layout to settle, especially on small screens.
+	requestAnimationFrame(() => {
+		requestAnimationFrame(() => {
+			maybeFocusSelectedArea();
+			setTimeout(maybeFocusSelectedArea, 160);
+		});
 	});
 }
 
@@ -516,6 +2011,7 @@ function setupData() {
 		let areas = geog;
 		areas = convertTopoJSONtoGeojson(areas, state.geographySource);
 		resolveAutoMapBounds(config, areas, state.geographySource);
+		state.areasGeojson = (state.geographySource === 'vector') ? null : areas;
 		setupUI();
 		drawMap(areas);
 	});
@@ -528,14 +2024,17 @@ function startOnce() {
 	setupData();
 }
 
-// Start immediately (script is loaded at end of body).
-startOnce();
+// Start as soon as the DOM is ready (works whether the script is in <head> or end of <body>).
+if (document.readyState === 'loading') {
+	document.addEventListener('DOMContentLoaded', startOnce, { once: true });
+} else {
+	startOnce();
+}
 
-// Also hook load (and pym when available) for embed resizing.
+// Hook load (and pym when available) for embed resizing.
 window.addEventListener('load', () => {
 	if (window.self !== window.top && typeof pym !== 'undefined') {
 		state.pymChild = new pym.Child({ renderCallback: startOnce });
 		setTimeout(startOnce, 250);
 	}
-	startOnce();
 });

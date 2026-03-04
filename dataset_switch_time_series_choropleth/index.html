@@ -26,31 +26,33 @@
   <h5 id="accessibleSummary" class="visuallyhidden"></h5>
 
 
-  <div id="controls" aria-hidden="true">
+  <div id="controls">
     <div id="dataset-switch-container"></div>
-    <div id="timeline-container">
-      <div id="timeline-label"></div>
-      <input id="timeline-slider" type="range" min="0" max="0" step="1" value="0" />
-    </div>
   </div>
 
 
   <div aria-hidden="true" id="legend"></div>
 
   <div id="mapwrapper">
-    <div id="graphic" aria-hidden="true">
-      <!-- <img src="fallback.png" alt="[Chart]" /> -->
+    <div id="mapstage">
+      <div id="graphic" role="img" aria-labelledby="accessibleSummary" tabindex="-1">
+        <!-- <img src="fallback.png" alt="[Chart]" /> -->
+      </div>
+
+      <div id="chart-overlay" class="chart-overlay hidden" aria-hidden="true">
+        <button id="chart-overlay-close" class="chart-overlay-close" type="button" aria-label="Close chart">×</button>
+        <div id="chart"></div>
+      </div>
     </div>
+
     <div id="keycontainer">
       <div id="keyinfo"></div>
       <div id="keyscale"></div>
     </div>
-  </div>
 
-  <div id="chartwrapper" aria-hidden="true">
-    <div class="chart-title" id="chart-title">Selected area over time</div>
-    <div class="chart-subtitle" id="chart-subtitle">Select an area to see its trend.</div>
-    <div id="chart"></div>
+    <div id="timeline-container">
+      <div id="timeline-slider"></div>
+    </div>
   </div>
 
   <h5 id="source">

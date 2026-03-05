@@ -78,7 +78,12 @@ export async function detectAndLoadGeography(url) {
 
 // Function to get postcode list from postcodes.io autocomplete
 export async function fetchPostcodes(query) {
-    const url = `https://api.postcodes.io/postcodes/${query}/autocomplete`;
+    const q = String(query ?? '').trim();
+    // accessible-autocomplete can call the suggest function on focus/click with an empty query.
+    // Never call the API for empty (or extremely short) inputs.
+    if (!q || q.length < 2) return [];
+
+    const url = `https://api.postcodes.io/postcodes/${encodeURIComponent(q)}/autocomplete`;
     try {
         const json = await (await fetch(url)).json();
         return json.result || [];
@@ -722,7 +727,7 @@ export function setupSearch(areas, config, state, rateById, areaById) {
         }
 
         async function selectAreaByPostcode(code) {
-            const url = `https://api.postcodes.io/postcodes/${code}`;
+            const url = `https://api.postcodes.io/postcodes/${encodeURIComponent(String(code ?? '').trim())}`;
             try {
                 const json = await (await fetch(url)).json();
                 if (json.result) selectAreaByLngLat(json.result.longitude, json.result.latitude);
@@ -752,7 +757,7 @@ export function setupSearch(areas, config, state, rateById, areaById) {
                     if (state.selectedAreaCode && state.selectedAreaCode !== code) {
                         state.map.setFeatureState({
                             source: 'area',
-                            sourceLayer: (state.geographySource === "vector" ? geoLayer : ""),
+                            sourceLayer: (state.geographySource === "vector" ? config.geoLayer : ""),
                             id: state.selectedAreaCode
                         }, { selected: false });
                     }
@@ -760,13 +765,13 @@ export function setupSearch(areas, config, state, rateById, areaById) {
                     state.selectedAreaName = areaName;
                     state.map.setFeatureState({
                         source: 'area',
-                        sourceLayer: (state.geographySource === "vector" ? geoLayer : ""),
+                        sourceLayer: (state.geographySource === "vector" ? config.geoLayer : ""),
                         id: state.selectedAreaCode
                     }, { selected: true });
                     if (state.hoveredAreaCode) {
                         state.map.setFeatureState({
                             source: 'area',
-                            sourceLayer: (state.geographySource === "vector" ? geoLayer : ""),
+                            sourceLayer: (state.geographySource === "vector" ? config.geoLayer : ""),
                             id: state.hoveredAreaCode
                         }, { hovered: false });
                         state.hoveredAreaCode = null;
@@ -785,7 +790,7 @@ export function setupSearch(areas, config, state, rateById, areaById) {
                         let allCoords = collectCoords(feature.geometry);
                         if (allCoords.length) {
                             let bounds = calculateBounds(allCoords)
-                            const padding = calculateZoomPadding(map);
+                            const padding = calculateZoomPadding(state.map);
                             const options = {
                                 padding,
                                 animate: true
@@ -840,7 +845,7 @@ export function setupSearch(areas, config, state, rateById, areaById) {
             if (state.selectedAreaCode && state.selectedAreaCode !== code) {
                 state.map.setFeatureState({
                     source: 'area',
-                    sourceLayer: (state.geographySource === "vector" ? geoLayer : ""),
+                    sourceLayer: (state.geographySource === "vector" ? config.geoLayer : ""),
                     id: state.selectedAreaCode
                 }, { selected: false });
 
@@ -850,13 +855,13 @@ export function setupSearch(areas, config, state, rateById, areaById) {
 
             state.map.setFeatureState({
                 source: 'area',
-                sourceLayer: (state.geographySource === "vector" ? geoLayer : ""),
+                sourceLayer: (state.geographySource === "vector" ? config.geoLayer : ""),
                 id: code
             }, { selected: true });
 
             state.map.setFeatureState({
                 source: 'area',
-                sourceLayer: (state.geographySource === "vector" ? geoLayer : ""),
+                sourceLayer: (state.geographySource === "vector" ? config.geoLayer : ""),
                 id: state.selectedAreaCode
             }, { hovered: false });
             const selectedVal = rateById[code];
@@ -1584,7 +1589,7 @@ export function setupMap(config, data, rateById, areaById, areas, colour, state)
             if (state.hoveredAreaCode && state.hoveredAreaCode !== code) {
                 state.map.setFeatureState({
                     source: 'area',
-                    sourceLayer: (state.geographySource === "vector" ? geoLayer : ""),
+                    sourceLayer: (state.geographySource === "vector" ? config.geoLayer : ""),
                     id: state.hoveredAreaCode
                 }, { hovered: false });
             }
@@ -1592,7 +1597,7 @@ export function setupMap(config, data, rateById, areaById, areas, colour, state)
 
             state.map.setFeatureState({
                 source: 'area',
-                sourceLayer: (state.geographySource === "vector" ? geoLayer : ""),
+                sourceLayer: (state.geographySource === "vector" ? config.geoLayer : ""),
                 id: state.hoveredAreaCode
             }, { hovered: true });
             const areaName = e.features[0].properties[config.geoNameField];
@@ -1625,7 +1630,7 @@ export function setupMap(config, data, rateById, areaById, areas, colour, state)
             if (state.hoveredAreaCode) {
                 state.map.setFeatureState({
                     source: 'area',
-                    sourceLayer: (state.geographySource === "vector" ? geoLayer : ""),
+                    sourceLayer: (state.geographySource === "vector" ? config.geoLayer : ""),
                     id: state.hoveredAreaCode
                 }, { hovered: false });
                 state.hoveredAreaCode = null;
@@ -1659,7 +1664,7 @@ export function setupMap(config, data, rateById, areaById, areas, colour, state)
             if (state.selectedAreaCode && state.selectedAreaCode !== code) {
                 state.map.setFeatureState({
                     source: 'area',
-                    sourceLayer: (state.geographySource === "vector" ? geoLayer : ""),
+                    sourceLayer: (state.geographySource === "vector" ? config.geoLayer : ""),
                     id: state.selectedAreaCode
                 }, { selected: false });
             }
@@ -1667,13 +1672,13 @@ export function setupMap(config, data, rateById, areaById, areas, colour, state)
             state.selectedAreaName = areaName;
             state.map.setFeatureState({
                 source: 'area',
-                sourceLayer: (state.geographySource === "vector" ? geoLayer : ""),
+                sourceLayer: (state.geographySource === "vector" ? config.geoLayer : ""),
                 id: state.selectedAreaCode
             }, { selected: true });			// Remove hover state (if any)
             if (state.hoveredAreaCode) {
                 state.map.setFeatureState({
                     source: 'area',
-                    sourceLayer: (state.geographySource === "vector" ? geoLayer : ""),
+                    sourceLayer: (state.geographySource === "vector" ? config.geoLayer : ""),
                     id: state.hoveredAreaCode
                 }, { hovered: false });
                 state.hoveredAreaCode = null;

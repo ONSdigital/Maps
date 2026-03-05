@@ -1,6 +1,14 @@
+/**
+ * Choropleth (multi-dataset, single time point) template.
+ *
+ * This template supports multiple value columns inside one CSV. The shared helper
+ * `setupDatasetSwitch()` discovers value columns and renders the dataset switch UI.
+
+ */
+
 import { initialise, addSource } from "../lib/helpers.js";
 import { drawKeyScale } from "../lib-maps/legend.js";
-import { convertTopoJSONtoGeojson, detectGeographySource, setupSearch, buildValueAndAreaLookups, getPalette, getElementHeightById, setupMap, getBreaks, updateKeyInfo, setupDatasetSwitch, updateDataset, redrawMapFill, resolveAutoMapBounds } from "../lib-maps/map-helpers.js";
+import { convertTopoJSONtoGeojson, detectAndLoadGeography, setupSearch, buildValueAndAreaLookups, getPalette, getElementHeightById, setupMap, getBreaks, updateKeyInfo, setupDatasetSwitch, updateDataset, redrawMapFill, resolveAutoMapBounds } from "../lib-maps/map-helpers.js";
 
 const state = {
 	map: null,
@@ -70,17 +78,22 @@ function onResize() {
 }
 
 async function setupOnce() {
+	// Detect whether geography is JSON (Topo/Geo) or vector tiles; only JSON sources are fetched as data.
 	const geoUrl = config.geoUrl || "../lib-maps/master-topo.json";
-	state.geographySource = await detectGeographySource(geoUrl);
+	const geo = await detectAndLoadGeography(geoUrl);
+	state.geographySource = geo.sourceType;
+	if (String(state.geographySource).startsWith('error:')) {
+		console.error('Fatal error detecting/loading geography:', state.geographySource);
+		return;
+	}
 	try {
-		const [csv, geog] = await Promise.all([
-			d3.csv(config.dataUrl),
-			state.geographySource === "vector" ? null : d3.json(geoUrl)
-		]);
+		const csv = await d3.csv(config.dataUrl);
+		const geog = geo.data;
 
 		state.data = csv;
 		setupDatasetSwitch(state.data, state, keyscale);
 
+		// For vector tiles, this can be null (no full feature geometries loaded client-side).
 		state.areas = convertTopoJSONtoGeojson(geog, state.geographySource);
 		resolveAutoMapBounds(config, state.areas, state.geographySource);
 

@@ -1,3 +1,7 @@
+// Vector-tile example configuration (global)
+// See notes in choropleth/config_vector.js — with PBF vector tiles we don't have full
+// client-side feature geometries, so some helper behaviour (e.g. search index building) is limited.
+
 config = {
 	dataUrl: "data_energy_efficiency.csv",
 	geoUrl: "https://cdn.ons.gov.uk/maptiles/administrative/2021/msoa/v2/boundaries/{z}/{x}/{y}.pbf", //if null uses default topoJSON otherwise can be a .json file or vector tile service (e.g. 'https://cdn.ons.gov.uk/maptiles/administrative/2021/msoa/v2/boundaries/{z}/{x}/{y}.pbf')

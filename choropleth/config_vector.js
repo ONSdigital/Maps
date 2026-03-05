@@ -1,3 +1,9 @@
+// Vector-tile example configuration (global)
+//
+// When `geoUrl` points at a `{z}/{x}/{y}.pbf` endpoint, the template uses MapLibre vector
+// tiles and does not load full feature geometries client-side (search is limited to what
+// the map can query at runtime).
+
 config = {
 	dataUrl: "data_energy_efficiency.csv",
 	geoUrl: "https://cdn.ons.gov.uk/maptiles/administrative/2021/msoa/v2/boundaries/{z}/{x}/{y}.pbf", //if null uses default topoJSON otherwise can be a .json file or vector tile service (e.g. 'https://cdn.ons.gov.uk/maptiles/administrative/2021/msoa/v2/boundaries/{z}/{x}/{y}.pbf')

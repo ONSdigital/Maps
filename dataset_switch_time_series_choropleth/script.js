@@ -1,10 +1,20 @@
+/**
+ * Time-series choropleth template.
+ *
+ * What this template does:
+ * - Loads a wide CSV (one row per area; one column per time point).
+ * - Builds a choropleth for the currently selected time point.
+ * - Provides a timeline control (keyboard + drag/touch scrubbing).
+ * - Shows a chart overlay for the hovered/selected area (hover preview vs pinned).
+ */
+
 import { initialise, addSource } from "../lib/helpers.js";
 import { drawKeyScale } from "../lib-maps/legend.js";
 import {
 	calculateBreaks,
 	clearAreaSelection,
 	convertTopoJSONtoGeojson,
-	detectGeographySource,
+	detectAndLoadGeography,
 	getLegendDecimals,
 	getPalette,
 	resolveAutoMapBounds,
@@ -2029,22 +2039,29 @@ function deferFocusSelectedArea() {
 	});
 }
 
-function setupData() {
+async function setupData() {
 	const geoUrl = config.geoUrl || "../lib-maps/master-topo.json";
-	detectGeographySource(geoUrl).then((sourceType) => {
-		state.geographySource = sourceType;
-		return Promise.all([
-			sourceType === "vector" ? null : d3.json(geoUrl),
+	try {
+		// Load geography and the initial dataset in parallel.
+		const [geo] = await Promise.all([
+			detectAndLoadGeography(geoUrl),
 			loadDataset(0)
 		]);
-	}).then(([geog]) => {
-		let areas = geog;
+		state.geographySource = geo.sourceType;
+		if (String(state.geographySource).startsWith('error:')) {
+			console.error('Fatal error detecting/loading geography:', state.geographySource);
+			return;
+		}
+
+		let areas = geo.data;
 		areas = convertTopoJSONtoGeojson(areas, state.geographySource);
 		resolveAutoMapBounds(config, areas, state.geographySource);
 		state.areasGeojson = (state.geographySource === 'vector') ? null : areas;
 		setupUI();
 		drawMap(areas);
-	});
+	} catch (e) {
+		console.error('Fatal error loading geography or dataset:', e);
+	}
 }
 
 let __started = false;

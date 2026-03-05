@@ -1,5 +1,11 @@
-// Add a config option to enable debug output for map logic
-// config.debugInfo = true; // Set to true to enable debug output in the console
+// Shared helpers for map templates.
+//
+// This module is used by multiple template entry scripts.
+//
+// The templates provide a global `config` object (from config.js). Some helpers accept
+// `config` explicitly, while a few legacy helpers still read from the global.
+//
+// Debugging: set `config.debugInfo = true` to print helpful console output.
 import { drawKeyScale } from "./legend.js";
 
 /**
@@ -10,31 +16,11 @@ import { drawKeyScale } from "./legend.js";
  * @returns {Promise<"geojson" | "topojson" | "json" | "vector" | "error: fetch failed" | "error: parse failed" | "error: invalid url">}
  */
 export async function detectGeographySource(url) {
-    if (!url) {
-        return "error: invalid url";
-    }
+    const { sourceType } = await detectAndLoadGeography(url);
+    return sourceType;
+}
 
-    if (url.endsWith('.pbf')) {
-        return "vector"; // Mapbox Vector Tile format
-    }
-
-    let data;
-    try {
-        const response = await fetch(url);
-        if (!response.ok) {
-            throw new Error(`HTTP error! Status: ${response.status}`);
-        }
-
-        data = await response.json();
-    } catch (e) {
-        if (e.message.includes('HTTP error')) {
-            console.error(`Fetch failed for ${url}:`, e.message);
-            return "error: fetch failed";
-        }
-        console.error(`Failed to parse JSON for ${url}:`, e.message);
-        return "error: parse failed";
-    }
-
+function detectGeographyTypeFromJson(data) {
     if (typeof data !== 'object' || data === null || !data.type) {
         return "json"; // Default if not a recognized structure or simply plain JSON
     }
@@ -56,6 +42,40 @@ export async function detectGeographySource(url) {
     return "json";
 }
 
+/**
+ * Detects geography source type and (for JSON sources) returns the parsed payload.
+ *
+ * This avoids the common pattern of calling `detectGeographySource(url)` and then
+ * fetching the same URL again via `d3.json(url)`.
+ *
+ * @param {string | null} url
+ * @returns {Promise<{ sourceType: "geojson" | "topojson" | "json" | "vector" | "error: fetch failed" | "error: parse failed" | "error: invalid url", data: any | null }>}
+ */
+export async function detectAndLoadGeography(url) {
+    if (!url) {
+        return { sourceType: "error: invalid url", data: null };
+    }
+
+    if (url.endsWith('.pbf')) {
+        // Mapbox Vector Tile format (no JSON to fetch/parse)
+        return { sourceType: "vector", data: null };
+    }
+
+    try {
+        const response = await fetch(url);
+        if (!response.ok) {
+            console.error(`Fetch failed for ${url}: HTTP ${response.status}`);
+            return { sourceType: "error: fetch failed", data: null };
+        }
+
+        const data = await response.json();
+        return { sourceType: detectGeographyTypeFromJson(data), data };
+    } catch (e) {
+        console.error(`Failed to fetch/parse geography JSON for ${url}:`, e && e.message ? e.message : e);
+        return { sourceType: "error: parse failed", data: null };
+    }
+}
+
 // Function to get postcode list from postcodes.io autocomplete
 export async function fetchPostcodes(query) {
     const url = `https://api.postcodes.io/postcodes/${query}/autocomplete`;
@@ -63,7 +83,9 @@ export async function fetchPostcodes(query) {
         const json = await (await fetch(url)).json();
         return json.result || [];
     } catch {
+        // Always return an array so callers can safely hand results to autocomplete.
         console.log("Failed to fetch postcodes");
+        return [];
     }
 }
 
@@ -337,6 +359,7 @@ export function getBreaks(config, data, palette, state) {
 }
 
 export function calculateBreaks(values, method, numClasses, decimals) {
+    // `values` should already be numeric and sorted ascending for best results.
     if (method === 'equal') {
         const min = d3.min(values), max = d3.max(values);
         return Array.from({ length: numClasses + 1 }, (_, i) => {

@@ -1,5 +1,11 @@
 // legend.js
-// Handles drawing the key scale and indicators for the map legend
+// Handles drawing the key scale and indicators for the map legend.
+//
+// Notes:
+// - Tick labels are measured by temporarily rendering text into an off-DOM SVG.
+//   This lets us decide whether to stagger ("drop") ticks to avoid overlap.
+// - `drawKeyScale()` also exposes `window.moveKeyIndicator()` and
+//   `window.moveKeyIndicatorSelected()` so map interactions can move the legend marker.
 
 export function drawKeyScale({ keyscale, breaks, colour, config, window, state }) {
     keyscale.selectAll('*').remove();

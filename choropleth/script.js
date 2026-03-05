@@ -1,5 +1,14 @@
+/**
+ * Choropleth (single dataset) template.
+ *
+ * High-level flow:
+ * - `setupOnce()` loads CSV + geography, builds lookups + colour scale.
+ * - `createMap()` creates the MapLibre instance and wires layers/handlers via shared helpers.
+ * - `onResize()` keeps legend + map canvas sized correctly (and notifies pym when embedded).
+**/
+
 import { initialise, addSource } from "../lib/helpers.js";
-import { detectGeographySource, getLegendDecimals, calculateBreaks, buildValueAndAreaLookups, getPalette, convertTopoJSONtoGeojson, setupSearch, updateKeyInfo, setupMap, resolveAutoMapBounds } from "../lib-maps/map-helpers.js";
+import { detectAndLoadGeography, getLegendDecimals, calculateBreaks, buildValueAndAreaLookups, getPalette, convertTopoJSONtoGeojson, setupSearch, updateKeyInfo, setupMap, resolveAutoMapBounds } from "../lib-maps/map-helpers.js";
 import { drawKeyScale } from "../lib-maps/legend.js";
 
 const state = {
@@ -77,16 +86,21 @@ function onResize() {
 }
 
 async function setupOnce() {
+	// Detect whether geography is JSON (Topo/Geo) or vector tiles; only JSON sources are fetched as data.
 	const geoUrl = config.geoUrl || "../lib-maps/master-topo.json";
-	state.geographySource = await detectGeographySource(geoUrl);
+	const geo = await detectAndLoadGeography(geoUrl);
+	state.geographySource = geo.sourceType;
+	if (String(state.geographySource).startsWith('error:')) {
+		console.error('Fatal error detecting/loading geography:', state.geographySource);
+		return;
+	}
 
 	try {
-		const [csv, geog] = await Promise.all([
-			d3.csv(config.dataUrl),
-			state.geographySource === "vector" ? null : d3.json(geoUrl)
-		]);
+		const csv = await d3.csv(config.dataUrl);
+		const geog = geo.data;
 
 		state.data = csv;
+		// For vector tiles, we do not have full feature geometries client-side, so this can be null.
 		state.areas = convertTopoJSONtoGeojson(geog, state.geographySource);
 		resolveAutoMapBounds(config, state.areas, state.geographySource);
 

@@ -1,3 +1,10 @@
+// Template configuration (global)
+//
+// This file intentionally assigns to the global `config` variable; the template scripts
+// read `config` at runtime and pass it into helper functions.
+//
+// Most values are optional — each template applies sensible defaults.
+
 config = {
 	debugInfo: true,
 	dataUrl: "data.csv",

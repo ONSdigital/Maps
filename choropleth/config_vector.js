@@ -27,7 +27,7 @@ config = {
 	mapBounds: [[-6, 50], [2.5, 55.5]],
 	maxBounds: [[-14, 46], [8, 62]], // restrict panning to these bounds
 	minZoom: 6,
-	maxZoom: 13,
+	maxZoom: 12.5,
 	fillOpacity: 0.8,
 	sourceText: "Office for National Statistics",
 	accessibleSummary: "Here is the screenreader text describing the chart.",

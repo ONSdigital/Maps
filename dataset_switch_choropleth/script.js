@@ -90,7 +90,13 @@ async function setupOnce() {
 
 		let palette = getPalette(config, state);
 		state.breaks = getBreaks(config, state.data, palette, state);
-		state.colour = d3.scaleThreshold().domain(state.breaks.slice(1)).range(palette);
+		if (Array.isArray(state.breaks) && state.breaks.length > 1) {
+			state.colour = d3.scaleThreshold().domain(state.breaks.slice(1)).range(palette);
+		} else {
+			const fallbackColour = (config && config.colourUnavailable)
+				|| (typeof ONScolours !== 'undefined' ? ONScolours.noData : '#ccc');
+			state.colour = d3.scaleThreshold().domain([]).range([fallbackColour]);
+		}
 
 		setupSearch(state.areas, config, state, state.rateById, state.areaById);
 		createMap();

@@ -3,6 +3,15 @@
 
 export function drawKeyScale({ keyscale, breaks, colour, config, window, state }) {
     keyscale.selectAll('*').remove();
+
+    if (!Array.isArray(breaks) || breaks.length < 2 || breaks.some(d => typeof d !== 'number' || !Number.isFinite(d))) {
+        console.error(
+            "[Map Config] Legend not drawn: 'breaks' must be an array of finite numbers (e.g. [0, 10, 20]). Got:",
+            breaks
+        );
+        return;
+    }
+
     const mapWidth = window.d3.select('#graphic').node().getBoundingClientRect().width || 400;
     const width = mapWidth - config.keyScaleMargin.left - config.keyScaleMargin.right;
     let height = 39;

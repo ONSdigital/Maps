@@ -6,6 +6,7 @@ import {
 	convertTopoJSONtoGeojson,
 	detectGeographySource,
 	getLegendDecimals,
+	validateBreaksArray,
 	getPalette,
 	resolveAutoMapBounds,
 	setSearchText,
@@ -154,6 +155,13 @@ function computeBreaksForDataset() {
 	}
 
 	if (Array.isArray(breaks)) {
+		if (!validateBreaksArray(breaks, 'config.breaks')) {
+			state.breaks = null;
+			const fallbackColour = (config && config.colourUnavailable)
+				|| (typeof ONScolours !== 'undefined' ? ONScolours.noData : '#ccc');
+			state.colour = d3.scaleThreshold().domain([]).range([fallbackColour]);
+			return;
+		}
 		state.breaks = breaks;
 		state.colour = d3.scaleThreshold().domain(breaks.slice(1)).range(palette);
 		return;
@@ -189,7 +197,16 @@ function ensureBreaksAndLegend() {
 		const method = Array.isArray(config.breaks) ? config.breaks[0] : config.breaks;
 		const values = Object.values(state.rateById).filter(v => v !== null && Number.isFinite(v)).sort(d3.ascending);
 		const numClasses = Array.isArray(palette) ? palette.length : (config.breaksNumber || 5);
-		const calculated = Array.isArray(method) ? method : calculateBreaks(values, method, numClasses, legendDecimals);
+		const calculated = Array.isArray(method)
+			? (validateBreaksArray(method, 'config.breaks') ? method : null)
+			: calculateBreaks(values, method, numClasses, legendDecimals);
+		if (!calculated) {
+			state.breaks = null;
+			const fallbackColour = (config && config.colourUnavailable)
+				|| (typeof ONScolours !== 'undefined' ? ONScolours.noData : '#ccc');
+			state.colour.domain([]).range([fallbackColour]);
+			return;
+		}
 		state.breaks = calculated;
 		state.colour.domain(calculated.slice(1));
 	}

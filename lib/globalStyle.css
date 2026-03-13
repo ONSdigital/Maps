@@ -212,7 +212,8 @@ body {
   font-weight: 400;
   max-width: 700px;
   margin: 0px auto;
-  padding-bottom: 10px;
+  /* Prevent focus outlines/halos being clipped at iframe edges */
+  padding: 0 4px 10px;
 }
 
 text {

@@ -1,5 +1,5 @@
 import { initialise, addSource } from "../lib/helpers.js";
-import { detectGeographySource, getLegendDecimals, calculateBreaks, buildValueAndAreaLookups, getPalette, convertTopoJSONtoGeojson, setupSearch, updateKeyInfo, setupMap, resolveAutoMapBounds } from "../lib-maps/map-helpers.js";
+import { detectGeographySource, getLegendDecimals, calculateBreaks, buildValueAndAreaLookups, getPalette, convertTopoJSONtoGeojson, setupSearch, updateKeyInfo, setupMap, resolveAutoMapBounds, validateBreaksArray } from "../lib-maps/map-helpers.js";
 import { drawKeyScale } from "../lib-maps/legend.js";
 
 const state = {
@@ -97,7 +97,11 @@ async function setupOnce() {
 		let palette = getPalette(config);
 		const legendDecimals = getLegendDecimals(config.legendFormat || ',.2f');
 		if (Array.isArray(config.breaks)) {
-			state.breaks = config.breaks;
+			if (validateBreaksArray(config.breaks, 'config.breaks')) {
+				state.breaks = config.breaks;
+			} else {
+				state.breaks = null;
+			}
 		} else {
 			state.breaks = calculateBreaks(
 				state.data.map(d => +d.value).filter(v => !isNaN(v)).sort(d3.ascending),
@@ -106,7 +110,14 @@ async function setupOnce() {
 				legendDecimals
 			);
 		}
-		state.colour = d3.scaleThreshold().domain(state.breaks.slice(1)).range(palette);
+
+		if (Array.isArray(state.breaks) && state.breaks.length > 1) {
+			state.colour = d3.scaleThreshold().domain(state.breaks.slice(1)).range(palette);
+		} else {
+			const fallbackColour = (config && config.colourUnavailable)
+				|| (typeof ONScolours !== 'undefined' ? ONScolours.noData : '#ccc');
+			state.colour = d3.scaleThreshold().domain([]).range([fallbackColour]);
+		}
 
 		setupSearch(state.areas, config, state, state.rateById, state.areaById);
 		createMap();

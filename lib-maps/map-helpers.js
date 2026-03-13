@@ -256,6 +256,39 @@ export function getLegendDecimals(format) {
     return match ? parseInt(match[1], 10) : 0;
 }
 
+export function validateBreaksArray(breaks, label = 'breaks') {
+    if (!Array.isArray(breaks)) {
+        console.error(`[Map Config] Invalid ${label}: expected an array of numbers (e.g. [0, 10, 20]). Got:`, breaks);
+        return false;
+    }
+    if (breaks.length < 2) {
+        console.error(`[Map Config] Invalid ${label}: expected at least 2 break values. Got:`, breaks);
+        return false;
+    }
+
+    for (let i = 0; i < breaks.length; i++) {
+        const v = breaks[i];
+        if (typeof v !== 'number' || !Number.isFinite(v)) {
+            console.error(
+                `[Map Config] Invalid ${label}: all breaks must be finite numbers. ` +
+                `Found ${JSON.stringify(v)} (type: ${typeof v}) at index ${i}. ` +
+                `Remove quotation marks if you used strings. Full value:`,
+                breaks
+            );
+            return false;
+        }
+        if (i > 0 && !(breaks[i] > breaks[i - 1])) {
+            console.error(
+                `[Map Config] Invalid ${label}: breaks must be strictly increasing. ` +
+                `Found ${breaks[i - 1]} then ${breaks[i]} at index ${i}. Full value:`,
+                breaks
+            );
+            return false;
+        }
+    }
+    return true;
+}
+
 export function getBreaks(config, data, palette, state) {
     const debug = config.debugInfo === true;
     const dataValues = data.map(d => state.selectedValueColumn ? +d[state.selectedValueColumn] : +d.value).filter(v => !isNaN(v)).sort(d3.ascending);
@@ -297,6 +330,10 @@ export function getBreaks(config, data, palette, state) {
             // Case 1: The element at the index is the custom break array (e.g., [0, 10, 20])
             if (debug) {
                 console.log(`[Map Debug] Using custom breaks for dataset index ${selectedIndex}:`, selectedBreaks);
+            }
+
+            if (!validateBreaksArray(selectedBreaks, `config.breaks[${selectedIndex}]`)) {
+                return null;
             }
             return selectedBreaks;
         } else if (typeof selectedBreaks === 'string') {
@@ -1115,6 +1152,12 @@ export function getPalette(config, state) {
     const paletteMode = config.paletteMode || 'single';
     const cp = config.colourPalette;
 
+    const isColourString = (s) => (
+        typeof s === 'string'
+        && (/^#/.test(s) || /^rgb\(/i.test(s) || /^hsl\(/i.test(s))
+    );
+    const looksLikeColourArray = (arr) => Array.isArray(arr) && arr.length > 0 && arr.every(isColourString);
+
     // Helper to resolve a palette from a string or array
     function resolvePalette(p, idx = null) {
         let resolved;
@@ -1175,10 +1218,27 @@ export function getPalette(config, state) {
         return resolved;
     }
     // Multiple mode: pick palette by dataset index
-    if (paletteMode === 'multiple' && Array.isArray(cp) && state.valueColumns.length > 1 && state.selectedValueColumn) {
-        const idx = state.valueColumns.indexOf(state.selectedValueColumn);
-        const selectedPalette = cp[idx] ?? cp[0];
-        return resolvePalette(selectedPalette, idx);
+    if (paletteMode === 'multiple' && state && Array.isArray(state.valueColumns) && state.valueColumns.length > 1) {
+        const idx = (() => {
+            if (typeof state.selectedValueColumn === 'number') return state.selectedValueColumn;
+            if (typeof state.selectedValueColumn === 'string') {
+                const i = state.valueColumns.indexOf(state.selectedValueColumn);
+                return i >= 0 ? i : 0;
+            }
+            return 0;
+        })();
+
+        // If the user provided a single palette as an array of colours (e.g. ["#...", "#..."])
+        // treat it as "use this palette for all datasets".
+        if (looksLikeColourArray(cp)) {
+            return resolvePalette(cp, idx);
+        }
+
+        // If the user provided multiple palettes (array-of-palettes or array of palette names), select by dataset.
+        if (Array.isArray(cp)) {
+            const selectedPalette = cp[idx] ?? cp[0];
+            return resolvePalette(selectedPalette, idx);
+        }
     }
 
     // Single mode or fallback

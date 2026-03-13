@@ -56,14 +56,34 @@ export async function detectGeographySource(url) {
     return "json";
 }
 
+const __UK_POSTCODE_RE = /^[A-Z]{1,2}\d[A-Z\d]?\s?\d[A-Z]{2}$/;
+
+function normalizePostcode(input) {
+    if (input === null || typeof input === 'undefined') return '';
+    return String(input)
+        .trim()
+        .toUpperCase()
+        .replace(/\s+/g, ' ');
+}
+
+function isLikelyUkPostcode(input) {
+    const normalized = normalizePostcode(input);
+    return __UK_POSTCODE_RE.test(normalized);
+}
+
 // Function to get postcode list from postcodes.io autocomplete
 export async function fetchPostcodes(query) {
-    const url = `https://api.postcodes.io/postcodes/${query}/autocomplete`;
+    const q = (query === null || typeof query === 'undefined') ? '' : String(query).trim();
+    if (!q) return [];
+    const url = `https://api.postcodes.io/postcodes/${encodeURIComponent(q)}/autocomplete`;
     try {
-        const json = await (await fetch(url)).json();
-        return json.result || [];
-    } catch {
-        console.log("Failed to fetch postcodes");
+        const response = await fetch(url);
+        if (!response.ok) return [];
+        const json = await response.json();
+        return json && Array.isArray(json.result) ? json.result : [];
+    } catch (e) {
+        // Silent failure (network/CSP) - suggestions are optional.
+        return [];
     }
 }
 
@@ -458,6 +478,35 @@ export function setupSearch(areas, config, state, rateById, areaById) {
         inputWrapper.className = 'autocomplete__input-wrapper';
         searchDiv.appendChild(inputWrapper);
 
+        // Inline error message (replaces modal alerts)
+        const errorEl = document.createElement('div');
+        errorEl.className = 'autocomplete__error hidden';
+        errorEl.setAttribute('role', 'status');
+        errorEl.setAttribute('aria-live', 'polite');
+        searchDiv.appendChild(errorEl);
+
+        let searchInputEl = null;
+        const setSearchError = (message) => {
+            const msg = (message === null || typeof message === 'undefined') ? '' : String(message);
+            if (!msg) {
+                clearSearchError();
+                return;
+            }
+            errorEl.textContent = msg;
+            errorEl.classList.remove('hidden');
+            if (searchInputEl) {
+                searchInputEl.setAttribute('aria-invalid', 'true');
+            }
+        };
+
+        const clearSearchError = () => {
+            errorEl.textContent = '';
+            errorEl.classList.add('hidden');
+            if (searchInputEl) {
+                searchInputEl.removeAttribute('aria-invalid');
+            }
+        };
+
         // Will be wired up once the input exists
         let toggleClearButton = null;
 
@@ -492,6 +541,8 @@ export function setupSearch(areas, config, state, rateById, areaById) {
                 #search-container .autocomplete__input { width: 100% !important; box-sizing: border-box; padding-right: 30px; }
                 #search-container .autocomplete__hint { pointer-events: none; }
                 #search-container .autocomplete__input-wrapper { position: relative; display: flex; width: 100%; }
+                #search-container .autocomplete__error { margin-top: 4px; font-size: 0.875em; }
+                #search-container .autocomplete__error.hidden { display: none; }
                 #search-container .autocomplete__clear-button {
                     position: absolute;
                     right: 10px;
@@ -557,25 +608,31 @@ export function setupSearch(areas, config, state, rateById, areaById) {
             mapWrapper.parentNode.insertBefore(searchDiv, mapWrapper);
         }
 
+        const isVectorSearch = !!(state && state.geographySource === 'vector');
+        const placeholderText = isVectorSearch ? 'Enter a postcode' : 'Type a place name or postcode';
+
         // Initialise the accessible autocomplete
         accessibleAutocomplete({
             element: inputWrapper,
             id: searchBoxId,
             source: searchSuggest,
-            placeholder: "Type a place name or postcode",
+            placeholder: placeholderText,
             showAllValues: true,
             autoselect: true,
             confirmOnBlur: false,
             displayMenu: "overlay",
             onConfirm: (name) => {
+                clearSearchError();
                 if (!name) {
                     if (typeof toggleClearButton === 'function') toggleClearButton();
                     return;
                 }
 
-                if (name.match(/^[A-Z]{1,2}\d[A-Z\d]?\s?\d[A-Z]{2}$/)) {
-                    selectAreaByPostcode(name);
-                } else {
+                const normalizedPostcode = normalizePostcode(name);
+                if (isLikelyUkPostcode(normalizedPostcode)) {
+                    selectAreaByPostcode(normalizedPostcode);
+                } else if (!isVectorSearch) {
+                    // Area-name search only works when we have the full GeoJSON feature list.
                     selectAreaByName(name);
                 }
 
@@ -596,6 +653,8 @@ export function setupSearch(areas, config, state, rateById, areaById) {
             const input = findAutocompleteInput(uiWrapper, root);
             if (!input) return;
 
+            searchInputEl = input;
+
             ensureSearchStyles();
 
             const clearButton = createClearButton();
@@ -612,6 +671,8 @@ export function setupSearch(areas, config, state, rateById, areaById) {
 
             const clearSelectionAndReset = () => {
                 suppressSuggestions(300);
+
+                clearSearchError();
 
                 input.value = '';
                 input.dispatchEvent(new Event('input', { bubbles: true }));
@@ -660,6 +721,8 @@ export function setupSearch(areas, config, state, rateById, areaById) {
 
             input.addEventListener('input', toggle);
             input.addEventListener('change', toggle);
+            input.addEventListener('input', clearSearchError);
+            input.addEventListener('change', clearSearchError);
             uiWrapper.appendChild(clearButton);
             toggle();
         }
@@ -726,6 +789,20 @@ export function setupSearch(areas, config, state, rateById, areaById) {
                 return;
             }
             const safeQuery = query.replace(/[^\w\s]/gi, ""); // Remove special characters
+
+            // Vector tiles do not ship a full area-name list, so only suggest postcodes.
+            // Also avoid hitting the API for empty/very short queries (e.g. on focus).
+            if (isVectorSearch) {
+                const q = (safeQuery || '').trim();
+                if (q.length < 2) {
+                    populateResults([]);
+                    return;
+                }
+                const results = await fetchPostcodes(q);
+                populateResults(results);
+                return;
+            }
+
             let results = !safeQuery || query === state.selectedAreaName ? areaNames :
                 areaNames.filter((name) =>
                     name.match(new RegExp(`\\b${safeQuery}`, "i"))
@@ -736,80 +813,185 @@ export function setupSearch(areas, config, state, rateById, areaById) {
         }
 
         async function selectAreaByPostcode(code) {
-            const url = `https://api.postcodes.io/postcodes/${code}`;
+            clearSearchError();
+
+            const normalized = normalizePostcode(code);
+            if (!isLikelyUkPostcode(normalized)) {
+                setSearchError('Invalid postcode');
+                return;
+            }
+
+            const url = `https://api.postcodes.io/postcodes/${encodeURIComponent(normalized)}`;
+            let response;
             try {
-                const json = await (await fetch(url)).json();
-                if (json.result) selectAreaByLngLat(json.result.longitude, json.result.latitude);
-                else console.log("Invalid postcode");
-            } catch {
-                console.log("Failed to fetch postcode");
+                response = await fetch(url);
+            } catch (e) {
+                if (config && config.debugInfo) console.warn('[Map Debug] Postcode lookup failed (fetch error):', e);
+                setSearchError('Area unavailable');
+                return;
+            }
+
+            if (!response.ok) {
+                if (config && config.debugInfo) console.warn('[Map Debug] Postcode lookup failed (HTTP):', response.status, url);
+                setSearchError('Invalid postcode');
+                return;
+            }
+
+            let json;
+            try {
+                json = await response.json();
+            } catch (e) {
+                if (config && config.debugInfo) console.warn('[Map Debug] Postcode lookup failed (bad JSON):', e);
+                setSearchError('Area unavailable');
+                return;
+            }
+
+            if (!json || !json.result) {
+                setSearchError('Invalid postcode');
+                return;
+            }
+
+            const lon = +json.result.longitude;
+            const lat = +json.result.latitude;
+            if (!Number.isFinite(lon) || !Number.isFinite(lat)) {
+                setSearchError('Area unavailable');
+                return;
+            }
+
+            selectAreaByLngLat(lon, lat);
+        }
+
+        let __postcodeTilePoll = null;
+
+        function clearPostcodeTilePoll() {
+            if (__postcodeTilePoll) {
+                try { clearInterval(__postcodeTilePoll); } catch (e) { /* ignore */ }
+                __postcodeTilePoll = null;
+            }
+        }
+
+        function applySelectionForFeature(feature, source) {
+            if (!feature || !feature.properties) return;
+            if (!state || !state.map) return;
+
+            const disableSelectionZoom = (config && config.disableSelectionZoom) || (state && state.disableSelectionZoom);
+            const code = feature.properties[config.geoIdField];
+            const areaName = feature.properties[config.geoNameField];
+            if (!code) return;
+
+            // Always ensure areaById is set for this code
+            if (!areaById[code] && areaName) areaById[code] = areaName;
+
+            // Clear previous selected state if different
+            if (state.selectedAreaCode && state.selectedAreaCode !== code) {
+                state.map.setFeatureState({
+                    source: 'area',
+                    sourceLayer: (state.geographySource === "vector" ? config.geoLayer : ""),
+                    id: state.selectedAreaCode
+                }, { selected: false });
+            }
+
+            // Clear hover state
+            if (state.hoveredAreaCode) {
+                state.map.setFeatureState({
+                    source: 'area',
+                    sourceLayer: (state.geographySource === "vector" ? config.geoLayer : ""),
+                    id: state.hoveredAreaCode
+                }, { hovered: false });
+                state.hoveredAreaCode = null;
+            }
+
+            state.selectedAreaCode = code;
+            state.selectedAreaName = areaName;
+
+            state.map.setFeatureState({
+                source: 'area',
+                sourceLayer: (state.geographySource === "vector" ? config.geoLayer : ""),
+                id: code
+            }, { selected: true });
+
+            const selectedVal = rateById[code];
+            window.moveKeyIndicator(undefined);
+            window.moveKeyIndicatorSelected(selectedVal);
+            updateKeyInfo(selectedVal, areaName, state);
+            clearSearchError();
+
+            if (typeof state.onAreaSelected === 'function') {
+                state.onAreaSelected({ code, areaName, value: selectedVal, source: source || 'search' });
+            }
+
+            if (!disableSelectionZoom && feature && feature.geometry) {
+                const allCoords = collectCoords(feature.geometry);
+                if (allCoords.length) {
+                    const bounds = calculateBounds(allCoords);
+                    const padding = calculateZoomPadding(state.map);
+                    state.map.fitBounds(bounds, { padding, animate: true, duration: 900 });
+                }
             }
         }
 
         function selectAreaByLngLat(lon, lat) {
-            //Jank way of selecting area by postcode - don't think it works properly - need to see how energyefficiencyofhousing does it
+            // Postcode selection: for vector tiles we need to pan to the location and wait
+            // for the relevant tile to load before queryRenderedFeatures can find it.
             if (state.geographySource === 'vector') {
-                const disableSelectionZoom = (config && config.disableSelectionZoom) || (state && state.disableSelectionZoom);
-                // Project lat/lng to screen pixel
                 if (!state.map) return;
-                const point = state.map.project([lon, lat]);
-                // Query rendered features at this pixel
-                const features = state.map.queryRenderedFeatures(point, { layers: ['area'] });
-                if (features && features.length > 0) {
-                    // Simulate click/select on the first feature
-                    const feature = features[0];
-                    // Defensive: ensure areaById is set for this code
-                    const code = feature.properties[config.geoIdField];
-                    const areaName = feature.properties[config.geoNameField];
-                    if (!areaById[code]) areaById[code] = areaName;
-                    // Use the same logic as click handler
-                    if (state.selectedAreaCode && state.selectedAreaCode !== code) {
-                        state.map.setFeatureState({
-                            source: 'area',
-                            sourceLayer: (state.geographySource === "vector" ? config.geoLayer : ""),
-                            id: state.selectedAreaCode
-                        }, { selected: false });
-                    }
-                    state.selectedAreaCode = code;
-                    state.selectedAreaName = areaName;
-                    state.map.setFeatureState({
-                        source: 'area',
-                        sourceLayer: (state.geographySource === "vector" ? config.geoLayer : ""),
-                        id: state.selectedAreaCode
-                    }, { selected: true });
-                    if (state.hoveredAreaCode) {
-                        state.map.setFeatureState({
-                            source: 'area',
-                            sourceLayer: (state.geographySource === "vector" ? config.geoLayer : ""),
-                            id: state.hoveredAreaCode
-                        }, { hovered: false });
-                        state.hoveredAreaCode = null;
-                    }
-                    const selectedVal = rateById[code];
-                    window.moveKeyIndicator(undefined);
-                    window.moveKeyIndicatorSelected(selectedVal);
-                    updateKeyInfo(selectedVal, areaName, state);
 
-                    if (typeof state.onAreaSelected === 'function') {
-                        state.onAreaSelected({ code, areaName, value: selectedVal, source: 'postcode' });
-                    }
+                clearPostcodeTilePoll();
 
-                    // Zoom to area bounds (if geometry is available)
-                    if (!disableSelectionZoom && feature && feature.geometry) {
-                        let allCoords = collectCoords(feature.geometry);
-                        if (allCoords.length) {
-                            let bounds = calculateBounds(allCoords)
-                            const padding = calculateZoomPadding(map);
-                            const options = {
-                                padding,
-                                animate: true
-                            };
-                            state.map.fitBounds(bounds, options);
-                        }
-                    }
-                } else {
-                    alert('No area found for this postcode');
+                // Pan immediately to ensure the relevant tile is requested (old-template behaviour)
+                const minZoom = (typeof config.minZoom === 'number') ? config.minZoom : 0;
+                const maxZoom = (typeof config.maxZoom === 'number') ? config.maxZoom : 24;
+
+                // Use a slightly lower default zoom than the old template.
+                // At very high zooms, vector tile geometries are heavily tile-clipped, which can
+                // underestimate bounds for large areas. Starting a bit wider helps fitBounds.
+                const requestedZoom = (config && typeof config.postcodeSearchZoom === 'number')
+                    ? config.postcodeSearchZoom
+                    : 9;
+                const targetZoom = Math.max(minZoom, Math.min(maxZoom, requestedZoom));
+                try {
+                    // Smooth pan/zoom (jumpTo feels crunchy because it snaps instantly).
+                    state.map.easeTo({ center: [lon, lat], zoom: targetZoom, duration: 650 });
+                } catch (e) {
+                    // If jumpTo fails for any reason, continue and attempt lookup anyway.
                 }
+
+                const startedAt = Date.now();
+                const intervalMs = 150;
+                const timeoutMs = 5000;
+
+                const trySelect = () => {
+                    if (!state.map) {
+                        clearPostcodeTilePoll();
+                        setSearchError('Area unavailable');
+                        return;
+                    }
+
+                    const elapsed = Date.now() - startedAt;
+                    if (elapsed > timeoutMs) {
+                        clearPostcodeTilePoll();
+                        setSearchError('Area unavailable');
+                        return;
+                    }
+
+                    let features = [];
+                    try {
+                        const point = state.map.project([lon, lat]);
+                        features = state.map.queryRenderedFeatures(point, { layers: ['area'] }) || [];
+                    } catch (e) {
+                        // ignore and keep polling
+                        features = [];
+                    }
+
+                    if (features && features.length > 0) {
+                        clearPostcodeTilePoll();
+                        applySelectionForFeature(features[0], 'postcode');
+                    }
+                };
+
+                // Run once immediately, then poll until the relevant tile is available.
+                trySelect();
+                __postcodeTilePoll = setInterval(trySelect, intervalMs);
                 return;
             }
 
@@ -826,9 +1008,9 @@ export function setupSearch(areas, config, state, rateById, areaById) {
                 return false;
             });
             if (found) {
-                selectAreaFeature(found);
+                applySelectionForFeature(found, 'postcode');
             } else {
-                alert('No area found for this postcode');
+                setSearchError('Area unavailable');
             }
         }
 
@@ -838,66 +1020,7 @@ export function setupSearch(areas, config, state, rateById, areaById) {
             const feature = areaCodeToFeature[code];
             if (!feature) return;
             // Simulate click on area
-            selectAreaFeature(feature);
-        }
-
-        function selectAreaFeature(feature) {
-            const disableSelectionZoom = (config && config.disableSelectionZoom) || (state && state.disableSelectionZoom);
-            // This mimics the click event logic
-            const code = feature.properties[config.geoIdField];
-            const areaName = feature.properties[config.geoNameField];
-            // Always ensure areaById is set for this code
-            if (!areaById[code]) {
-                areaById[code] = areaName;
-            }
-            // Clear previous selected state if different
-            if (state.selectedAreaCode && state.selectedAreaCode !== code) {
-                state.map.setFeatureState({
-                    source: 'area',
-                    sourceLayer: (state.geographySource === "vector" ? config.geoLayer : ""),
-                    id: state.selectedAreaCode
-                }, { selected: false });
-
-            }
-            state.selectedAreaCode = code;
-            state.selectedAreaName = areaName;
-
-            state.map.setFeatureState({
-                source: 'area',
-                sourceLayer: (state.geographySource === "vector" ? config.geoLayer : ""),
-                id: code
-            }, { selected: true });
-
-            state.map.setFeatureState({
-                source: 'area',
-                sourceLayer: (state.geographySource === "vector" ? config.geoLayer : ""),
-                id: state.selectedAreaCode
-            }, { hovered: false });
-            const selectedVal = rateById[code];
-            window.moveKeyIndicator(undefined);
-            window.moveKeyIndicatorSelected(selectedVal);
-            updateKeyInfo(selectedVal, areaName, state);
-
-            if (typeof state.onAreaSelected === 'function') {
-                state.onAreaSelected({ code, areaName, value: selectedVal, source: 'search' });
-            }
-
-            // Zoom to area bounds (same as click logic)
-
-            if (!disableSelectionZoom && feature && feature.geometry) {
-                let allCoords = collectCoords(feature.geometry);
-                if (allCoords.length) {
-                    let bounds = calculateBounds(allCoords)
-                    const padding = calculateZoomPadding(state.map);
-                    const options = {
-                        padding,
-                        animate: true
-                    };
-                    // const targetZoom = map.cameraForBounds(bounds, options)?.zoom;
-                    state.map.fitBounds(bounds, options);
-
-                }
-            }
+            applySelectionForFeature(feature, 'search');
         }
 
         // Listen for ESC key to clear selection
@@ -906,6 +1029,7 @@ export function setupSearch(areas, config, state, rateById, areaById) {
                 // Clear both selection and hover feature-state and info
                 if (typeof state.map !== 'undefined' && state.map !== null) {
                     suppressSuggestions(300);
+                    clearSearchError();
 
                     // Clear the search input but keep focus there after clearing.
                     const input = document.getElementById(searchBoxId);

@@ -1,0 +1,279 @@
+/* Template-specific layout for time-series explorer */
+
+#controls {
+  max-width: 800px;
+  margin: 0 auto;
+}
+
+#dataset-switch-container {
+  margin: 6px 0 4px 0;
+}
+
+#timeline-container {
+  margin: 6px 0 2px 0;
+  padding: 0 12px;
+  box-sizing: border-box;
+}
+
+#timeline-slider {
+  width: 100%;
+}
+
+/* Custom timeline slider */
+#timeline-slider.timeline-slider {
+  position: relative;
+  height: 64px;
+  user-select: none;
+  -webkit-user-select: none;
+  /* Allow page to scroll vertically, but keep horizontal drags for scrubbing */
+  touch-action: pan-y;
+}
+
+/* Range mode needs a little more vertical room for two pill labels */
+#timeline-slider.timeline-slider.is-range {
+  height: 86px;
+}
+
+#timeline-slider.timeline-slider:focus-visible {
+  outline: none;
+}
+
+#timeline-slider.timeline-slider:focus-visible .timeline-marker.is-active {
+  box-shadow: 0 0 0 3px var(--ons-color-highlight-orange);
+}
+
+/* While dragging, keep the highlight following the active marker */
+#timeline-slider.timeline-slider.is-dragging .timeline-marker.is-active {
+  box-shadow: 0 0 0 3px var(--ons-color-highlight-orange);
+}
+
+.timeline-track {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 18px;
+  height: 2px;
+  transform: translateY(-50%);
+  background: var(--ons-color-grey-50);
+}
+
+/* Highlighted selected range (From -> To) */
+.timeline-range {
+  position: absolute;
+  top: 18px;
+  height: 4px;
+  transform: translateY(-50%);
+  background: var(--ons-color-ocean-blue);
+  border-radius: 999px;
+  z-index: 0;
+}
+
+.timeline-marker {
+  position: absolute;
+  top: 18px;
+  transform: translate(-50%, -50%);
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--ons-color-white); /* masks the track behind inactive markers */
+  border: 2px solid var(--ons-color-grey-50);
+  padding: 0;
+  margin: 0;
+  cursor: pointer;
+  appearance: none;
+  -webkit-appearance: none;
+  color: inherit;
+  touch-action: none;
+  z-index: 1;
+}
+
+/* In range mode, keep markers subtle; the handles show endpoints */
+#timeline-slider.timeline-slider.is-range .timeline-marker.is-in-range {
+  border-color: var(--ons-color-ocean-blue);
+}
+
+/* From/To handles */
+.timeline-handle {
+  position: absolute;
+  top: 18px;
+  transform: translate(-50%, -50%);
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: var(--ons-color-ocean-blue);
+  border: 2px solid var(--ons-color-ocean-blue);
+  padding: 0;
+  margin: 0;
+  cursor: pointer;
+  appearance: none;
+  -webkit-appearance: none;
+  touch-action: none;
+  z-index: 3;
+}
+
+.timeline-handle:focus-visible {
+  outline: 3px solid var(--ons-color-highlight-orange);
+  outline-offset: 3px;
+}
+
+.timeline-handle.is-active-handle {
+  box-shadow: 0 0 0 3px var(--ons-color-highlight-orange);
+}
+
+.timeline-marker.is-complete {
+  background: var(--ons-color-ocean-blue);
+  border-color: var(--ons-color-ocean-blue);
+}
+
+.timeline-marker.is-active {
+  width: 22px;
+  height: 22px;
+  background: var(--ons-color-ocean-blue);
+  border-color: var(--ons-color-ocean-blue);
+  z-index: 2;
+}
+
+.timeline-marker:focus-visible {
+  outline: 3px solid var(--ons-color-highlight-orange);
+  outline-offset: 3px;
+}
+
+.timeline-pill {
+  position: absolute;
+  top: 34px;
+  transform: translateX(-50%);
+  background: var(--ons-color-ocean-blue);
+  color: var(--ons-color-white);
+  font-weight: 700;
+  font-size: 15px;
+  line-height: 1;
+  padding: 5px 8px;
+  border-radius: 10px;
+  white-space: nowrap;
+  z-index: 1;
+}
+
+/* In range mode, pills share the same vertical position.
+   When they are too close, JS applies a horizontal offset. */
+
+/* Hide tick text labels in range mode to avoid overlap */
+#timeline-slider.timeline-slider.is-range .timeline-tick {
+  display: none;
+}
+
+.timeline-tick {
+  position: absolute;
+  top: 34px;
+  transform: translateX(-50%);
+  font-size: 13px;
+  color: var(--ons-color-grey-50);
+  white-space: nowrap;
+  z-index: 0;
+}
+
+/* Map stage (map + overlay elements) */
+#mapstage {
+  position: relative;
+}
+
+/* Chart overlay (appears only when an area is selected) */
+.chart-overlay {
+  position: absolute;
+  left: 12px;
+  bottom: 12px;
+  z-index: 2000;
+
+  width: min(420px, calc(100% - 24px));
+  box-sizing: border-box;
+  overflow: hidden;
+
+  background: var(--ons-color-white);
+  border: 1px solid rgba(0, 0, 0, 0.15);
+  border-radius: 8px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.18);
+  padding: 48px 12px 12px 12px; /* leaves room for close button */
+}
+
+.chart-overlay.hidden {
+  display: none;
+}
+
+/* Hover preview (tooltip-like): non-interactive and no close button */
+.chart-overlay.is-hover {
+  pointer-events: none;
+  /* leave room for the chart title (and match pinned top padding) */
+  padding: 48px 12px 12px 12px;
+}
+
+/* Pinned (clicked): interactive and shows close button */
+.chart-overlay.is-pinned {
+  pointer-events: auto;
+  padding: 48px 12px 12px 12px;
+}
+
+/* Close button only appears when pinned */
+.chart-overlay:not(.is-pinned) .chart-overlay-close {
+  display: none;
+}
+
+.chart-overlay-close {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  border: 1px solid rgba(0, 0, 0, 0.15);
+  background: var(--ons-color-white);
+  cursor: pointer;
+  font-size: 22px;
+  line-height: 28px;
+  padding: 0;
+}
+
+.chart-overlay-close:hover {
+  background: var(--ons-color-grey-10);
+}
+
+.chart-overlay-close:focus {
+  outline: 3px solid var(--ons-color-highlight-orange);
+  outline-offset: 2px;
+}
+
+.chart-overlay-close:focus:not(:focus-visible) {
+  outline: none;
+}
+
+#chart {
+  width: 100%;
+}
+
+/* Chart tick label sizing */
+.chart-overlay .axis text {
+  font-size: 13px;
+}
+
+/* Chart timeline pill (only focusable element inside the SVG) */
+.chart-timeline-pill:focus {
+  outline: none;
+}
+
+.chart-timeline-pill:focus rect {
+  stroke: var(--ons-color-highlight-orange);
+  stroke-width: 3px;
+  vector-effect: non-scaling-stroke;
+}
+
+.chart-timeline-pill:focus:not(:focus-visible) rect {
+  stroke: none;
+}
+
+/* Full-width pinned overlay mode (typically mobile)
+   Applied dynamically when the pinned overlay would exceed ~65% of viewport width. */
+.chart-overlay.is-fullwidth {
+  left: 12px;
+  right: 12px;
+  bottom: 12px;
+  width: auto;
+  max-width: none;
+}

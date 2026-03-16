@@ -30,8 +30,15 @@ const state = {
 	// dataset/time series
 	datasetIndex: 0,
 	timeColumns: [],
+	// Point mode selection
 	timeIndex: 0,
 	selectedTimeRaw: null,
+	// Range mode selection (From/To)
+	timeFromIndex: 0,
+	timeToIndex: 0,
+	selectedFromRaw: null,
+	selectedToRaw: null,
+	activeTimeHandle: 'to', // 'from' | 'to'
 	seriesById: {},
 	meanSeries: [],
 	breaks: null,
@@ -58,6 +65,32 @@ const state = {
 	__lastFocusKey: null,
 	__lastFocusAt: 0,
 };
+
+function isRangeMode() {
+	return String(config?.timeSelectionMode || 'point').toLowerCase() === 'range';
+}
+
+function getChangeMetric() {
+	const m = String(config?.changeMetric || 'absolute').toLowerCase();
+	return (m === 'percent') ? 'percent' : 'absolute';
+}
+
+function clampTimeIndex(i) {
+	const maxIdx = Math.max(0, state.timeColumns.length - 1);
+	const n = Number.isFinite(+i) ? Math.round(+i) : 0;
+	return Math.max(0, Math.min(n, maxIdx));
+}
+
+function normalizeRange(fromIdx, toIdx) {
+	let f = clampTimeIndex(fromIdx);
+	let t = clampTimeIndex(toIdx);
+	if (f > t) {
+		const tmp = f;
+		f = t;
+		t = tmp;
+	}
+	return { from: f, to: t };
+}
 
 const graphic = d3.select('#graphic');
 const keyscale = d3.select('#keyscale');
@@ -121,24 +154,55 @@ function buildSeriesStore(csv) {
 	return { timeColumns, seriesById, areaById, meanSeries };
 }
 
-function updateRateByIdForTime() {
-	const idx = state.timeIndex;
+function updateRateByIdForSelection() {
 	const rateById = state.rateById;
 	// clear existing keys (keep same object reference)
 	for (const k of Object.keys(rateById)) delete rateById[k];
+
+	if (!isRangeMode()) {
+		const idx = clampTimeIndex(state.timeIndex);
+		for (const code of Object.keys(state.seriesById)) {
+			rateById[code] = state.seriesById[code].values[idx];
+		}
+		return;
+	}
+
+	const { from, to } = normalizeRange(state.timeFromIndex, state.timeToIndex);
+	const metric = getChangeMetric();
 	for (const code of Object.keys(state.seriesById)) {
-		rateById[code] = state.seriesById[code].values[idx];
+		const values = state.seriesById[code].values;
+		const vFrom = values[from];
+		const vTo = values[to];
+		if (vFrom === null || vTo === null || !Number.isFinite(vFrom) || !Number.isFinite(vTo)) {
+			rateById[code] = null;
+			continue;
+		}
+		const delta = vTo - vFrom;
+		if (metric === 'percent') {
+			// Avoid infinities / misleading % where baseline is missing/zero.
+			if (!Number.isFinite(vFrom) || vFrom === 0) {
+				rateById[code] = null;
+			} else {
+				rateById[code] = delta / vFrom;
+			}
+		} else {
+			rateById[code] = delta;
+		}
 	}
 }
 
 function buildDataForMap() {
-	const tCol = state.timeColumns[state.timeIndex];
+	const tCol = state.timeColumns[clampTimeIndex(state.timeIndex)];
+	const fromRaw = state.selectedFromRaw;
+	const toRaw = state.selectedToRaw;
 	state.dataForMap = Object.keys(state.seriesById).map(code => {
 		return {
 			[config.dataIdField]: code,
 			[config.dataNameField]: state.seriesById[code].areaName,
 			value: state.rateById[code],
 			__time: tCol,
+			__from: fromRaw,
+			__to: toRaw,
 		};
 	});
 }
@@ -170,7 +234,9 @@ function computeBreaksForDataset() {
 
 	const numClasses = Array.isArray(palette) ? palette.length : (config.breaksNumber || 5);
 
-	if ((config.timeBreaksMode || 'fixed') === 'perTime') {
+	// Range mode: breaks should respond to the chosen range, so treat as perTime.
+	const breaksMode = isRangeMode() ? 'perTime' : (config.timeBreaksMode || 'fixed');
+	if (breaksMode === 'perTime') {
 		// Will be recomputed on each time change
 		state.breaks = null;
 		state.colour = d3.scaleThreshold().range(palette);
@@ -192,7 +258,8 @@ function computeBreaksForDataset() {
 }
 
 function ensureBreaksAndLegend() {
-	if ((config.timeBreaksMode || 'fixed') === 'perTime') {
+	const breaksMode = isRangeMode() ? 'perTime' : (config.timeBreaksMode || 'fixed');
+	if (breaksMode === 'perTime') {
 		const palette = state.colour.range();
 		const legendDecimals = getLegendDecimals(config.legendFormat || ',.2f');
 		const method = Array.isArray(config.breaks) ? config.breaks[0] : config.breaks;
@@ -213,6 +280,65 @@ function ensureBreaksAndLegend() {
 	}
 
 	drawKeyScale({ keyscale, breaks: state.breaks, colour: state.colour, config, window, state });
+}
+
+function setActiveTimeHandle(handle) {
+	state.activeTimeHandle = (handle === 'from') ? 'from' : 'to';
+}
+
+function applySelectionToUIAndMap() {
+	setTimelineUI();
+	updateRateByIdForSelection();
+	buildDataForMap();
+	ensureBreaksAndLegend();
+	redrawMapFill(state.dataForMap, state.rateById, state.colour, state);
+
+	// Keep selected/hover info in sync
+	if (state.selectedAreaCode) {
+		const v = state.rateById[state.selectedAreaCode];
+		if (window.moveKeyIndicatorSelected) window.moveKeyIndicatorSelected(v);
+		updateKeyInfo(v, state.selectedAreaName || state.areaById[state.selectedAreaCode], state);
+	}
+
+	updateChart();
+}
+
+function setTimeSelection(next, { activeHandle = null } = {}) {
+	if (!state.timeColumns.length) return;
+
+	if (!isRangeMode()) {
+		const clamped = clampTimeIndex(next);
+		state.timeIndex = clamped;
+		state.selectedTimeRaw = state.timeColumns[clamped] ?? null;
+		// Keep range fields loosely in sync (useful when toggling modes)
+		state.timeFromIndex = 0;
+		state.timeToIndex = clamped;
+		state.selectedFromRaw = state.timeColumns[0] ?? null;
+		state.selectedToRaw = state.timeColumns[clamped] ?? null;
+		applySelectionToUIAndMap();
+		return;
+	}
+
+	const current = normalizeRange(state.timeFromIndex, state.timeToIndex);
+	let fromIdx = current.from;
+	let toIdx = current.to;
+	const handle = (activeHandle === 'from' || activeHandle === 'to') ? activeHandle : state.activeTimeHandle;
+	setActiveTimeHandle(handle);
+	const idx = clampTimeIndex(next);
+	if (handle === 'from') fromIdx = idx;
+	else toIdx = idx;
+
+	const norm = normalizeRange(fromIdx, toIdx);
+	state.timeFromIndex = norm.from;
+	state.timeToIndex = norm.to;
+	state.selectedFromRaw = state.timeColumns[state.timeFromIndex] ?? null;
+	state.selectedToRaw = state.timeColumns[state.timeToIndex] ?? null;
+
+	// Keep point-mode fields consistent for any code paths that still read them.
+	state.timeIndex = state.timeToIndex;
+	state.selectedTimeRaw = state.selectedToRaw;
+
+	applySelectionToUIAndMap();
 }
 
 let __timelineWired = false;
@@ -236,10 +362,11 @@ function getNearestTimelineIndexFromClientX(container, clientX) {
 	return bestIndex;
 }
 
-function beginTimelineDrag(container, event, captureElement) {
+function beginTimelineDrag(container, event, captureElement, opts = {}) {
 	if (!container || !event) return;
 	const pointerId = event.pointerId;
 	if (typeof pointerId !== 'number') return;
+	const onIndex = (opts && typeof opts.onIndex === 'function') ? opts.onIndex : (idx) => setTimeIndex(idx);
 
 	// Avoid double-binding if something already captured.
 	if (container.__timelineDragging) return;
@@ -270,10 +397,13 @@ function beginTimelineDrag(container, event, captureElement) {
 	const apply = () => {
 		rafId = null;
 		const next = getNearestTimelineIndexFromClientX(container, latestX);
-		setTimeIndex(next);
+		onIndex(next);
 
 		if (startedOnMarker) {
-			const activeBtn = container.querySelector(`button.timeline-marker[data-index="${state.timeIndex}"]`);
+			const idxToFocus = isRangeMode()
+				? (state.activeTimeHandle === 'from' ? state.timeFromIndex : state.timeToIndex)
+				: state.timeIndex;
+			const activeBtn = container.querySelector(`button.timeline-marker[data-index="${idxToFocus}"]`);
 			if (activeBtn && document.activeElement && document.activeElement.classList && document.activeElement.classList.contains('timeline-marker')) {
 				try { activeBtn.focus(); } catch (e) { /* ignore */ }
 			}
@@ -320,13 +450,14 @@ function beginTimelineDrag(container, event, captureElement) {
 	apply();
 }
 
-function beginTimelineTouchDrag(container, event, captureElement) {
+function beginTimelineTouchDrag(container, event, captureElement, opts = {}) {
 	if (!container || !event) return;
 	const touches = event.changedTouches || event.touches;
 	if (!touches || !touches.length) return;
 	const touch0 = touches[0];
 	const touchId = touch0.identifier;
 	if (typeof touchId !== 'number') return;
+	const onIndex = (opts && typeof opts.onIndex === 'function') ? opts.onIndex : (idx) => setTimeIndex(idx);
 
 	// Avoid double-binding if something already captured.
 	if (container.__timelineDragging) return;
@@ -340,7 +471,7 @@ function beginTimelineTouchDrag(container, event, captureElement) {
 	const apply = () => {
 		rafId = null;
 		const next = getNearestTimelineIndexFromClientX(container, latestX);
-		setTimeIndex(next);
+		onIndex(next);
 	};
 
 	const findTouch = (e) => {
@@ -585,21 +716,83 @@ function buildTimelineItems() {
 
 function ensureTimelineScaffold(container) {
 	container.classList.add('timeline-slider');
-	container.setAttribute('role', 'slider');
-	container.setAttribute('tabindex', '0');
 
 	const t = getTimelineConfig();
 	container.setAttribute('aria-label', t.ariaLabel);
+
+	if (isRangeMode()) {
+		container.classList.add('is-range');
+		container.setAttribute('role', 'group');
+		container.setAttribute('tabindex', '-1');
+		container.removeAttribute('aria-valuemin');
+		container.removeAttribute('aria-valuemax');
+		container.removeAttribute('aria-valuenow');
+		container.removeAttribute('aria-valuetext');
+	} else {
+		container.classList.remove('is-range');
+		container.setAttribute('role', 'slider');
+		container.setAttribute('tabindex', '0');
+	}
 
 	if (!container.querySelector('.timeline-track')) {
 		const track = document.createElement('div');
 		track.className = 'timeline-track';
 		container.appendChild(track);
 	}
-	if (!container.querySelector('.timeline-pill')) {
-		const pill = document.createElement('div');
-		pill.className = 'timeline-pill';
-		container.appendChild(pill);
+
+	if (isRangeMode()) {
+		if (!container.querySelector('.timeline-range')) {
+			const range = document.createElement('div');
+			range.className = 'timeline-range';
+			container.appendChild(range);
+		}
+		if (!container.querySelector('.timeline-pill--from')) {
+			const pill = document.createElement('div');
+			pill.className = 'timeline-pill timeline-pill--from';
+			container.appendChild(pill);
+		}
+		if (!container.querySelector('.timeline-pill--to')) {
+			const pill = document.createElement('div');
+			pill.className = 'timeline-pill timeline-pill--to';
+			container.appendChild(pill);
+		}
+		if (!container.querySelector('button.timeline-handle--from')) {
+			const btn = document.createElement('button');
+			btn.type = 'button';
+			btn.className = 'timeline-handle timeline-handle--from';
+			btn.setAttribute('data-handle', 'from');
+			btn.setAttribute('role', 'slider');
+			btn.setAttribute('tabindex', '0');
+			btn.setAttribute('aria-label', 'From');
+			container.appendChild(btn);
+		}
+		if (!container.querySelector('button.timeline-handle--to')) {
+			const btn = document.createElement('button');
+			btn.type = 'button';
+			btn.className = 'timeline-handle timeline-handle--to';
+			btn.setAttribute('data-handle', 'to');
+			btn.setAttribute('role', 'slider');
+			btn.setAttribute('tabindex', '0');
+			btn.setAttribute('aria-label', 'To');
+			container.appendChild(btn);
+		}
+	} else {
+		if (!container.querySelector('.timeline-pill')) {
+			const pill = document.createElement('div');
+			pill.className = 'timeline-pill';
+			container.appendChild(pill);
+		}
+		// Clean up any range-only elements if switching modes
+		const range = container.querySelector('.timeline-range');
+		if (range) range.remove();
+		const pillFrom = container.querySelector('.timeline-pill--from');
+		if (pillFrom) pillFrom.remove();
+		const pillTo = container.querySelector('.timeline-pill--to');
+		if (pillTo) pillTo.remove();
+		const hFrom = container.querySelector('button.timeline-handle--from');
+		if (hFrom) hFrom.remove();
+		const hTo = container.querySelector('button.timeline-handle--to');
+		if (hTo) hTo.remove();
 	}
 }
 
@@ -607,6 +800,213 @@ function renderTimeline() {
 	const container = document.getElementById('timeline-slider');
 	if (!container) return;
 	ensureTimelineScaffold(container);
+
+	if (isRangeMode()) {
+		const items = buildTimelineItems();
+		const maxIdx = Math.max(0, items.length - 1);
+		if (!items.length) return;
+
+		const norm = normalizeRange(state.timeFromIndex, state.timeToIndex);
+		state.timeFromIndex = norm.from;
+		state.timeToIndex = norm.to;
+		state.selectedFromRaw = state.timeColumns[state.timeFromIndex] ?? null;
+		state.selectedToRaw = state.timeColumns[state.timeToIndex] ?? null;
+		state.timeIndex = state.timeToIndex;
+		state.selectedTimeRaw = state.selectedToRaw;
+
+		const width = container.clientWidth || 0;
+		if (!width) return;
+		const padding = 10;
+
+		let allHaveDates = items.length > 1 && items.every(d => d.date instanceof Date && Number.isFinite(d.date.getTime()));
+		let timeDomain = null;
+		if (allHaveDates) {
+			timeDomain = d3.extent(items, d => d.date);
+			if (!timeDomain || !timeDomain[0] || !timeDomain[1] || timeDomain[0].getTime() === timeDomain[1].getTime()) {
+				allHaveDates = false;
+			}
+		}
+
+		const x = allHaveDates
+			? d3.scaleTime().domain(timeDomain).range([padding, width - padding])
+			: d3.scalePoint().domain(items.map(d => d.index)).range([padding, width - padding]);
+
+		container.__timelinePositions = items.map(d => {
+			const px = allHaveDates ? x(d.date) : x(d.index);
+			return { index: d.index, x: px };
+		});
+
+		// Markers
+		const markersSel = d3.select(container)
+			.selectAll('button.timeline-marker')
+			.data(items, d => d.raw);
+		markersSel.exit().remove();
+
+		const markersEnter = markersSel.enter()
+			.append('button')
+			.attr('type', 'button')
+			.attr('class', 'timeline-marker')
+			.attr('role', 'button')
+			.attr('tabindex', 0)
+			.on('pointerdown', (event, d) => {
+				event.preventDefault();
+				try { event.currentTarget.focus(); } catch (e) { /* ignore */ }
+				const distFrom = Math.abs(d.index - state.timeFromIndex);
+				const distTo = Math.abs(d.index - state.timeToIndex);
+				const handle = distFrom <= distTo ? 'from' : 'to';
+				setActiveTimeHandle(handle);
+				beginTimelineDrag(container, event, event.currentTarget, {
+					onIndex: (idx) => setTimeSelection(idx, { activeHandle: handle })
+				});
+				setTimeSelection(d.index, { activeHandle: handle });
+			})
+			.on('keydown', (event, d) => {
+				const key = event.key;
+				if (key === 'Enter' || key === ' ') {
+					event.preventDefault();
+					event.stopPropagation();
+					const distFrom = Math.abs(d.index - state.timeFromIndex);
+					const distTo = Math.abs(d.index - state.timeToIndex);
+					const handle = distFrom <= distTo ? 'from' : 'to';
+					setActiveTimeHandle(handle);
+					setTimeSelection(d.index, { activeHandle: handle });
+					return;
+				}
+			});
+
+		const markersAll = markersEnter.merge(markersSel);
+		markersAll
+			.attr('data-index', d => String(d.index))
+			.attr('aria-label', d => d.srText)
+			.classed('is-from', d => d.index === state.timeFromIndex)
+			.classed('is-to', d => d.index === state.timeToIndex)
+			.classed('is-in-range', d => d.index >= state.timeFromIndex && d.index <= state.timeToIndex)
+			.style('left', d => {
+				const px = allHaveDates ? x(d.date) : x(d.index);
+				return `${px}px`;
+			});
+
+		// Tick labels
+		const tickLabelItems = computeTimelineTickLabelItems({ items, containerWidth: width, allHaveDates });
+		const ticksSel = d3.select(container)
+			.selectAll('div.timeline-tick')
+			.data(tickLabelItems, d => d.raw);
+		ticksSel.exit().remove();
+		const ticksEnter = ticksSel.enter().append('div').attr('class', 'timeline-tick');
+		ticksEnter.merge(ticksSel)
+			.text(d => d.display)
+			.style('left', d => {
+				const px = allHaveDates ? x(d.date) : x(d.index);
+				return `${px}px`;
+			});
+
+		const posByIndex = (idx) => {
+			const p = (container.__timelinePositions || []).find(p => p.index === idx);
+			return p ? p.x : padding;
+		};
+		const pxFrom = posByIndex(state.timeFromIndex);
+		const pxTo = posByIndex(state.timeToIndex);
+
+		// Range highlight
+		const rangeEl = container.querySelector('.timeline-range');
+		if (rangeEl) {
+			rangeEl.style.left = `${Math.min(pxFrom, pxTo)}px`;
+			rangeEl.style.width = `${Math.max(2, Math.abs(pxTo - pxFrom))}px`;
+			rangeEl.style.display = '';
+		}
+
+		// Handles + pills
+		const handleFrom = container.querySelector('button.timeline-handle--from');
+		const handleTo = container.querySelector('button.timeline-handle--to');
+		if (handleFrom) {
+			handleFrom.style.left = `${pxFrom}px`;
+			handleFrom.setAttribute('aria-valuemin', '0');
+			handleFrom.setAttribute('aria-valuemax', String(maxIdx));
+			handleFrom.setAttribute('aria-valuenow', String(state.timeFromIndex));
+			handleFrom.setAttribute('aria-valuetext', items[state.timeFromIndex]?.srText || '');
+			handleFrom.classList.toggle('is-active-handle', state.activeTimeHandle === 'from');
+		}
+		if (handleTo) {
+			handleTo.style.left = `${pxTo}px`;
+			handleTo.setAttribute('aria-valuemin', '0');
+			handleTo.setAttribute('aria-valuemax', String(maxIdx));
+			handleTo.setAttribute('aria-valuenow', String(state.timeToIndex));
+			handleTo.setAttribute('aria-valuetext', items[state.timeToIndex]?.srText || '');
+			handleTo.classList.toggle('is-active-handle', state.activeTimeHandle === 'to');
+		}
+
+		const pillFrom = container.querySelector('.timeline-pill--from');
+		if (pillFrom && items[state.timeFromIndex]) {
+			pillFrom.textContent = `From: ${items[state.timeFromIndex].display}`;
+			pillFrom.style.left = `${pxFrom}px`;
+			pillFrom.style.display = '';
+		}
+		const pillTo = container.querySelector('.timeline-pill--to');
+		if (pillTo && items[state.timeToIndex]) {
+			pillTo.textContent = `To: ${items[state.timeToIndex].display}`;
+			pillTo.style.left = `${pxTo}px`;
+			pillTo.style.display = '';
+		}
+
+		// If From/To pills are too close, push them apart horizontally.
+		// (Keep handles/vlines at the true positions; this is just label placement.)
+		if (pillFrom && pillTo) {
+			let wFrom = 0;
+			let wTo = 0;
+			try { wFrom = pillFrom.getBoundingClientRect().width || 0; } catch (e) { wFrom = 0; }
+			try { wTo = pillTo.getBoundingClientRect().width || 0; } catch (e) { wTo = 0; }
+			const dist = Math.abs(pxTo - pxFrom);
+			const minGap = (wFrom / 2) + (wTo / 2) + 10;
+			if (Number.isFinite(dist) && Number.isFinite(minGap) && dist > 0 && dist < minGap) {
+				const push = (minGap - dist) / 2;
+				const dir = pxFrom <= pxTo ? 1 : -1;
+				pillFrom.style.transform = `translateX(-50%) translateX(${(-push * dir).toFixed(2)}px)`;
+				pillTo.style.transform = `translateX(-50%) translateX(${(push * dir).toFixed(2)}px)`;
+			} else {
+				pillFrom.style.transform = 'translateX(-50%)';
+				pillTo.style.transform = 'translateX(-50%)';
+			}
+		}
+
+		// Wire handle interactions once
+		if (!container.__rangeHandlesWired) {
+			container.__rangeHandlesWired = true;
+			const wire = (btn, handle) => {
+				if (!btn) return;
+				btn.addEventListener('focus', () => setActiveTimeHandle(handle));
+				btn.addEventListener('pointerdown', (event) => {
+					event.preventDefault();
+					setActiveTimeHandle(handle);
+					try { btn.focus({ preventScroll: true }); } catch (e) { /* ignore */ }
+					beginTimelineDrag(container, event, btn, {
+						onIndex: (idx) => setTimeSelection(idx, { activeHandle: handle })
+					});
+				});
+				btn.addEventListener('touchstart', (event) => {
+					setActiveTimeHandle(handle);
+					beginTimelineTouchDrag(container, event, btn, {
+						onIndex: (idx) => setTimeSelection(idx, { activeHandle: handle })
+					});
+				});
+				btn.addEventListener('keydown', (event) => {
+					const max = Math.max(0, state.timeColumns.length - 1);
+					const jump = getTimelineKeyboardStep();
+					const delta = event.shiftKey ? jump : 1;
+					const currentIdx = handle === 'from' ? state.timeFromIndex : state.timeToIndex;
+					if (event.key === 'Home') { event.preventDefault(); setTimeSelection(0, { activeHandle: handle }); return; }
+					if (event.key === 'End') { event.preventDefault(); setTimeSelection(max, { activeHandle: handle }); return; }
+					if (event.key === 'PageUp') { event.preventDefault(); setTimeSelection(currentIdx - jump, { activeHandle: handle }); return; }
+					if (event.key === 'PageDown') { event.preventDefault(); setTimeSelection(currentIdx + jump, { activeHandle: handle }); return; }
+					if (event.key === 'ArrowLeft') { event.preventDefault(); setTimeSelection(currentIdx - delta, { activeHandle: handle }); return; }
+					if (event.key === 'ArrowRight') { event.preventDefault(); setTimeSelection(currentIdx + delta, { activeHandle: handle }); return; }
+				});
+			};
+			wire(handleFrom, 'from');
+			wire(handleTo, 'to');
+		}
+
+		return;
+	}
 
 	const items = buildTimelineItems();
 	const maxIdx = Math.max(0, items.length - 1);
@@ -787,14 +1187,29 @@ function wireTimelineEvents() {
 	container.addEventListener('pointerdown', (event) => {
 		// Buttons handle their own pointerdown; avoid starting a second drag.
 		if (event.target && event.target.closest && event.target.closest('button.timeline-marker')) return;
+		if (event.target && event.target.closest && event.target.closest('button.timeline-handle')) return;
 		event.preventDefault();
-		if (event.pointerType !== 'touch') {
+		if (event.pointerType !== 'touch' && !isRangeMode()) {
 			try { container.focus({ preventScroll: true }); } catch (e) { /* ignore */ }
 		}
-		beginTimelineDrag(container, event, container);
+		beginTimelineDrag(container, event, container, {
+			onIndex: (idx) => {
+				if (isRangeMode()) {
+					// choose nearest handle to the intended index
+					const distFrom = Math.abs(idx - state.timeFromIndex);
+					const distTo = Math.abs(idx - state.timeToIndex);
+					setActiveTimeHandle(distFrom <= distTo ? 'from' : 'to');
+					setTimeSelection(idx);
+				} else {
+					setTimeSelection(idx);
+				}
+			}
+		});
 	});
 
 	container.addEventListener('keydown', (event) => {
+		// In range mode, keyboard is handled by the individual handles.
+		if (isRangeMode()) return;
 		// If a marker has focus, it handles its own keydown.
 		if (event.target !== container) return;
 
@@ -802,36 +1217,12 @@ function wireTimelineEvents() {
 		const jump = getTimelineKeyboardStep();
 		const delta = event.shiftKey ? jump : 1;
 
-		if (event.key === 'Home') {
-			event.preventDefault();
-			setTimeIndex(0);
-			return;
-		}
-		if (event.key === 'End') {
-			event.preventDefault();
-			setTimeIndex(maxIdx);
-			return;
-		}
-		if (event.key === 'PageUp') {
-			event.preventDefault();
-			setTimeIndex(state.timeIndex - jump);
-			return;
-		}
-		if (event.key === 'PageDown') {
-			event.preventDefault();
-			setTimeIndex(state.timeIndex + jump);
-			return;
-		}
-		if (event.key === 'ArrowLeft') {
-			event.preventDefault();
-			setTimeIndex(state.timeIndex - delta);
-			return;
-		}
-		if (event.key === 'ArrowRight') {
-			event.preventDefault();
-			setTimeIndex(state.timeIndex + delta);
-			return;
-		}
+		if (event.key === 'Home') { event.preventDefault(); setTimeSelection(0); return; }
+		if (event.key === 'End') { event.preventDefault(); setTimeSelection(maxIdx); return; }
+		if (event.key === 'PageUp') { event.preventDefault(); setTimeSelection(state.timeIndex - jump); return; }
+		if (event.key === 'PageDown') { event.preventDefault(); setTimeSelection(state.timeIndex + jump); return; }
+		if (event.key === 'ArrowLeft') { event.preventDefault(); setTimeSelection(state.timeIndex - delta); return; }
+		if (event.key === 'ArrowRight') { event.preventDefault(); setTimeSelection(state.timeIndex + delta); return; }
 	});
 }
 
@@ -840,25 +1231,9 @@ function setTimelineUI() {
 	renderTimeline();
 }
 
+// Backwards-compat wrapper used by existing drag/marker handlers.
 function setTimeIndex(nextIndex) {
-	const clamped = Math.max(0, Math.min(nextIndex, state.timeColumns.length - 1));
-	state.timeIndex = clamped;
-	state.selectedTimeRaw = state.timeColumns[clamped] ?? null;
-	setTimelineUI();
-
-	updateRateByIdForTime();
-	buildDataForMap();
-	ensureBreaksAndLegend();
-	redrawMapFill(state.dataForMap, state.rateById, state.colour, state);
-
-	// Keep selected/hover info in sync
-	if (state.selectedAreaCode) {
-		const v = state.rateById[state.selectedAreaCode];
-		if (window.moveKeyIndicatorSelected) window.moveKeyIndicatorSelected(v);
-		updateKeyInfo(v, state.selectedAreaName || state.areaById[state.selectedAreaCode], state);
-	}
-
-	updateChart();
+	setTimeSelection(nextIndex);
 }
 
 function renderDatasetSwitch() {
@@ -1105,7 +1480,17 @@ function createChart({ overlayInnerHeight = null } = {}) {
 		.style('pointer-events', 'none')
 		.style('display', 'none');
 
+	const vlineFrom = g.append('line')
+		.attr('class', 'chart-vline chart-vline--from')
+		.style('stroke', 'var(--ons-color-grey-50)')
+		.attr('stroke-width', 2)
+		.attr('stroke-dasharray', '4 3')
+		.attr('y1', 0)
+		.attr('y2', innerHeight)
+		.style('opacity', 0);
+
 	const vline = g.append('line')
+		.attr('class', 'chart-vline chart-vline--to')
 		.style('stroke', 'var(--ons-color-grey-50)')
 		.attr('stroke-width', 2)
 		.attr('stroke-dasharray', '4 3')
@@ -1184,6 +1569,54 @@ function createChart({ overlayInnerHeight = null } = {}) {
 	const yAxisG = g.append('g')
 		.attr('class', 'y axis numeric');
 
+	const chartPillFromG = g.append('g')
+		.attr('class', 'chart-timeline-pill chart-timeline-pill--from')
+		.attr('tabindex', 0)
+		.attr('role', 'slider')
+		.attr('aria-label', `${tCfg.ariaLabel} (From)`)
+		.style('cursor', 'pointer')
+		.style('touch-action', 'none')
+		.style('display', 'none')
+		.on('focus', () => setActiveTimeHandle('from'))
+		.on('pointerdown', (event) => {
+			if (event && event.pointerType === 'touch') return;
+			event.preventDefault();
+			setActiveTimeHandle('from');
+			try { event.currentTarget.focus({ preventScroll: true }); } catch (e) { /* ignore */ }
+			beginTimelineDrag(svg.node(), event, event.currentTarget, {
+				onIndex: (idx) => setTimeSelection(idx, { activeHandle: 'from' })
+			});
+		})
+		.on('touchstart', (event) => {
+			setActiveTimeHandle('from');
+			beginTimelineTouchDrag(svg.node(), event, event.currentTarget, {
+				onIndex: (idx) => setTimeSelection(idx, { activeHandle: 'from' })
+			});
+		})
+		.on('keydown', (event) => {
+			const maxIdx = Math.max(0, state.timeColumns.length - 1);
+			const jump = getTimelineKeyboardStep();
+			const delta = event.shiftKey ? jump : 1;
+			const currentIdx = state.timeFromIndex;
+			if (event.key === 'Home') { event.preventDefault(); setTimeSelection(0, { activeHandle: 'from' }); return; }
+			if (event.key === 'End') { event.preventDefault(); setTimeSelection(maxIdx, { activeHandle: 'from' }); return; }
+			if (event.key === 'PageUp') { event.preventDefault(); setTimeSelection(currentIdx - jump, { activeHandle: 'from' }); return; }
+			if (event.key === 'PageDown') { event.preventDefault(); setTimeSelection(currentIdx + jump, { activeHandle: 'from' }); return; }
+			if (event.key === 'ArrowLeft') { event.preventDefault(); setTimeSelection(currentIdx - delta, { activeHandle: 'from' }); return; }
+			if (event.key === 'ArrowRight') { event.preventDefault(); setTimeSelection(currentIdx + delta, { activeHandle: 'from' }); return; }
+		});
+
+	const chartPillFromRect = chartPillFromG.append('rect')
+		.attr('fill', 'var(--ons-color-ocean-blue)')
+		.attr('stroke', 'none');
+
+	const chartPillFromText = chartPillFromG.append('text')
+		.attr('text-anchor', 'middle')
+		.attr('dominant-baseline', 'middle')
+		.attr('fill', 'var(--ons-color-white)')
+		.style('font-size', '15px')
+		.style('font-weight', '700');
+
 	const chartPillG = g.append('g')
 		.attr('class', 'chart-timeline-pill')
 		.attr('tabindex', 0)
@@ -1192,27 +1625,35 @@ function createChart({ overlayInnerHeight = null } = {}) {
 		.style('cursor', 'pointer')
 		.style('touch-action', 'none')
 		.style('display', 'none')
+		.on('focus', () => setActiveTimeHandle('to'))
 		.on('pointerdown', (event) => {
 			// On some mobile browsers (notably Safari/SVG), pointer events can be unreliable.
 			// Prefer the explicit touch handlers for touch interactions.
 			if (event && event.pointerType === 'touch') return;
 			event.preventDefault();
+			setActiveTimeHandle('to');
 			try { event.currentTarget.focus({ preventScroll: true }); } catch (e) { /* ignore */ }
-			beginTimelineDrag(svg.node(), event, event.currentTarget);
+			beginTimelineDrag(svg.node(), event, event.currentTarget, {
+				onIndex: (idx) => setTimeSelection(idx, { activeHandle: 'to' })
+			});
 		})
 		.on('touchstart', (event) => {
-			beginTimelineTouchDrag(svg.node(), event, event.currentTarget);
+			setActiveTimeHandle('to');
+			beginTimelineTouchDrag(svg.node(), event, event.currentTarget, {
+				onIndex: (idx) => setTimeSelection(idx, { activeHandle: 'to' })
+			});
 		})
 		.on('keydown', (event) => {
 			const maxIdx = Math.max(0, state.timeColumns.length - 1);
 			const jump = getTimelineKeyboardStep();
 			const delta = event.shiftKey ? jump : 1;
-			if (event.key === 'Home') { event.preventDefault(); setTimeIndex(0); return; }
-			if (event.key === 'End') { event.preventDefault(); setTimeIndex(maxIdx); return; }
-			if (event.key === 'PageUp') { event.preventDefault(); setTimeIndex(state.timeIndex - jump); return; }
-			if (event.key === 'PageDown') { event.preventDefault(); setTimeIndex(state.timeIndex + jump); return; }
-			if (event.key === 'ArrowLeft') { event.preventDefault(); setTimeIndex(state.timeIndex - delta); return; }
-			if (event.key === 'ArrowRight') { event.preventDefault(); setTimeIndex(state.timeIndex + delta); return; }
+			const currentIdx = state.timeToIndex;
+			if (event.key === 'Home') { event.preventDefault(); setTimeSelection(0, { activeHandle: 'to' }); return; }
+			if (event.key === 'End') { event.preventDefault(); setTimeSelection(maxIdx, { activeHandle: 'to' }); return; }
+			if (event.key === 'PageUp') { event.preventDefault(); setTimeSelection(currentIdx - jump, { activeHandle: 'to' }); return; }
+			if (event.key === 'PageDown') { event.preventDefault(); setTimeSelection(currentIdx + jump, { activeHandle: 'to' }); return; }
+			if (event.key === 'ArrowLeft') { event.preventDefault(); setTimeSelection(currentIdx - delta, { activeHandle: 'to' }); return; }
+			if (event.key === 'ArrowRight') { event.preventDefault(); setTimeSelection(currentIdx + delta, { activeHandle: 'to' }); return; }
 		});
 
 	const chartPillRect = chartPillG.append('rect')
@@ -1233,7 +1674,7 @@ function createChart({ overlayInnerHeight = null } = {}) {
 		.attr('stroke-width', 1)
 		.style('opacity', 0);
 
-	function update({ timeColumns, areaSeries, meanSeries, timeIndex, areaName, colourScale, breaks }) {
+	function update({ timeColumns, areaSeries, meanSeries, timeIndex, timeFromIndex = null, timeToIndex = null, selectionMode = 'point', activeHandle = 'to', areaName, colourScale, breaks }) {
 		const yTicks = resolveYTicks(5);
 		const yTicksEmpty = resolveYTicks(4);
 		const indicatorColour = solidStroke;
@@ -1284,9 +1725,11 @@ function createChart({ overlayInnerHeight = null } = {}) {
 			areaGradient.selectAll('stop').remove();
 			meanPath.style('opacity', 0);
 			marker.style('opacity', 0);
+			vlineFrom.style('opacity', 0);
 			vline.style('opacity', 0);
 			indicatorTriangle.style('opacity', 0);
 			indicatorValue.style('opacity', 0);
+			chartPillFromG.style('display', 'none');
 			chartPillG.style('display', 'none');
 			return;
 		}
@@ -1526,24 +1969,21 @@ function createChart({ overlayInnerHeight = null } = {}) {
 			areaGradient.selectAll('stop').remove();
 		}
 
-		const t = timeColumns[timeIndex];
-		const xPos = x(t);
-		if (typeof xPos === 'number') {
-			vline.attr('x1', xPos).attr('x2', xPos).style('opacity', 1);
-			const pill = formatPillLabel(t);
-			chartPillG
-				.attr('aria-valuemin', '0')
-				.attr('aria-valuemax', String(Math.max(0, timeColumns.length - 1)))
-				.attr('aria-valuenow', String(timeIndex))
-				.attr('aria-valuetext', pill.srText)
-				.style('display', null);
+		const mode = (selectionMode === 'range') ? 'range' : 'point';
+		const idxFrom = mode === 'range' ? clampTimeIndex(timeFromIndex ?? state.timeFromIndex) : clampTimeIndex(timeIndex);
+		const idxTo = mode === 'range' ? clampTimeIndex(timeToIndex ?? timeIndex) : clampTimeIndex(timeIndex);
+		const tFrom = timeColumns[idxFrom];
+		const tTo = timeColumns[idxTo];
+		const xFrom = x(tFrom);
+		const xTo = x(tTo);
 
-			chartPillText.text(pill.display);
-			chartPillText.attr('x', 0).attr('y', 0).attr('transform', null);
+		const maxIdx = Math.max(0, timeColumns.length - 1);
+		const layoutPill = (pillG, pillRect, pillText, xPos, yPos) => {
+			pillText.attr('x', 0).attr('y', 0).attr('transform', null);
 			let textW = 0;
 			let textBox = null;
 			try {
-				textBox = chartPillText.node().getBBox();
+				textBox = pillText.node().getBBox();
 				textW = textBox.width;
 			} catch (e) {
 				textW = 0;
@@ -1552,12 +1992,8 @@ function createChart({ overlayInnerHeight = null } = {}) {
 			const padX = 10;
 			const pillH = 22;
 			const pillW = Math.max(24, textW + padX * 2);
-			// Place within the existing x-axis/tick area (no layout/margin changes).
-			// Axis tick lines extend from y=0 to y=6 below the axis baseline.
-			// Place the pill within that same bottom margin region.
-			const pillY = innerHeight + 6;
-			chartPillG.attr('transform', `translate(${xPos},${pillY})`);
-			chartPillRect
+			pillG.attr('transform', `translate(${xPos},${yPos})`);
+			pillRect
 				.attr('x', -pillW / 2)
 				.attr('y', 0)
 				.attr('width', pillW)
@@ -1566,20 +2002,81 @@ function createChart({ overlayInnerHeight = null } = {}) {
 				.attr('ry', Math.max(2, Math.round(pillH * 0.35)));
 			if (textBox) {
 				const dy = (pillH / 2) - (textBox.y + textBox.height / 2);
-				chartPillText.attr('transform', `translate(0,${dy})`);
+				pillText.attr('transform', `translate(0,${dy})`);
 			} else {
-				chartPillText.attr('y', pillH / 2);
+				pillText.attr('y', pillH / 2);
+			}
+		};
+
+		if (typeof xTo === 'number') {
+			vline.attr('x1', xTo).attr('x2', xTo).style('opacity', 1);
+			const pillTo = formatPillLabel(tTo);
+			chartPillG
+				.attr('aria-valuemin', '0')
+				.attr('aria-valuemax', String(maxIdx))
+				.attr('aria-valuenow', String(idxTo))
+				.attr('aria-valuetext', pillTo.srText)
+				.style('display', null);
+			chartPillText.text(`${mode === 'range' ? 'To: ' : ''}${pillTo.display}`);
+			layoutPill(chartPillG, chartPillRect, chartPillText, xTo, innerHeight + 6);
+
+			if (mode === 'range' && typeof xFrom === 'number') {
+				vlineFrom.attr('x1', xFrom).attr('x2', xFrom).style('opacity', 1);
+				const pillFrom = formatPillLabel(tFrom);
+				chartPillFromG
+					.attr('aria-valuemin', '0')
+					.attr('aria-valuemax', String(maxIdx))
+					.attr('aria-valuenow', String(idxFrom))
+					.attr('aria-valuetext', pillFrom.srText)
+					.style('display', null);
+				chartPillFromText.text(`From: ${pillFrom.display}`);
+				// Same vertical position as the To pill; apply horizontal separation below if needed.
+				layoutPill(chartPillFromG, chartPillFromRect, chartPillFromText, xFrom, innerHeight + 6);
+			} else {
+				vlineFrom.style('opacity', 0);
+				chartPillFromG.style('display', 'none');
+			}
+
+			// If range mode and both pills are visible, separate them horizontally if they overlap.
+			if (mode === 'range' && typeof xFrom === 'number' && typeof xTo === 'number') {
+				let wFrom = 0;
+				let wTo = 0;
+				try { wFrom = chartPillFromRect.attr('width') ? +chartPillFromRect.attr('width') : 0; } catch (e) { wFrom = 0; }
+				try { wTo = chartPillRect.attr('width') ? +chartPillRect.attr('width') : 0; } catch (e) { wTo = 0; }
+				// Fallback to a reasonable minimum when widths aren't measurable yet.
+				wFrom = Number.isFinite(wFrom) && wFrom > 0 ? wFrom : 40;
+				wTo = Number.isFinite(wTo) && wTo > 0 ? wTo : 40;
+				const dist = Math.abs(xTo - xFrom);
+				const minGap = (wFrom / 2) + (wTo / 2) + 10;
+				if (Number.isFinite(dist) && dist > 0 && dist < minGap) {
+					const push = (minGap - dist) / 2;
+					const dir = xFrom <= xTo ? 1 : -1;
+					const minFrom = (wFrom / 2);
+					const maxFrom = innerWidth - (wFrom / 2);
+					const minTo = (wTo / 2);
+					const maxTo = innerWidth - (wTo / 2);
+					const xFromAdj = Math.max(minFrom, Math.min(maxFrom, xFrom + (-push * dir)));
+					const xToAdj = Math.max(minTo, Math.min(maxTo, xTo + (push * dir)));
+					chartPillFromG.attr('transform', `translate(${xFromAdj},${innerHeight + 6})`);
+					chartPillG.attr('transform', `translate(${xToAdj},${innerHeight + 6})`);
+				}
 			}
 		} else {
+			vlineFrom.style('opacity', 0);
 			vline.style('opacity', 0);
 			indicatorTriangle.style('opacity', 0);
 			indicatorValue.style('opacity', 0);
+			chartPillFromG.style('display', 'none');
 			chartPillG.style('display', 'none');
 		}
 
+		const activeIsFrom = (mode === 'range' && activeHandle === 'from');
+		const tActive = activeIsFrom ? tFrom : tTo;
+		const xPos = activeIsFrom ? xFrom : xTo;
+
 		let activePoint = null;
 		if (areaSeries) {
-			activePoint = areaSeries.find(d => d.t === t) || null;
+			activePoint = areaSeries.find(d => d.t === tActive) || null;
 		}
 
 		if (activePoint && activePoint.v !== null && Number.isFinite(activePoint.v) && typeof xPos === 'number') {
@@ -1681,6 +2178,10 @@ function updateChart() {
 		areaSeries,
 		meanSeries,
 		timeIndex: state.timeIndex,
+		timeFromIndex: state.timeFromIndex,
+		timeToIndex: state.timeToIndex,
+		selectionMode: isRangeMode() ? 'range' : 'point',
+		activeHandle: state.activeTimeHandle,
 		areaName,
 		colourScale: state.colour,
 		breaks: state.breaks
@@ -1932,6 +2433,10 @@ async function loadDataset(datasetIndex) {
 	// Capture the current selection so we can retain it across dataset switches.
 	const prevSelectedRaw = state.selectedTimeRaw || state.timeColumns[state.timeIndex] || null;
 	const prevSelectedDate = prevSelectedRaw ? parseTimeColumn(prevSelectedRaw) : null;
+	const prevFromRaw = state.selectedFromRaw || state.timeColumns[state.timeFromIndex] || null;
+	const prevToRaw = state.selectedToRaw || prevSelectedRaw || state.timeColumns[state.timeToIndex] || null;
+	const prevFromDate = prevFromRaw ? parseTimeColumn(prevFromRaw) : null;
+	const prevToDate = prevToRaw ? parseTimeColumn(prevToRaw) : null;
 
 	const csv = await d3.csv(ds.url);
 	const { timeColumns, seriesById, areaById, meanSeries } = buildSeriesStore(csv);
@@ -1944,34 +2449,81 @@ async function loadDataset(datasetIndex) {
 	Object.assign(state.areaById, areaById);
 
 	// Initial timeline position:
+	// Point mode:
 	// 1) Retain previous selected time (exact header match, else nearest parsed date)
 	// 2) config.startTime if present
 	// 3) default to last
-	let nextIdx = -1;
-	if (prevSelectedRaw) {
-		nextIdx = state.timeColumns.indexOf(prevSelectedRaw);
-		if (nextIdx < 0 && prevSelectedDate && Number.isFinite(prevSelectedDate.getTime())) {
+	// Range mode:
+	// 1) Retain previous from/to (exact match, else nearest parsed date)
+	// 2) config.startFromTime/startToTime
+	// 3) default to min/max
+	const resolveIndex = ({ preferredRaw, preferredDate, configRaw, fallback }) => {
+		let idx = -1;
+		if (preferredRaw) idx = state.timeColumns.indexOf(preferredRaw);
+		if (idx < 0 && preferredDate && Number.isFinite(preferredDate.getTime())) {
 			let best = -1;
 			let bestDist = Infinity;
 			for (let i = 0; i < state.timeColumns.length; i++) {
 				const d = parseTimeColumn(state.timeColumns[i]);
 				if (!d || !Number.isFinite(d.getTime())) continue;
-				const dist = Math.abs(d.getTime() - prevSelectedDate.getTime());
+				const dist = Math.abs(d.getTime() - preferredDate.getTime());
 				if (dist < bestDist) {
 					bestDist = dist;
 					best = i;
 				}
 			}
-			nextIdx = best;
+			idx = best;
 		}
+		if (idx < 0 && typeof configRaw === 'string' && configRaw) {
+			idx = state.timeColumns.indexOf(configRaw);
+		}
+		return idx >= 0 ? idx : fallback;
+	};
+
+	if (isRangeMode()) {
+		const lastIdx = Math.max(0, state.timeColumns.length - 1);
+		const fromIdx = resolveIndex({
+			preferredRaw: prevFromRaw,
+			preferredDate: prevFromDate,
+			configRaw: (typeof config.startFromTime === 'string' ? config.startFromTime : null),
+			fallback: 0
+		});
+		const toIdx = resolveIndex({
+			preferredRaw: prevToRaw,
+			preferredDate: prevToDate,
+			configRaw: (typeof config.startToTime === 'string' ? config.startToTime : null),
+			fallback: lastIdx
+		});
+		const norm = normalizeRange(fromIdx, toIdx);
+		state.timeFromIndex = norm.from;
+		state.timeToIndex = norm.to;
+		state.selectedFromRaw = state.timeColumns[state.timeFromIndex] ?? null;
+		state.selectedToRaw = state.timeColumns[state.timeToIndex] ?? null;
+		state.timeIndex = state.timeToIndex;
+		state.selectedTimeRaw = state.selectedToRaw;
+		state.activeTimeHandle = state.activeTimeHandle === 'from' ? 'from' : 'to';
+	} else {
+		let nextIdx = -1;
+		if (prevSelectedRaw) {
+			nextIdx = state.timeColumns.indexOf(prevSelectedRaw);
+			nextIdx = (nextIdx < 0 && prevSelectedDate && Number.isFinite(prevSelectedDate.getTime()))
+				? resolveIndex({ preferredRaw: null, preferredDate: prevSelectedDate, configRaw: null, fallback: -1 })
+				: nextIdx;
+		}
+		if (nextIdx < 0) {
+			const desired = typeof config.startTime === 'string' ? config.startTime : null;
+			nextIdx = desired ? state.timeColumns.indexOf(desired) : -1;
+		}
+		state.timeIndex = nextIdx >= 0 ? nextIdx : Math.max(0, state.timeColumns.length - 1);
+		state.selectedTimeRaw = state.timeColumns[state.timeIndex] ?? null;
+		state.timeFromIndex = 0;
+		state.timeToIndex = state.timeIndex;
+		state.selectedFromRaw = state.timeColumns[0] ?? null;
+		state.selectedToRaw = state.selectedTimeRaw;
+		state.activeTimeHandle = 'to';
 	}
-	if (nextIdx < 0) {
-		const desired = typeof config.startTime === 'string' ? config.startTime : null;
-		nextIdx = desired ? state.timeColumns.indexOf(desired) : -1;
-	}
-	state.timeIndex = nextIdx >= 0 ? nextIdx : Math.max(0, state.timeColumns.length - 1);
-	state.selectedTimeRaw = state.timeColumns[state.timeIndex] ?? null;
-	updateRateByIdForTime();
+
+	updateRateByIdForSelection();
 	buildDataForMap();
 	computeBreaksForDataset();
 	setTimelineUI();

@@ -67,6 +67,27 @@ config = {
 		displayFormat: "%Y",
 		screenreaderFormat: "%B %Y",
 		parseFormat: null,
+		// Configure which tick *text labels* appear under the timeline track.
+		// Markers (dots) always render for every time point.
+		// If ticktext is omitted (or null), tick labels are shown for every time point
+		ticktext: {
+			tickMethod: "interval", // "interval" or "total"
+			tickCount: { // for "total" method
+				sm: 2,
+				md: 2,
+				lg: 6
+			},
+			tickInterval: { // for "interval" method
+				unit: "year", // "year", "month", "quarter", "day"
+				step: { // every x "units"
+					sm: 2,
+					md: 2,
+					lg: 2
+				}
+			},
+			addFirstDate: false,
+			addFinalDate: true,
+		},
 		ariaLabel: "Select time period",
 		keyboardStep: 5
 	},

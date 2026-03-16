@@ -1,5 +1,6 @@
 import { initialise, addSource } from "../lib/helpers.js";
 import { drawKeyScale } from "../lib-maps/legend.js";
+import { globalConfig } from "../lib/globalConfig.js";
 import {
 	calculateBreaks,
 	clearAreaSelection,
@@ -415,6 +416,136 @@ function getTimelineKeyboardStep() {
 	return getTimelineConfig().keyboardStep;
 }
 
+function getTimelineSize(width) {
+	const w = Number.isFinite(+width) ? +width : 0;
+	if (w && w < globalConfig.mobileBreakpoint) return 'sm';
+	if (w && w < globalConfig.mediumBreakpoint) return 'md';
+	return 'lg';
+}
+
+function getTimelineTickTextConfig() {
+	const t = (config && config.timeline) ? config.timeline : {};
+	const raw = t.ticktext;
+	if (!raw) return null;
+
+	const method = String(raw.tickMethod || 'interval').toLowerCase();
+	const tickCount = (raw.tickCount && typeof raw.tickCount === 'object') ? raw.tickCount : null;
+	const tickInterval = (raw.tickInterval && typeof raw.tickInterval === 'object') ? raw.tickInterval : null;
+
+	return {
+		tickMethod: (method === 'total' || method === 'interval') ? method : 'interval',
+		tickCount,
+		tickInterval,
+		addFirstDate: Boolean(raw.addFirstDate),
+		addFinalDate: Boolean(raw.addFinalDate)
+	};
+}
+
+function resolveTickCount(cfg, size, fallback) {
+	if (!cfg || !cfg.tickCount) return fallback;
+	const v = cfg.tickCount[size];
+	const n = Number.isFinite(+v) ? +v : fallback;
+	return n > 0 ? n : fallback;
+}
+
+function resolveTickInterval(cfg, size) {
+	const fallback = { unit: 'year', step: { sm: 1, md: 1, lg: 1 } };
+	const interval = cfg && cfg.tickInterval ? cfg.tickInterval : fallback;
+	const unit = String(interval.unit || fallback.unit).toLowerCase();
+	const stepRaw = interval.step;
+	const step = (typeof stepRaw === 'object' && stepRaw) ? stepRaw[size] : stepRaw;
+	const stepN = Number.isFinite(+step) ? +step : 1;
+	return { unit, step: stepN > 0 ? stepN : 1 };
+}
+
+function computeTimelineTickLabelIndices({ items, size, allHaveDates, tickCfg }) {
+	const n = items.length;
+	const maxIdx = Math.max(0, n - 1);
+	if (!n) return [];
+	if (!tickCfg) return items.map(d => d.index);
+
+	const indices = new Set();
+	const addIndex = (i) => {
+		const idx = Math.max(0, Math.min(maxIdx, Math.round(i)));
+		indices.add(idx);
+	};
+
+	const method = tickCfg.tickMethod || 'interval';
+
+	if (allHaveDates) {
+		const dated = items.filter(d => d.date instanceof Date && Number.isFinite(d.date.getTime()));
+		if (!dated.length) {
+			// Nothing parseable; fallback to labeling all.
+			return items.map(d => d.index);
+		}
+		const start = dated.reduce((a, b) => (a.date < b.date ? a : b)).date;
+		const end = dated.reduce((a, b) => (a.date > b.date ? a : b)).date;
+		const nearestIndexForDate = (target) => {
+			let best = dated[0].index;
+			let bestDist = Infinity;
+			const t = target.getTime();
+			for (const it of dated) {
+				const dist = Math.abs(it.date.getTime() - t);
+				if (dist < bestDist) {
+					bestDist = dist;
+					best = it.index;
+				}
+			}
+			return best;
+		};
+
+		let tickDates = [];
+		if (method === 'total') {
+			const count = resolveTickCount(tickCfg, size, 5);
+			tickDates = d3.scaleTime().domain([start, end]).ticks(count);
+		} else {
+			const interval = resolveTickInterval(tickCfg, size);
+			let d3Interval;
+			switch (interval.unit) {
+				case 'year':
+					d3Interval = d3.timeYear.every(interval.step);
+					break;
+				case 'month':
+					d3Interval = d3.timeMonth.every(interval.step);
+					break;
+				case 'quarter':
+					d3Interval = d3.timeMonth.every(interval.step * 3);
+					break;
+				case 'day':
+					d3Interval = d3.timeDay.every(interval.step);
+					break;
+				default:
+					d3Interval = d3.timeYear.every(1);
+			}
+			tickDates = d3Interval ? d3Interval.range(start, d3.timeDay.offset(end, 1)) : [];
+		}
+
+		if (!Array.isArray(tickDates)) tickDates = [];
+		for (const d of tickDates) {
+			if (!(d instanceof Date) || !Number.isFinite(d.getTime())) continue;
+			addIndex(nearestIndexForDate(d));
+		}
+	} else {
+		// Non-date headers: interval doesn't make sense; treat as total.
+		const count = resolveTickCount(tickCfg, size, 5);
+		const candidates = d3.ticks(0, maxIdx, count);
+		for (const v of candidates) addIndex(v);
+	}
+
+	// Apply endpoint forcing (line-chart semantics)
+	if (tickCfg.addFirstDate) addIndex(0);
+	if (tickCfg.addFinalDate) addIndex(maxIdx);
+
+	return Array.from(indices).sort((a, b) => a - b);
+}
+
+function computeTimelineTickLabelItems({ items, containerWidth, allHaveDates }) {
+	const tickCfg = getTimelineTickTextConfig();
+	const size = getTimelineSize(containerWidth);
+	const idxs = computeTimelineTickLabelIndices({ items, size, allHaveDates, tickCfg });
+	return idxs.map(i => items[i]).filter(Boolean);
+}
+
 function parseTimeColumn(raw) {
 	const str = String(raw ?? '').trim();
 	if (!str) return null;
@@ -615,9 +746,10 @@ function renderTimeline() {
 		});
 
 	// Tick labels
+	const tickLabelItems = computeTimelineTickLabelItems({ items, containerWidth: width, allHaveDates });
 	const ticksSel = d3.select(container)
 		.selectAll('div.timeline-tick')
-		.data(items, d => d.raw);
+		.data(tickLabelItems, d => d.raw);
 
 	ticksSel.exit().remove();
 

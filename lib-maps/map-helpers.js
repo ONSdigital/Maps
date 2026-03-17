@@ -333,16 +333,6 @@ export function getBreaks(config, data, palette, state) {
         return (typeof config.breaksNumber === 'number' && config.breaksNumber > 1) ? config.breaksNumber : undefined;
     })();
 
-    const legendFormatForDataset = (() => {
-        const lf = config.legendFormat;
-        if (Array.isArray(lf)) {
-            return lf[selectedIndex] ?? lf[0] ?? ',.2f';
-        }
-        return lf || ',.2f';
-    })();
-
-    const legendDecimals = getLegendDecimals(legendFormatForDataset);
-
     if (Array.isArray(config.breaks)) {
         const selectedBreaks = config.breaks[selectedIndex] ?? config.breaks[0];
 
@@ -367,7 +357,7 @@ export function getBreaks(config, data, palette, state) {
             } else {
                 n = 5;
             }
-            const calculated = calculateBreaks(dataValues, selectedBreaks, n, legendDecimals);
+            const calculated = calculateBreaks(dataValues, selectedBreaks, n);
             if (debug) {
 				console.log(`[Map Debug] Calculated breaks for dataset index ${selectedIndex} using method '${selectedBreaks}' and n=${n}:`, calculated);
             }
@@ -385,7 +375,7 @@ export function getBreaks(config, data, palette, state) {
         } else {
             n = 5;
         }
-        const calculated = calculateBreaks(dataValues, config.breaks, n, legendDecimals);
+        const calculated = calculateBreaks(dataValues, config.breaks, n);
         if (debug) {
             console.log(`[Map Debug] Calculated breaks using method '${config.breaks}' and n=${n}:`, calculated);
         }
@@ -393,12 +383,19 @@ export function getBreaks(config, data, palette, state) {
     }
 }
 
-export function calculateBreaks(values, method, numClasses, decimals) {
+/**
+ * Calculate class breaks for a threshold scale.
+ *
+ * Breaks are *data-space* numbers.
+ * Formatting (e.g. `legendFormat: ",.0%"`) is for display only and should not change
+ * the numeric breakpoints used by the scale.
+ */
+export function calculateBreaks(values, method, numClasses) {
     if (method === 'equal') {
         const min = d3.min(values), max = d3.max(values);
         return Array.from({ length: numClasses + 1 }, (_, i) => {
             const val = min + i * (max - min) / numClasses;
-            return +val.toFixed(decimals);
+            return val;
         });
     } else if (method === 'jenks' && typeof ss !== 'undefined') {
         const sorted = values.filter(v => !isNaN(v)).sort(d3.ascending);
@@ -406,10 +403,10 @@ export function calculateBreaks(values, method, numClasses, decimals) {
         let breaks = [];
         clusters.forEach((cluster, i) => {
             if (i < numClasses - 1) {
-                breaks.push(+cluster[0].toFixed(decimals));
+                breaks.push(cluster[0]);
             } else {
-                breaks.push(+cluster[0].toFixed(decimals));
-                breaks.push(+cluster[cluster.length - 1].toFixed(decimals));
+                breaks.push(cluster[0]);
+                breaks.push(cluster[cluster.length - 1]);
             }
         });
         return breaks;

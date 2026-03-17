@@ -6,7 +6,6 @@ import {
 	clearAreaSelection,
 	convertTopoJSONtoGeojson,
 	detectGeographySource,
-	getLegendDecimals,
 	validateBreaksArray,
 	getPalette,
 	resolveAutoMapBounds,
@@ -145,7 +144,6 @@ function buildDataForMap() {
 
 function computeBreaksForDataset() {
 	const palette = getPalette(config, { valueColumns: [], selectedValueColumn: null });
-	const legendDecimals = getLegendDecimals(config.legendFormat || ',.2f');
 	let breaks;
 
 	if (Array.isArray(config.breaks)) {
@@ -186,7 +184,7 @@ function computeBreaksForDataset() {
 		}
 	}
 	values.sort(d3.ascending);
-	const calculated = calculateBreaks(values, breaks, numClasses, legendDecimals);
+	const calculated = calculateBreaks(values, breaks, numClasses);
 	state.breaks = calculated;
 	state.colour = d3.scaleThreshold().domain(calculated.slice(1)).range(palette);
 }
@@ -194,13 +192,12 @@ function computeBreaksForDataset() {
 function ensureBreaksAndLegend() {
 	if ((config.timeBreaksMode || 'fixed') === 'perTime') {
 		const palette = state.colour.range();
-		const legendDecimals = getLegendDecimals(config.legendFormat || ',.2f');
 		const method = Array.isArray(config.breaks) ? config.breaks[0] : config.breaks;
 		const values = Object.values(state.rateById).filter(v => v !== null && Number.isFinite(v)).sort(d3.ascending);
 		const numClasses = Array.isArray(palette) ? palette.length : (config.breaksNumber || 5);
 		const calculated = Array.isArray(method)
 			? (validateBreaksArray(method, 'config.breaks') ? method : null)
-			: calculateBreaks(values, method, numClasses, legendDecimals);
+			: calculateBreaks(values, method, numClasses);
 		if (!calculated) {
 			state.breaks = null;
 			const fallbackColour = (config && config.colourUnavailable)

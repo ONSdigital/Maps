@@ -142,16 +142,26 @@ function buildDataForMap() {
 	});
 }
 
-function computeBreaksForDataset() {
-	const palette = getPalette(config, { valueColumns: [], selectedValueColumn: null });
-	let breaks;
+function resolveByDataset(val) {
+	if (!Array.isArray(val)) return val;
+	const idx = (state && typeof state.datasetIndex === 'number') ? state.datasetIndex : 0;
+	if (idx >= 0 && idx < val.length) return val[idx];
+	return val[0];
+}
 
-	if (Array.isArray(config.breaks)) {
-		// For time-series template we only support single breaks definition; take the first entry
-		breaks = config.breaks[0];
-	} else {
-		breaks = config.breaks;
-	}
+function resolveBreaksConfig() {
+	const b = config.breaks;
+	if (!Array.isArray(b)) return b;
+	// Preserve the "single custom breaks array" case: breaks: [0, 10, 20]
+	const isNumericArray = b.length > 0 && b.every(x => typeof x === 'number' && Number.isFinite(x));
+	if (isNumericArray) return b;
+	// Otherwise treat as per-dataset list (e.g. ["jenks", "equal"] or [[...],[...]])
+	return resolveByDataset(b);
+}
+
+function computeBreaksForDataset() {
+	const palette = getPalette(config, state);
+	const breaks = resolveBreaksConfig();
 
 	if (Array.isArray(breaks)) {
 		if (!validateBreaksArray(breaks, 'config.breaks')) {
@@ -166,7 +176,8 @@ function computeBreaksForDataset() {
 		return;
 	}
 
-	const numClasses = Array.isArray(palette) ? palette.length : (config.breaksNumber || 5);
+	const breaksNumber = resolveByDataset(config.breaksNumber);
+	const numClasses = Array.isArray(palette) ? palette.length : (breaksNumber || 5);
 
 	if ((config.timeBreaksMode || 'fixed') === 'perTime') {
 		// Will be recomputed on each time change
@@ -192,9 +203,10 @@ function computeBreaksForDataset() {
 function ensureBreaksAndLegend() {
 	if ((config.timeBreaksMode || 'fixed') === 'perTime') {
 		const palette = state.colour.range();
-		const method = Array.isArray(config.breaks) ? config.breaks[0] : config.breaks;
+		const method = resolveBreaksConfig();
 		const values = Object.values(state.rateById).filter(v => v !== null && Number.isFinite(v)).sort(d3.ascending);
-		const numClasses = Array.isArray(palette) ? palette.length : (config.breaksNumber || 5);
+		const breaksNumber = resolveByDataset(config.breaksNumber);
+		const numClasses = Array.isArray(palette) ? palette.length : (breaksNumber || 5);
 		const calculated = Array.isArray(method)
 			? (validateBreaksArray(method, 'config.breaks') ? method : null)
 			: calculateBreaks(values, method, numClasses);

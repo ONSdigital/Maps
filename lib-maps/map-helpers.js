@@ -1338,28 +1338,32 @@ export function getPalette(config, state) {
         }
         return resolved;
     }
-    // Multiple mode: pick palette by dataset index
-    if (paletteMode === 'multiple' && state && Array.isArray(state.valueColumns) && state.valueColumns.length > 1) {
+    // Multiple mode: pick palette by dataset index.
+    // Supports:
+    // - value-column dataset switching (state.valueColumns + state.selectedValueColumn)
+    // - file-based dataset switching (state.datasetIndex)
+    if (paletteMode === 'multiple' && state) {
         const idx = (() => {
-            if (typeof state.selectedValueColumn === 'number') return state.selectedValueColumn;
-            if (typeof state.selectedValueColumn === 'string') {
-                const i = state.valueColumns.indexOf(state.selectedValueColumn);
-                return i >= 0 ? i : 0;
+            if (Array.isArray(state.valueColumns) && state.valueColumns.length > 1) {
+                if (typeof state.selectedValueColumn === 'number') return state.selectedValueColumn;
+                if (typeof state.selectedValueColumn === 'string') {
+                    const i = state.valueColumns.indexOf(state.selectedValueColumn);
+                    return i >= 0 ? i : 0;
+                }
+                return 0;
             }
+
+            if (typeof state.datasetIndex === 'number') return state.datasetIndex;
+
             return 0;
         })();
 
         // If the user provided a single palette as an array of colours (e.g. ["#...", "#..."])
         // treat it as "use this palette for all datasets".
-        if (looksLikeColourArray(cp)) {
-            return resolvePalette(cp, idx);
-        }
+        if (looksLikeColourArray(cp)) return resolvePalette(cp, idx);
 
         // If the user provided multiple palettes (array-of-palettes or array of palette names), select by dataset.
-        if (Array.isArray(cp)) {
-            const selectedPalette = cp[idx] ?? cp[0];
-            return resolvePalette(selectedPalette, idx);
-        }
+        if (Array.isArray(cp)) return resolvePalette(cp[idx] ?? cp[0], idx);
     }
 
     // Single mode or fallback

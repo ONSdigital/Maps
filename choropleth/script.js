@@ -1,5 +1,5 @@
 import { initialise, addSource } from "../lib/helpers.js";
-import { detectGeographySource, getLegendDecimals, calculateBreaks, buildValueAndAreaLookups, getPalette, convertTopoJSONtoGeojson, setupSearch, updateKeyInfo, setupMap, resolveAutoMapBounds, validateBreaksArray } from "../lib-maps/map-helpers.js";
+import { detectGeographySource, calculateBreaks, buildValueAndAreaLookups, getPalette, convertTopoJSONtoGeojson, setupSearch, updateKeyInfo, setupMap, resolveAutoMapBounds, validateBreaksArray } from "../lib-maps/map-helpers.js";
 import { drawKeyScale } from "../lib-maps/legend.js";
 
 const state = {
@@ -95,7 +95,6 @@ async function setupOnce() {
 		state.areaById = areaById;
 
 		let palette = getPalette(config);
-		const legendDecimals = getLegendDecimals(config.legendFormat || ',.2f');
 		if (Array.isArray(config.breaks)) {
 			if (validateBreaksArray(config.breaks, 'config.breaks')) {
 				state.breaks = config.breaks;
@@ -106,8 +105,7 @@ async function setupOnce() {
 			state.breaks = calculateBreaks(
 				state.data.map(d => +d.value).filter(v => !isNaN(v)).sort(d3.ascending),
 				config.breaks,
-				palette.length,
-				legendDecimals
+				palette.length
 			);
 		}
 

@@ -333,16 +333,6 @@ export function getBreaks(config, data, palette, state) {
         return (typeof config.breaksNumber === 'number' && config.breaksNumber > 1) ? config.breaksNumber : undefined;
     })();
 
-    const legendFormatForDataset = (() => {
-        const lf = config.legendFormat;
-        if (Array.isArray(lf)) {
-            return lf[selectedIndex] ?? lf[0] ?? ',.2f';
-        }
-        return lf || ',.2f';
-    })();
-
-    const legendDecimals = getLegendDecimals(legendFormatForDataset);
-
     if (Array.isArray(config.breaks)) {
         const selectedBreaks = config.breaks[selectedIndex] ?? config.breaks[0];
 
@@ -367,7 +357,7 @@ export function getBreaks(config, data, palette, state) {
             } else {
                 n = 5;
             }
-            const calculated = calculateBreaks(dataValues, selectedBreaks, n, legendDecimals);
+            const calculated = calculateBreaks(dataValues, selectedBreaks, n);
             if (debug) {
 				console.log(`[Map Debug] Calculated breaks for dataset index ${selectedIndex} using method '${selectedBreaks}' and n=${n}:`, calculated);
             }
@@ -385,7 +375,7 @@ export function getBreaks(config, data, palette, state) {
         } else {
             n = 5;
         }
-        const calculated = calculateBreaks(dataValues, config.breaks, n, legendDecimals);
+        const calculated = calculateBreaks(dataValues, config.breaks, n);
         if (debug) {
             console.log(`[Map Debug] Calculated breaks using method '${config.breaks}' and n=${n}:`, calculated);
         }
@@ -393,12 +383,19 @@ export function getBreaks(config, data, palette, state) {
     }
 }
 
-export function calculateBreaks(values, method, numClasses, decimals) {
+/**
+ * Calculate class breaks for a threshold scale.
+ *
+ * Breaks are *data-space* numbers.
+ * Formatting (e.g. `legendFormat: ",.0%"`) is for display only and should not change
+ * the numeric breakpoints used by the scale.
+ */
+export function calculateBreaks(values, method, numClasses) {
     if (method === 'equal') {
         const min = d3.min(values), max = d3.max(values);
         return Array.from({ length: numClasses + 1 }, (_, i) => {
             const val = min + i * (max - min) / numClasses;
-            return +val.toFixed(decimals);
+            return val;
         });
     } else if (method === 'jenks' && typeof ss !== 'undefined') {
         const sorted = values.filter(v => !isNaN(v)).sort(d3.ascending);
@@ -406,10 +403,10 @@ export function calculateBreaks(values, method, numClasses, decimals) {
         let breaks = [];
         clusters.forEach((cluster, i) => {
             if (i < numClasses - 1) {
-                breaks.push(+cluster[0].toFixed(decimals));
+                breaks.push(cluster[0]);
             } else {
-                breaks.push(+cluster[0].toFixed(decimals));
-                breaks.push(+cluster[cluster.length - 1].toFixed(decimals));
+                breaks.push(cluster[0]);
+                breaks.push(cluster[cluster.length - 1]);
             }
         });
         return breaks;
@@ -1341,28 +1338,32 @@ export function getPalette(config, state) {
         }
         return resolved;
     }
-    // Multiple mode: pick palette by dataset index
-    if (paletteMode === 'multiple' && state && Array.isArray(state.valueColumns) && state.valueColumns.length > 1) {
+    // Multiple mode: pick palette by dataset index.
+    // Supports:
+    // - value-column dataset switching (state.valueColumns + state.selectedValueColumn)
+    // - file-based dataset switching (state.datasetIndex)
+    if (paletteMode === 'multiple' && state) {
         const idx = (() => {
-            if (typeof state.selectedValueColumn === 'number') return state.selectedValueColumn;
-            if (typeof state.selectedValueColumn === 'string') {
-                const i = state.valueColumns.indexOf(state.selectedValueColumn);
-                return i >= 0 ? i : 0;
+            if (Array.isArray(state.valueColumns) && state.valueColumns.length > 1) {
+                if (typeof state.selectedValueColumn === 'number') return state.selectedValueColumn;
+                if (typeof state.selectedValueColumn === 'string') {
+                    const i = state.valueColumns.indexOf(state.selectedValueColumn);
+                    return i >= 0 ? i : 0;
+                }
+                return 0;
             }
+
+            if (typeof state.datasetIndex === 'number') return state.datasetIndex;
+
             return 0;
         })();
 
         // If the user provided a single palette as an array of colours (e.g. ["#...", "#..."])
         // treat it as "use this palette for all datasets".
-        if (looksLikeColourArray(cp)) {
-            return resolvePalette(cp, idx);
-        }
+        if (looksLikeColourArray(cp)) return resolvePalette(cp, idx);
 
         // If the user provided multiple palettes (array-of-palettes or array of palette names), select by dataset.
-        if (Array.isArray(cp)) {
-            const selectedPalette = cp[idx] ?? cp[0];
-            return resolvePalette(selectedPalette, idx);
-        }
+        if (Array.isArray(cp)) return resolvePalette(cp[idx] ?? cp[0], idx);
     }
 
     // Single mode or fallback
@@ -1644,6 +1645,8 @@ export function setupMap(config, data, rateById, areaById, areas, colour, state)
             }
         }, 'place_town');
 
+ 
+
         state.map.addLayer({
             id: 'area-border',
             type: 'line',
@@ -1667,6 +1670,24 @@ export function setupMap(config, data, rateById, areaById, areas, colour, state)
             }
         }, 'place_town');
 
+               // White outline below grey outline on hover
+        state.map.addLayer({
+            id: 'area-hover-white',
+            type: 'line',
+            source: 'area',
+            "source-layer": state.geographySource === "vector" ? config.geoLayer : "",
+            layout: {},
+            paint: {
+                'line-color': 
+                'white',
+                // "#F39431",
+                'line-width': 3,
+                'line-opacity': [
+                    'case',
+                    ['==', ['feature-state', 'hovered'], true], 0.8, 0],
+                }
+            })
+
         // Add hover layer
         state.map.addLayer({
             id: 'area-hover',
@@ -1684,19 +1705,35 @@ export function setupMap(config, data, rateById, areaById, areas, colour, state)
         });
 
         // Add selected border layer (below hover)
+
+        // white one
         state.map.addLayer({
-            id: 'area-selected',
+            id: 'area-selected-white',
+            type: 'line',
+            source: 'area',
+            "source-layer": state.geographySource === "vector" ? config.geoLayer : "",
+            layout: {},
+            paint: {
+                'line-color': "white",
+                'line-width': 5,
+                'line-opacity': ['case', ['==', ['feature-state', 'selected'], true], 0.8, 0],
+            }
+        }, 'area-hover');
+
+        // grey one
+        state.map.addLayer({
+            id: 'area-selected-grey',
             type: 'line',
             source: 'area',
             "source-layer": state.geographySource === "vector" ? config.geoLayer : "",
             layout: {},
             paint: {
                 'line-color': ONScolours.grey100,
-                'line-width': 2,
-                'line-opacity': ['case', ['==', ['feature-state', 'selected'], true], 0.4, 0],
+                'line-width': 3,
+                'line-opacity': ['case', ['==', ['feature-state', 'selected'], true], 1, 0],
             }
         }, 'area-hover');
-
+        
         // Legend hover outline layer (below hover outline)
         state.map.addLayer({
             id: 'area-legend-match',

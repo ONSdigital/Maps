@@ -1645,6 +1645,8 @@ export function setupMap(config, data, rateById, areaById, areas, colour, state)
             }
         }, 'place_town');
 
+ 
+
         state.map.addLayer({
             id: 'area-border',
             type: 'line',
@@ -1668,6 +1670,24 @@ export function setupMap(config, data, rateById, areaById, areas, colour, state)
             }
         }, 'place_town');
 
+               // White outline below grey outline on hover
+        state.map.addLayer({
+            id: 'area-hover-white',
+            type: 'line',
+            source: 'area',
+            "source-layer": state.geographySource === "vector" ? config.geoLayer : "",
+            layout: {},
+            paint: {
+                'line-color': 
+                'white',
+                // "#F39431",
+                'line-width': 3,
+                'line-opacity': [
+                    'case',
+                    ['==', ['feature-state', 'hovered'], true], 0.8, 0],
+                }
+            })
+
         // Add hover layer
         state.map.addLayer({
             id: 'area-hover',
@@ -1685,19 +1705,35 @@ export function setupMap(config, data, rateById, areaById, areas, colour, state)
         });
 
         // Add selected border layer (below hover)
+
+        // white one
         state.map.addLayer({
-            id: 'area-selected',
+            id: 'area-selected-white',
+            type: 'line',
+            source: 'area',
+            "source-layer": state.geographySource === "vector" ? config.geoLayer : "",
+            layout: {},
+            paint: {
+                'line-color': "white",
+                'line-width': 5,
+                'line-opacity': ['case', ['==', ['feature-state', 'selected'], true], 0.8, 0],
+            }
+        }, 'area-hover');
+
+        // grey one
+        state.map.addLayer({
+            id: 'area-selected-grey',
             type: 'line',
             source: 'area',
             "source-layer": state.geographySource === "vector" ? config.geoLayer : "",
             layout: {},
             paint: {
                 'line-color': ONScolours.grey100,
-                'line-width': 2,
-                'line-opacity': ['case', ['==', ['feature-state', 'selected'], true], 0.4, 0],
+                'line-width': 3,
+                'line-opacity': ['case', ['==', ['feature-state', 'selected'], true], 1, 0],
             }
         }, 'area-hover');
-
+        
         // Legend hover outline layer (below hover outline)
         state.map.addLayer({
             id: 'area-legend-match',

@@ -2,6 +2,15 @@
 // config.debugInfo = true; // Set to true to enable debug output in the console
 import { drawKeyScale } from "./legend.js";
 
+const CHANGE_DISPLAY_KEY_MAP = {
+    valueFormat: 'changeFormat',
+    valuePrefix: 'changePrefix',
+    valueSuffix: 'changeSuffix',
+    legendFormat: 'changeLegendFormat',
+    legendPrefix: 'changeLegendPrefix',
+    legendSuffix: 'changeLegendSuffix'
+};
+
 /**
  * Fetches data from a URL and detects if it is GeoJSON, TopoJSON, or general JSON.
  * It also handles the vector tile (.pbf) case.
@@ -1219,9 +1228,15 @@ export function updateKeyInfo(value, areaName, state) {
     explainerLine2.text('');
 }
 
-function getConfigValue(key, state) {
-    const val = config[key];
+function resolveBaseConfigValue(key, state) {
+    const datasetCfg = (state && typeof state.datasetIndex === 'number' && Array.isArray(config.datasets))
+        ? (config.datasets[state.datasetIndex] || config.datasets[0] || null)
+        : null;
+    if (datasetCfg && Object.prototype.hasOwnProperty.call(datasetCfg, key) && typeof datasetCfg[key] !== 'undefined') {
+        return datasetCfg[key];
+    }
 
+    const val = config[key];
     if (!Array.isArray(val)) return val;
 
     // Multi-value-column dataset switching (valueColumns + selectedValueColumn)
@@ -1238,8 +1253,16 @@ function getConfigValue(key, state) {
         return val[0];
     }
 
-    // Safe default
     return val[0];
+}
+
+function getConfigValue(key, state) {
+    const changeKey = (state && state.displayValueMode === 'change') ? CHANGE_DISPLAY_KEY_MAP[key] : null;
+    if (changeKey) {
+        const changeValue = resolveBaseConfigValue(changeKey, state);
+        if (changeValue !== null && typeof changeValue !== 'undefined') return changeValue;
+    }
+    return resolveBaseConfigValue(key, state);
 }
 
 export function clearAreaSelection(state, geoLayer) {

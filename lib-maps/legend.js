@@ -4,6 +4,12 @@
 export function drawKeyScale({ keyscale, breaks, colour, config, window, state }) {
     keyscale.selectAll('*').remove();
 
+    const changeDisplayKeyMap = {
+        legendFormat: ['changeLegendFormat', 'changeFormat'],
+        legendPrefix: ['changeLegendPrefix', 'changePrefix'],
+        legendSuffix: ['changeLegendSuffix', 'changeSuffix']
+    };
+
     if (!Array.isArray(breaks) || breaks.length < 2 || breaks.some(d => typeof d !== 'number' || !Number.isFinite(d))) {
         console.error(
             "[Map Config] Legend not drawn: 'breaks' must be an array of finite numbers (e.g. [0, 10, 20]). Got:",
@@ -16,7 +22,14 @@ export function drawKeyScale({ keyscale, breaks, colour, config, window, state }
     const width = mapWidth - config.keyScaleMargin.left - config.keyScaleMargin.right;
     let height = 39;
 
-    const resolveConfigByDataset = (key) => {
+    const resolveBaseConfigByDataset = (key) => {
+        const datasetCfg = (state && typeof state.datasetIndex === 'number' && Array.isArray(config.datasets))
+            ? (config.datasets[state.datasetIndex] || config.datasets[0] || null)
+            : null;
+        if (datasetCfg && Object.prototype.hasOwnProperty.call(datasetCfg, key) && typeof datasetCfg[key] !== 'undefined') {
+            return datasetCfg[key];
+        }
+
         const val = config[key];
         if (!Array.isArray(val)) return val;
         if (!state) return val[0];
@@ -33,6 +46,16 @@ export function drawKeyScale({ keyscale, breaks, colour, config, window, state }
 
         if (selectedIndex >= 0 && selectedIndex < val.length) return val[selectedIndex];
         return val[0];
+    };
+
+    const resolveConfigByDataset = (key) => {
+        if (state && state.displayValueMode === 'change' && changeDisplayKeyMap[key]) {
+            for (const changeKey of changeDisplayKeyMap[key]) {
+                const changeValue = resolveBaseConfigByDataset(changeKey);
+                if (changeValue !== null && typeof changeValue !== 'undefined') return changeValue;
+            }
+        }
+        return resolveBaseConfigByDataset(key);
     };
 
     const legendFmt = window.d3.format(resolveConfigByDataset('legendFormat') || ',.2f');

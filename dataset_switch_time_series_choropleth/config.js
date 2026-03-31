@@ -9,7 +9,9 @@ Multi-dataset behaviour:
     - breaks
 	- breaksNumber
 	- valueFormat/Prefix/Suffix
+	- changeFormat/Prefix/Suffix
 	- legendFormat/Prefix/Suffix
+	- changeLegendFormat/Prefix/Suffix
 	- explainerPlaceholder
 	- explainerPlaceholderTextSize
     - explainerPrefix
@@ -101,9 +103,17 @@ config = {
 	valueFormat: ",.1f", // d3 format for values
 	valuePrefix: "",
 	valueSuffix: "",
+	// Range-mode computed changes can use a separate display format.
+	// If omitted, change displays fall back to the raw value settings above.
+	changeFormat: null,
+	changePrefix: null,
+	changeSuffix: null,
 	legendFormat: ",.0f",
 	legendPrefix: "",
 	legendSuffix: "",
+	changeLegendFormat: null,
+	changeLegendPrefix: null,
+	changeLegendSuffix: null,
 	mapBounds: [[-7, 50.2], [1.77, 59]], // Set to "auto" to use GeoJSON/TopoJSON extents (not supported for vector tiles). Ensure maxBounds and minZoom are set so the auto view displays correctly. UK bounds (Shetland cut off a bit): [[-8.62, 48.87], [1.77, 60.84]] England and Wales: [[-6.43, 50], [1.77, 55.81]]
 	maxBounds: [[-14, 46], [8, 62]], // restrict panning to these bounds
 

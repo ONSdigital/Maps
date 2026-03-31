@@ -50,6 +50,7 @@ const state = {
 
 	// chart
 	chart: null,
+	displayValueMode: 'value',
 
 	// chart overlay (hover preview vs pinned)
 	overlayMode: 'hidden', // 'hidden' | 'hover' | 'pinned'
@@ -216,18 +217,52 @@ function resolveDatasetOption(name, fallback = undefined) {
 	return (typeof resolved === 'undefined') ? fallback : resolved;
 }
 
-function formatConfiguredValue(value) {
+
+function formatResolvedDisplayValue(value, {
+	formatKey,
+	prefixKey,
+	suffixKey,
+	fallbackFormat = ',.2f',
+	fallbackPrefix = '',
+	fallbackSuffix = ''
+} = {}) {
 	let valueFormatter = null;
+	const formatOverride = resolveDatasetOption(formatKey, undefined);
+	const resolvedFormat = (formatOverride === null || typeof formatOverride === 'undefined') ? fallbackFormat : formatOverride;
 	try {
-		valueFormatter = d3.format(resolveDatasetOption('valueFormat', ',.2f'));
+		valueFormatter = d3.format(resolvedFormat);
 	} catch (e) {
 		valueFormatter = (d) => String(d);
 	}
-	const prefixRaw = resolveDatasetOption('valuePrefix', '');
-	const suffixRaw = resolveDatasetOption('valueSuffix', '');
+	const prefixOverride = resolveDatasetOption(prefixKey, undefined);
+	const suffixOverride = resolveDatasetOption(suffixKey, undefined);
+	const prefixRaw = (prefixOverride === null || typeof prefixOverride === 'undefined') ? fallbackPrefix : prefixOverride;
+	const suffixRaw = (suffixOverride === null || typeof suffixOverride === 'undefined') ? fallbackSuffix : suffixOverride;
 	const prefix = typeof prefixRaw === 'string' ? prefixRaw : '';
 	const suffix = typeof suffixRaw === 'string' ? suffixRaw : '';
 	return `${prefix}${valueFormatter(value)}${suffix}`;
+}
+
+function formatConfiguredValue(value) {
+	return formatResolvedDisplayValue(value, {
+		formatKey: 'valueFormat',
+		prefixKey: 'valuePrefix',
+		suffixKey: 'valueSuffix',
+		fallbackFormat: ',.2f',
+		fallbackPrefix: '',
+		fallbackSuffix: ''
+	});
+}
+
+function formatConfiguredChangeValue(value) {
+	return formatResolvedDisplayValue(value, {
+		formatKey: 'changeFormat',
+		prefixKey: 'changePrefix',
+		suffixKey: 'changeSuffix',
+		fallbackFormat: resolveDatasetOption('valueFormat', ',.2f'),
+		fallbackPrefix: resolveDatasetOption('valuePrefix', ''),
+		fallbackSuffix: resolveDatasetOption('valueSuffix', '')
+	});
 }
 
 function computeRangeSelectionValue(vFrom, vTo) {
@@ -324,7 +359,12 @@ function setActiveTimeHandle(handle) {
 	state.activeTimeHandle = (handle === 'from') ? 'from' : 'to';
 }
 
+function syncDisplayValueMode() {
+	state.displayValueMode = isRangeMode() ? 'change' : 'value';
+}
+
 function applySelectionToUIAndMap() {
+	syncDisplayValueMode();
 	setTimelineUI();
 	updateRateByIdForSelection();
 	buildDataForMap();
@@ -1802,7 +1842,7 @@ function createChart({ overlayInnerHeight = null } = {}) {
 					? (() => { try { return colourScale(changeValue); } catch (e) { return solidStroke; } })()
 					: solidStroke;
 				const textColour = adjustColorForContrast(baseColour || solidStroke, summaryContrast, '#FFFFFF');
-				const magnitudeText = formatConfiguredValue(Math.abs(changeValue));
+				const magnitudeText = formatConfiguredChangeValue(Math.abs(changeValue));
 				let summaryText = magnitudeText;
 				if (summaryIndicatorStyle === 'text') {
 					summaryText = `${changeValue > 0 ? summaryIncreaseText : summaryDecreaseText} ${magnitudeText}`;

@@ -16,6 +16,7 @@ config = {
 	// - startTime
 	// - startFromTime / startToTime
 	// - changeMetric
+	// - valueFormat / changeFormat
 	timeSelectionMode: "range", // fallback only
 	changeMetric: "absolute", // fallback only
 	startTime: null,
@@ -101,10 +102,16 @@ config = {
 
 	valueFormat: [",.1f", ",.1f"],
 	valuePrefix: ["", ""],
-	valueSuffix: ["", "%"],
+	valueSuffix: ["", ""],
+	changeFormat: [null, ",.1f"],
+	changePrefix: [null, ""],
+	changeSuffix: [null, "%"],
 	legendFormat: [",.0f", ",.0f"],
 	legendPrefix: ["", ""],
 	legendSuffix: ["", "%"],
+	changeLegendFormat: [null, ",.0f"],
+	changeLegendPrefix: [null, ""],
+	changeLegendSuffix: [null, "%"],
 
 	mapBounds: [[-7, 50.2], [1.77, 59]],
 	maxBounds: [[-14, 46], [8, 62]],

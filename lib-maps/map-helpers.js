@@ -1270,7 +1270,6 @@ export function clearAreaSelection(state, geoLayer) {
 
 export function getPalette(config, state) {
     const debug = config.debugInfo === true;
-    const paletteMode = config.paletteMode || 'single';
     const cp = config.colourPalette;
 
     const isColourString = (s) => (
@@ -1278,6 +1277,24 @@ export function getPalette(config, state) {
         && (/^#/.test(s) || /^rgb\(/i.test(s) || /^hsl\(/i.test(s))
     );
     const looksLikeColourArray = (arr) => Array.isArray(arr) && arr.length > 0 && arr.every(isColourString);
+    const inferPaletteMode = () => {
+        if (config.paletteMode === 'single' || config.paletteMode === 'multiple') {
+            return config.paletteMode;
+        }
+
+        if (!Array.isArray(cp)) return 'single';
+
+        // A flat array of colour strings is one palette for all datasets.
+        if (looksLikeColourArray(cp)) return 'single';
+
+        // Otherwise treat an array value as a per-dataset palette list.
+        // Examples:
+        // - [ONScolours.sequential.alternative[5], ONScolours.diverging.declineToGrowth[5]]
+        // - ["YlGnBu", "RdBu"]
+        // - [[...], [...]]
+        return 'multiple';
+    };
+    const paletteMode = inferPaletteMode();
 
     // Helper to resolve a palette from a string or array
     function resolvePalette(p, idx = null) {

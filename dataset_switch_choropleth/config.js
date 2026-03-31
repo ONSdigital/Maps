@@ -20,9 +20,13 @@ Multi-dataset behaviour:
     - an array (one value per dataset, in the same order as the columns), or
     - a single value (used for all datasets).
 
-- Palette selection is controlled by paletteMode:
-    - "single":   All datasets use the first palette in colourPalette (or the string value if not an array)
-    - "multiple": Each dataset uses its own palette from colourPalette (array, one per dataset)
+- Palette selection can be controlled by paletteMode, or inferred from colourPalette when paletteMode is omitted:
+	- "single":   All datasets use one palette
+	- "multiple": Each dataset uses its own palette from colourPalette (array, one per dataset)
+
+- Inferred behaviour when paletteMode is omitted:
+	- A flat array of colour strings is treated as a single palette
+	- An array of palette entries (palette names or arrays) is treated as per-dataset palettes
 
 - When switching datasets, the map, legend, info area, and explainer/unavailable text
   will update to reflect the selected dataset's config values.
@@ -41,7 +45,7 @@ config = {
 	dataNameField: "areanm", // column in data file for area name
 	takeNameFromGeo: true, // if true, area names are taken from geo file using geoNameField, if false it will use the dataNameField from data file
 	mapHeight: "550px",
-	paletteMode: "multiple", // "single" = one palette for all datasets, "multiple" = separate palette per dataset
+	paletteMode: "multiple", // optional: if omitted, mode is inferred from colourPalette
 	colourPalette: [ONScolours.sequential.alternative[5],ONScolours.diverging.declineToGrowth[5]], // can be preset d3.scheme (same as colourbrewer) palette (e.g. YlGnBu),  or custom array of colours, including those defined in lib/colours.js (e.g. ONScolours.sequential.standard[5])
 	colourUnavailable: ONScolours.noData,
 	breaks: ["jenks","equal"], // can be "equal", "jenks", or a custom array of breaks - number of values in palette determines number of breaks

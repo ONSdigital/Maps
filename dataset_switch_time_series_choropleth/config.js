@@ -22,8 +22,12 @@ Multi-dataset behaviour:
     - a single value (used for all datasets).
 
 - Palette selection is controlled by paletteMode:
-    - "single":   All datasets use the first palette in colourPalette (or the string value if not an array)
-    - "multiple": Each dataset uses its own palette from colourPalette (array, one per dataset)
+	- "single":   All datasets use the first palette in colourPalette (or the string value if not an array)
+	- "multiple": Each dataset uses its own palette from colourPalette (array, one per dataset)
+
+- If paletteMode is omitted, it is inferred from colourPalette:
+	- a flat array of colour strings = a single palette
+	- an array of palette entries (palette names or arrays) = per-dataset palettes
 
 - When switching datasets, the map, legend, info area, and explainer/unavailable text
   will update to reflect the selected dataset's config values.
@@ -32,6 +36,9 @@ Multi-dataset behaviour:
 config = {
 	debugInfo: true,
 	// Time-series datasets (wide format: id + name + one column per time point)
+	// Per-dataset overrides are supported on each dataset object, for example:
+	// { label: "A", url: "a.csv", timeSelectionMode: "point", startTime: "2011" }
+	// { label: "B", url: "b.csv", timeSelectionMode: "range", startFromTime: "2011", startToTime: "2021", changeMetric: "percent" }
 	datasets: [
 		{ label: "Per 1,000 population", url: "data_over_time_0.csv" },
 		{ label: "Per 100 sales", url: "data_over_time_1.csv" }

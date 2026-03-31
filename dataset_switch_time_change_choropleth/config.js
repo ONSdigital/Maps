@@ -10,18 +10,53 @@ Edit this config to point at your own time-series CSV(s) and geography.
 config = {
 	debugInfo: true,
 
-	// Enable range selection (From/To)
-	timeSelectionMode: "range", // "point" | "range"
-	changeMetric: "percent", // "absolute" | "percent"
-
-	// Optional initial range endpoints (must match a CSV header exactly).
-	// If omitted/invalid, defaults to min/max.
+	// Top-level values act as fallbacks.
+	// Each dataset below can override these with its own:
+	// - timeSelectionMode: "point" | "range"
+	// - startTime
+	// - startFromTime / startToTime
+	// - changeMetric
+	timeSelectionMode: "range", // fallback only
+	changeMetric: "absolute", // fallback only
+	startTime: null,
 	startFromTime: null,
 	startToTime: null,
 
+	// Mixed example:
+	// - Dataset 1 uses point mode (single selected year)
+	// - Dataset 2 uses range mode (change from one year to another)
 	// Reference the sample datasets from the time-series folder (so we don't duplicate data)
 	datasets: [
-		{ label: "Per 1,000 population", url: "../dataset_switch_time_series_choropleth/data_over_time_0.csv" },
+		{
+			label: "Per 1,000 population (point)",
+			url: "../dataset_switch_time_series_choropleth/data_over_time_0.csv",
+			timeSelectionMode: "point",
+			startTime: "2015",
+			chart: {
+				subTitle: "Single-year view"
+			}
+		},
+		{
+			label: "Per 100 sales (% change)",
+			url: "../dataset_switch_time_series_choropleth/data_over_time_1.csv",
+			timeSelectionMode: "range",
+			changeMetric: "percent",
+			startFromTime: "2013",
+			startToTime: "2015",
+			chart: {
+				subTitle: "Percentage change between selected years",
+				changeSummary: {
+					enabled: true,
+					threshold: 0.5,
+					noSignificantChangeText: "No significant change",
+					increaseText: "Increase",
+					decreaseText: "Decrease",
+					indicatorStyle: "triangle", // "triangle" | "text" | "none"
+					requiredContrast: 4.5,
+					neutralColour: ONScolours.grey60
+				}
+			}
+		},
 	],
 	dataUrl: "../dataset_switch_time_series_choropleth/data_over_time_0.csv",
 
@@ -37,11 +72,13 @@ config = {
 
 	mapHeight: "550px",
 
-	paletteMode: "single",
-	colourPalette: ONScolours.diverging.negativeToPositive[5],
+	colourPalette: [
+		ONScolours.sequential.alternative[5],
+		ONScolours.diverging.negativeToPositive[5]
+	],
 	colourUnavailable: ONScolours.noData,
-	breaks: [[-50, -25, -2, 2, 25, 50]],
-	breaksNumber: 5,
+	breaks: ["jenks", [-50, -25, -2, 2, 25, 50]],
+	breaksNumber: [5, 5],
 
 	// In range mode, breaks are recomputed for the chosen range.
 	timeBreaksMode: "fixed",
@@ -58,16 +95,16 @@ config = {
 			addFirstDate: false,
 			addFinalDate: true,
 		},
-		ariaLabel: "Select time range",
+		ariaLabel: "Select time period or range",
 		keyboardStep: 5
 	},
 
-	valueFormat: ",.1f",
-	valuePrefix: "",
-	valueSuffix: "%",
-	legendFormat: ",.0f",
-	legendPrefix: "",
-	legendSuffix: "%",
+	valueFormat: [",.1f", ",.1f"],
+	valuePrefix: ["", ""],
+	valueSuffix: ["", "%"],
+	legendFormat: [",.0f", ",.0f"],
+	legendPrefix: ["", ""],
+	legendSuffix: ["", "%"],
 
 	mapBounds: [[-7, 50.2], [1.77, 59]],
 	maxBounds: [[-14, 46], [8, 62]],
@@ -85,7 +122,6 @@ config = {
 			pinned: { width: 420, height: 313 },
 			hover: { width: 300, height: 250 }
 		},
-		subTitle: ["", ""],
 		margin: { top: 24, right: 20, bottom: 30, left: 30 },
 		showMeanLine: true,
 		meanLegend: {

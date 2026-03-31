@@ -1,4 +1,4 @@
-import { initialise, addSource } from "../lib/helpers.js";
+import { initialise, addSource, adjustColorForContrast } from "../lib/helpers.js";
 import { drawKeyScale } from "../lib-maps/legend.js";
 import { globalConfig } from "../lib/globalConfig.js";
 import {
@@ -66,11 +66,11 @@ const state = {
 };
 
 function isRangeMode() {
-	return String(config?.timeSelectionMode || 'point').toLowerCase() === 'range';
+	return String(resolveDatasetOption('timeSelectionMode', 'point')).toLowerCase() === 'range';
 }
 
 function getChangeMetric() {
-	const m = String(config?.changeMetric || 'absolute').toLowerCase();
+	const m = String(resolveDatasetOption('changeMetric', 'absolute')).toLowerCase();
 	return (m === 'percent') ? 'percent' : 'absolute';
 }
 
@@ -167,26 +167,11 @@ function updateRateByIdForSelection() {
 	}
 
 	const { from, to } = normalizeRange(state.timeFromIndex, state.timeToIndex);
-	const metric = getChangeMetric();
 	for (const code of Object.keys(state.seriesById)) {
 		const values = state.seriesById[code].values;
 		const vFrom = values[from];
 		const vTo = values[to];
-		if (vFrom === null || vTo === null || !Number.isFinite(vFrom) || !Number.isFinite(vTo)) {
-			rateById[code] = null;
-			continue;
-		}
-		const delta = vTo - vFrom;
-		if (metric === 'percent') {
-			// Avoid infinities / misleading % where baseline is missing/zero.
-			if (!Number.isFinite(vFrom) || vFrom === 0) {
-				rateById[code] = null;
-			} else {
-				rateById[code] = delta / vFrom;
-			}
-		} else {
-			rateById[code] = delta;
-		}
+		rateById[code] = computeRangeSelectionValue(vFrom, vTo);
 	}
 }
 
@@ -211,6 +196,50 @@ function resolveByDataset(val) {
 	const idx = (state && typeof state.datasetIndex === 'number') ? state.datasetIndex : 0;
 	if (idx >= 0 && idx < val.length) return val[idx];
 	return val[0];
+}
+
+function getCurrentDatasetConfig() {
+	const datasets = Array.isArray(config.datasets) && config.datasets.length
+		? config.datasets
+		: [{ label: 'Data', url: config.dataUrl }];
+	const idx = (state && typeof state.datasetIndex === 'number') ? state.datasetIndex : 0;
+	return datasets[idx] || datasets[0] || null;
+}
+
+function resolveDatasetOption(name, fallback = undefined) {
+	const ds = getCurrentDatasetConfig();
+	if (ds && Object.prototype.hasOwnProperty.call(ds, name) && typeof ds[name] !== 'undefined') {
+		return ds[name];
+	}
+	const topLevel = config ? config[name] : undefined;
+	const resolved = resolveByDataset(topLevel);
+	return (typeof resolved === 'undefined') ? fallback : resolved;
+}
+
+function formatConfiguredValue(value) {
+	let valueFormatter = null;
+	try {
+		valueFormatter = d3.format(resolveDatasetOption('valueFormat', ',.2f'));
+	} catch (e) {
+		valueFormatter = (d) => String(d);
+	}
+	const prefixRaw = resolveDatasetOption('valuePrefix', '');
+	const suffixRaw = resolveDatasetOption('valueSuffix', '');
+	const prefix = typeof prefixRaw === 'string' ? prefixRaw : '';
+	const suffix = typeof suffixRaw === 'string' ? suffixRaw : '';
+	return `${prefix}${valueFormatter(value)}${suffix}`;
+}
+
+function computeRangeSelectionValue(vFrom, vTo) {
+	if (vFrom === null || vTo === null || !Number.isFinite(vFrom) || !Number.isFinite(vTo)) {
+		return null;
+	}
+	const delta = vTo - vFrom;
+	if (getChangeMetric() === 'percent') {
+		if (!Number.isFinite(vFrom) || vFrom === 0) return null;
+		return delta / vFrom;
+	}
+	return delta;
 }
 
 function resolveBreaksConfig() {
@@ -244,7 +273,7 @@ function computeBreaksForDataset() {
 	const numClasses = Array.isArray(palette) ? palette.length : (breaksNumber || 5);
 
 	// Range mode: breaks should respond to the chosen range, so treat as perTime.
-	const breaksMode = isRangeMode() ? 'perTime' : (config.timeBreaksMode || 'fixed');
+	const breaksMode = isRangeMode() ? 'perTime' : resolveDatasetOption('timeBreaksMode', 'fixed');
 	if (breaksMode === 'perTime') {
 		// Will be recomputed on each time change
 		state.breaks = null;
@@ -267,7 +296,7 @@ function computeBreaksForDataset() {
 }
 
 function ensureBreaksAndLegend() {
-	const breaksMode = isRangeMode() ? 'perTime' : (config.timeBreaksMode || 'fixed');
+	const breaksMode = isRangeMode() ? 'perTime' : resolveDatasetOption('timeBreaksMode', 'fixed');
 	if (breaksMode === 'perTime') {
 		const palette = state.colour.range();
 		const method = resolveBreaksConfig();
@@ -542,7 +571,7 @@ function beginTimelineTouchDrag(container, event, captureElement, opts = {}) {
 }
 
 function getTimelineConfig() {
-	const t = (config && config.timeline) ? config.timeline : {};
+	const t = resolveDatasetOption('timeline', {});
 	return {
 		displayFormat: t.displayFormat || '%Y',
 		screenreaderFormat: t.screenreaderFormat || t.displayFormat || '%Y',
@@ -564,7 +593,7 @@ function getTimelineSize(width) {
 }
 
 function getTimelineTickTextConfig() {
-	const t = (config && config.timeline) ? config.timeline : {};
+	const t = resolveDatasetOption('timeline', {});
 	const raw = t.ticktext;
 	if (!raw) return null;
 
@@ -750,6 +779,9 @@ function ensureTimelineScaffold(container) {
 	}
 
 	if (isRangeMode()) {
+		const singlePill = container.querySelector('.timeline-pill:not(.timeline-pill--from):not(.timeline-pill--to)');
+		if (singlePill) singlePill.remove();
+
 		if (!container.querySelector('.timeline-range')) {
 			const range = document.createElement('div');
 			range.className = 'timeline-range';
@@ -887,6 +919,8 @@ function renderTimeline() {
 		markersAll
 			.attr('data-index', d => String(d.index))
 			.attr('aria-label', d => d.srText)
+			.classed('is-active', false)
+			.classed('is-complete', false)
 			.classed('is-from', d => d.index === state.timeFromIndex)
 			.classed('is-to', d => d.index === state.timeToIndex)
 			.classed('is-in-range', d => d.index >= state.timeFromIndex && d.index <= state.timeToIndex)
@@ -1324,15 +1358,24 @@ function createChart({ overlayInnerHeight = null } = {}) {
 	const container = d3.select('#chart');
 	container.html('');
 	const chartCfg = (config && config.chart && typeof config.chart === 'object') ? config.chart : {};
+	const datasetCfg = getCurrentDatasetConfig();
+	const datasetChartCfg = (datasetCfg && datasetCfg.chart && typeof datasetCfg.chart === 'object') ? datasetCfg.chart : {};
 	const resolveChartValue = (val) => {
 		if (!Array.isArray(val)) return val;
 		const idx = (state && typeof state.datasetIndex === 'number') ? state.datasetIndex : 0;
 		if (idx >= 0 && idx < val.length) return val[idx];
 		return val[0];
 	};
+	const resolveChartOption = (key, fallback = undefined) => {
+		if (Object.prototype.hasOwnProperty.call(datasetChartCfg, key)) {
+			return datasetChartCfg[key];
+		}
+		const resolved = resolveChartValue(chartCfg[key]);
+		return (typeof resolved === 'undefined') ? fallback : resolved;
+	};
 	const resolveYTicks = (fallback) => {
 		const modeKey = state.overlayMode === 'hover' ? 'hover' : 'pinned';
-		const cfg = resolveChartValue(chartCfg.yTicks);
+		const cfg = resolveChartOption('yTicks');
 		let v = cfg;
 		if (cfg && typeof cfg === 'object' && !Array.isArray(cfg)) {
 			v = cfg[modeKey];
@@ -1343,7 +1386,7 @@ function createChart({ overlayInnerHeight = null } = {}) {
 		return fallback;
 	};
 	const getChartSubTitle = () => {
-		const v = resolveChartValue(chartCfg.subTitle);
+		const v = resolveChartOption('subTitle', '');
 		return (typeof v === 'string') ? v : (v === null || typeof v === 'undefined') ? '' : String(v);
 	};
 	const solidStroke = chartCfg.solidStroke || 'var(--ons-color-ocean-blue)';
@@ -1383,12 +1426,25 @@ function createChart({ overlayInnerHeight = null } = {}) {
 		.style('white-space', 'nowrap')
 		.style('overflow', 'hidden');
 
-	const subtitle = container.append('div')
+	const headerMeta = container.append('div')
+		.attr('class', 'chart-meta');
+
+	const subtitle = headerMeta.append('div')
 		.attr('class', 'chart-subtitle')
 		.style('margin', '0 0 8px 0')
 		.style('font-size', '13px')
 		.style('line-height', '1.25')
 		.style('color', 'var(--ons-color-grey-60)');
+	const changeSummary = headerMeta.append('div')
+		.attr('class', 'chart-change-summary')
+		.style('margin', '0 0 8px 0')
+		.style('min-height', '17px')
+		.style('font-size', '13px')
+		.style('font-weight', '700')
+		.style('line-height', '1.25')
+		.style('visibility', 'hidden')
+		.style('color', 'var(--ons-color-grey-60)')
+		.text('');
 	const initialSubTitle = getChartSubTitle();
 	if (initialSubTitle) {
 		subtitle.html(initialSubTitle).style('display', null);
@@ -1427,13 +1483,11 @@ function createChart({ overlayInnerHeight = null } = {}) {
 		let subtitleH = 0;
 		let legendH = 0;
 		try {
-			const subNode = subtitle.node();
+			const subNode = headerMeta.node();
 			const sr = subNode ? subNode.getBoundingClientRect() : null;
 			subtitleH = (sr && Number.isFinite(sr.height)) ? sr.height : 0;
-			// include the inline margin-bottom (8px)
-			subtitleH += initialSubTitle ? 8 : 0;
 		} catch (e) {
-			subtitleH = initialSubTitle ? 20 : 0;
+			subtitleH = initialSubTitle ? 40 : 25;
 		}
 		try {
 			const node = legend.node();
@@ -1515,6 +1569,17 @@ function createChart({ overlayInnerHeight = null } = {}) {
 
 	const indicatorValue = g.append('text')
 		.attr('class', 'indicator-value')
+		.attr('text-anchor', 'middle')
+		.attr('x', 0)
+		.attr('y', -4)
+		.style('font-size', '15px')
+		.style('font-weight', '700')
+		.attr('fill', solidStroke)
+		.style('opacity', 0)
+		.style('pointer-events', 'none');
+
+	const indicatorValueFrom = g.append('text')
+		.attr('class', 'indicator-value indicator-value--from')
 		.attr('text-anchor', 'middle')
 		.attr('x', 0)
 		.attr('y', -4)
@@ -1689,6 +1754,7 @@ function createChart({ overlayInnerHeight = null } = {}) {
 		const indicatorColour = solidStroke;
 		indicatorTriangle.attr('fill', indicatorColour);
 		indicatorValue.attr('fill', indicatorColour);
+		indicatorValueFrom.attr('fill', indicatorColour);
 
 		title
 			.text(areaName || '')
@@ -1700,6 +1766,56 @@ function createChart({ overlayInnerHeight = null } = {}) {
 			subtitle.html(sub).style('display', null);
 		} else {
 			subtitle.html('').style('display', 'none');
+		}
+
+		const changeSummaryCfgResolved = resolveChartOption('changeSummary', {});
+		const changeSummaryCfg = (changeSummaryCfgResolved && typeof changeSummaryCfgResolved === 'object')
+			? changeSummaryCfgResolved
+			: {};
+		const summaryEnabled = changeSummaryCfg.enabled !== false;
+		const summaryThresholdRaw = (changeSummaryCfg.threshold === null || typeof changeSummaryCfg.threshold === 'undefined')
+			? 0
+			: +changeSummaryCfg.threshold;
+		const summaryThreshold = Number.isFinite(summaryThresholdRaw) ? Math.abs(summaryThresholdRaw) : 0;
+		const summaryNoChangeText = changeSummaryCfg.noSignificantChangeText || 'No significant change';
+		const summaryIncreaseText = changeSummaryCfg.increaseText || 'Increase';
+		const summaryDecreaseText = changeSummaryCfg.decreaseText || 'Decrease';
+		const summaryIndicatorStyle = String(changeSummaryCfg.indicatorStyle || 'triangle').toLowerCase();
+		const summaryContrast = Number.isFinite(+changeSummaryCfg.requiredContrast) ? +changeSummaryCfg.requiredContrast : 4.5;
+		const summaryNeutralColour = changeSummaryCfg.neutralColour || 'var(--ons-color-grey-60)';
+		const showChangeSummary = summaryEnabled && selectionMode === 'range' && Array.isArray(areaSeries);
+		if (showChangeSummary) {
+			const fromIdx = clampTimeIndex(timeFromIndex ?? state.timeFromIndex);
+			const toIdx = clampTimeIndex(timeToIndex ?? state.timeToIndex);
+			const fromPointForSummary = areaSeries[fromIdx] || null;
+			const toPointForSummary = areaSeries[toIdx] || null;
+			const changeValue = computeRangeSelectionValue(fromPointForSummary?.v ?? null, toPointForSummary?.v ?? null);
+			if (changeValue === null || !Number.isFinite(changeValue)) {
+				changeSummary.text('').style('visibility', 'hidden');
+			} else if (Math.abs(changeValue) <= summaryThreshold) {
+				changeSummary
+					.text(summaryNoChangeText)
+					.style('color', summaryNeutralColour)
+					.style('visibility', 'visible');
+			} else {
+				const baseColour = (colourScale && Number.isFinite(changeValue))
+					? (() => { try { return colourScale(changeValue); } catch (e) { return solidStroke; } })()
+					: solidStroke;
+				const textColour = adjustColorForContrast(baseColour || solidStroke, summaryContrast, '#FFFFFF');
+				const magnitudeText = formatConfiguredValue(Math.abs(changeValue));
+				let summaryText = magnitudeText;
+				if (summaryIndicatorStyle === 'text') {
+					summaryText = `${changeValue > 0 ? summaryIncreaseText : summaryDecreaseText} ${magnitudeText}`;
+				} else if (summaryIndicatorStyle === 'triangle') {
+					summaryText = `${changeValue > 0 ? '▲' : '▼'} ${magnitudeText}`;
+				}
+				changeSummary
+					.text(summaryText)
+					.style('color', textColour)
+					.style('visibility', 'visible');
+			}
+		} else {
+			changeSummary.text('').style('visibility', 'hidden');
 		}
 
 		const hasAreaData = Array.isArray(areaSeries)
@@ -1737,6 +1853,7 @@ function createChart({ overlayInnerHeight = null } = {}) {
 			vlineFrom.style('opacity', 0);
 			vline.style('opacity', 0);
 			indicatorTriangle.style('opacity', 0);
+			indicatorValueFrom.style('opacity', 0);
 			indicatorValue.style('opacity', 0);
 			chartPillFromG.style('display', 'none');
 			chartPillG.style('display', 'none');
@@ -2026,7 +2143,7 @@ function createChart({ overlayInnerHeight = null } = {}) {
 				.attr('aria-valuenow', String(idxTo))
 				.attr('aria-valuetext', pillTo.srText)
 				.style('display', null);
-			chartPillText.text(`${mode === 'range' ? 'To: ' : ''}${pillTo.display}`);
+			chartPillText.text(pillTo.display);
 			layoutPill(chartPillG, chartPillRect, chartPillText, xTo, innerHeight + 6);
 
 			if (mode === 'range' && typeof xFrom === 'number') {
@@ -2038,7 +2155,7 @@ function createChart({ overlayInnerHeight = null } = {}) {
 					.attr('aria-valuenow', String(idxFrom))
 					.attr('aria-valuetext', pillFrom.srText)
 					.style('display', null);
-				chartPillFromText.text(`From: ${pillFrom.display}`);
+				chartPillFromText.text(pillFrom.display);
 				// Same vertical position as the To pill; apply horizontal separation below if needed.
 				layoutPill(chartPillFromG, chartPillFromRect, chartPillFromText, xFrom, innerHeight + 6);
 			} else {
@@ -2074,6 +2191,7 @@ function createChart({ overlayInnerHeight = null } = {}) {
 			vlineFrom.style('opacity', 0);
 			vline.style('opacity', 0);
 			indicatorTriangle.style('opacity', 0);
+			indicatorValueFrom.style('opacity', 0);
 			indicatorValue.style('opacity', 0);
 			chartPillFromG.style('display', 'none');
 			chartPillG.style('display', 'none');
@@ -2096,22 +2214,66 @@ function createChart({ overlayInnerHeight = null } = {}) {
 				.attr('d', `M${xPos - w},${-h}L${xPos + w},${-h}L${xPos},0Z`)
 				.style('opacity', 1);
 
-			let valueFormatter = null;
-			try {
-				valueFormatter = d3.format(config.valueFormat || ',.2f');
-			} catch (e) {
-				valueFormatter = (d) => String(d);
-			}
-			const prefix = typeof config.valuePrefix === 'string' ? config.valuePrefix : '';
-			const suffix = typeof config.valueSuffix === 'string' ? config.valueSuffix : '';
 			indicatorValue
-				.text(`${prefix}${valueFormatter(activePoint.v)}${suffix}`)
+				.text(formatConfiguredValue(activePoint.v))
 				.attr('x', xPos)
 				.attr('y', -h - 4)
 				.style('opacity', 1);
 		} else {
 			indicatorTriangle.style('opacity', 0);
 			indicatorValue.style('opacity', 0);
+		}
+
+		if (mode === 'range' && areaSeries) {
+			const fromPoint = areaSeries.find(d => d.t === tFrom) || null;
+			const toPoint = areaSeries.find(d => d.t === tTo) || null;
+			const h = 8;
+			let xFromLabel = xFrom;
+			let xToLabel = xTo;
+			let fromText = null;
+			let toText = null;
+
+			if (fromPoint && fromPoint.v !== null && Number.isFinite(fromPoint.v) && typeof xFrom === 'number') {
+				fromText = formatConfiguredValue(fromPoint.v);
+			}
+			if (toPoint && toPoint.v !== null && Number.isFinite(toPoint.v) && typeof xTo === 'number') {
+				toText = formatConfiguredValue(toPoint.v);
+			}
+
+			if (fromText && toText && Number.isFinite(xFromLabel) && Number.isFinite(xToLabel)) {
+				const approxFromW = Math.max(32, fromText.length * 8);
+				const approxToW = Math.max(32, toText.length * 8);
+				const dist = Math.abs(xToLabel - xFromLabel);
+				const minGap = (approxFromW / 2) + (approxToW / 2) + 8;
+				if (dist > 0 && dist < minGap) {
+					const push = (minGap - dist) / 2;
+					const dir = xFromLabel <= xToLabel ? 1 : -1;
+					xFromLabel = Math.max(approxFromW / 2, Math.min(innerWidth - (approxFromW / 2), xFromLabel + (-push * dir)));
+					xToLabel = Math.max(approxToW / 2, Math.min(innerWidth - (approxToW / 2), xToLabel + (push * dir)));
+				}
+			}
+
+			if (fromText) {
+				indicatorValueFrom
+					.text(fromText)
+					.attr('x', xFromLabel)
+					.attr('y', -h - 4)
+					.style('opacity', 1);
+			} else {
+				indicatorValueFrom.style('opacity', 0);
+			}
+
+			if (toText) {
+				indicatorValue
+					.text(toText)
+					.attr('x', xToLabel)
+					.attr('y', -h - 4)
+					.style('opacity', 1);
+			} else {
+				indicatorValue.style('opacity', 0);
+			}
+		} else {
+			indicatorValueFrom.style('opacity', 0);
 		}
 
 		if (areaSeries) {
@@ -2494,13 +2656,13 @@ async function loadDataset(datasetIndex) {
 		const fromIdx = resolveIndex({
 			preferredRaw: prevFromRaw,
 			preferredDate: prevFromDate,
-			configRaw: (typeof config.startFromTime === 'string' ? config.startFromTime : null),
+			configRaw: (typeof resolveDatasetOption('startFromTime', null) === 'string' ? resolveDatasetOption('startFromTime', null) : null),
 			fallback: 0
 		});
 		const toIdx = resolveIndex({
 			preferredRaw: prevToRaw,
 			preferredDate: prevToDate,
-			configRaw: (typeof config.startToTime === 'string' ? config.startToTime : null),
+			configRaw: (typeof resolveDatasetOption('startToTime', null) === 'string' ? resolveDatasetOption('startToTime', null) : null),
 			fallback: lastIdx
 		});
 		const norm = normalizeRange(fromIdx, toIdx);
@@ -2520,7 +2682,8 @@ async function loadDataset(datasetIndex) {
 				: nextIdx;
 		}
 		if (nextIdx < 0) {
-			const desired = typeof config.startTime === 'string' ? config.startTime : null;
+			const resolvedStartTime = resolveDatasetOption('startTime', null);
+			const desired = typeof resolvedStartTime === 'string' ? resolvedStartTime : null;
 			nextIdx = desired ? state.timeColumns.indexOf(desired) : -1;
 		}
 		state.timeIndex = nextIdx >= 0 ? nextIdx : Math.max(0, state.timeColumns.length - 1);

@@ -2125,6 +2125,24 @@ export function redeclareMouseEvents(rateById, state) {
     })
 }
 
+function restoreKeyInfoAfterDatasetSwitch(rateById, areaById, state) {
+    if (state.selectedAreaCode) {
+        const selectedAreaName = areaById[state.selectedAreaCode] || state.selectedAreaName || null;
+        const rawSelectedValue = rateById[state.selectedAreaCode];
+        const hasSelectedValue = rawSelectedValue !== null && typeof rawSelectedValue !== 'undefined' && rawSelectedValue !== '' && !isNaN(+rawSelectedValue);
+        const selectedValue = hasSelectedValue ? +rawSelectedValue : undefined;
+
+        if (window.moveKeyIndicator) window.moveKeyIndicator(undefined);
+        if (window.moveKeyIndicatorSelected) window.moveKeyIndicatorSelected(selectedValue);
+        updateKeyInfo(selectedValue, selectedAreaName, state);
+        return;
+    }
+
+    if (window.moveKeyIndicator) window.moveKeyIndicator(undefined);
+    if (window.moveKeyIndicatorSelected) window.moveKeyIndicatorSelected(undefined);
+    updateKeyInfo(undefined, undefined, state);
+}
+
 export function updateDataset(keyscale, data, state) {
     const { rateById: nextRateById, areaById: nextAreaById } = buildValueAndAreaLookups(data, config, state)
 
@@ -2150,5 +2168,5 @@ export function updateDataset(keyscale, data, state) {
 
     drawKeyScale({ keyscale, breaks, colour, config, window, state });
     redrawMapFill(data, rateById, colour, state);
-    updateKeyInfo(undefined, undefined, state);
+    restoreKeyInfoAfterDatasetSwitch(rateById, areaById, state);
 }

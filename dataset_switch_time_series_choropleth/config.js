@@ -39,8 +39,8 @@ config = {
 	debugInfo: true,
 	// Time-series datasets (wide format: id + name + one column per time point)
 	// Per-dataset overrides are supported on each dataset object, for example:
-	// { label: "A", url: "a.csv", timeSelectionMode: "point", startTime: "2011" }
-	// { label: "B", url: "b.csv", timeSelectionMode: "range", startFromTime: "2011", startToTime: "2021", changeMetric: "percent" }
+	// { label: "A", url: "a.csv", timeSelectionMode: "point", startTime: "2011", selectionBreaksMode: "perSelection" }
+	// { label: "B", url: "b.csv", timeSelectionMode: "range", startFromTime: "2011", startToTime: "2021", changeMetric: "percent", selectionBreaksMode: "fixed" }
 	datasets: [
 		{ label: "Per 1,000 population", url: "data_over_time_0.csv" },
 		{ label: "Per 100 sales", url: "data_over_time_1.csv" }
@@ -62,8 +62,15 @@ config = {
 	colourUnavailable: ONScolours.noData,
 	breaks: "jenks", // "equal", "jenks", or a custom array of breaks
 	breaksNumber: 5,
-	// If true, breaks are calculated once per dataset across all time points (recommended for comparison)
-	timeBreaksMode: "fixed", // "fixed" | "perTime"
+	// Controls whether choropleth breaks stay fixed or respond to the current selection.
+	// - "fixed":
+	//    point mode -> breaks are calculated once from all years in the dataset
+	//    range mode -> breaks are calculated once from all valid from<to combinations in the dataset
+	// - "perSelection":
+	//    point mode -> breaks are recalculated for the currently selected year
+	//    range mode -> breaks are recalculated for the currently selected from/to pair
+	// This can also be set per dataset inside config.datasets[].
+	selectionBreaksMode: "fixed", // "fixed" | "perSelection"
 	// Timeline start position. If null/undefined or not found in the data headers, defaults to the last time point.
 	// Example: startTime: "2011"
 	startTime: null,

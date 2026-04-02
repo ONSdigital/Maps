@@ -217,6 +217,14 @@ function resolveDatasetOption(name, fallback = undefined) {
 	return (typeof resolved === 'undefined') ? fallback : resolved;
 }
 
+function getSelectionBreaksMode() {
+	const fallback = isRangeMode() ? 'perSelection' : 'fixed';
+	const raw = String(resolveDatasetOption('selectionBreaksMode', fallback)).toLowerCase();
+	if (raw === 'fixed') return 'fixed';
+	if (raw === 'perselection') return 'perSelection';
+	return fallback;
+}
+
 
 function formatResolvedDisplayValue(value, {
 	formatKey,
@@ -277,6 +285,32 @@ function computeRangeSelectionValue(vFrom, vTo) {
 	return delta;
 }
 
+function collectFixedBreakValues() {
+	const values = [];
+	if (!isRangeMode()) {
+		for (const code of Object.keys(state.seriesById)) {
+			for (const v of state.seriesById[code].values) {
+				if (v === null || !Number.isFinite(v)) continue;
+				values.push(v);
+			}
+		}
+		return values;
+	}
+
+	for (const code of Object.keys(state.seriesById)) {
+		const seriesValues = state.seriesById[code].values;
+		for (let fromIdx = 0; fromIdx < seriesValues.length - 1; fromIdx++) {
+			for (let toIdx = fromIdx + 1; toIdx < seriesValues.length; toIdx++) {
+				const v = computeRangeSelectionValue(seriesValues[fromIdx], seriesValues[toIdx]);
+				if (v === null || !Number.isFinite(v)) continue;
+				values.push(v);
+			}
+		}
+	}
+
+	return values;
+}
+
 function resolveBreaksConfig() {
 	const b = config.breaks;
 	if (!Array.isArray(b)) return b;
@@ -306,24 +340,15 @@ function computeBreaksForDataset() {
 
 	const breaksNumber = resolveByDataset(config.breaksNumber);
 	const numClasses = Array.isArray(palette) ? palette.length : (breaksNumber || 5);
-
-	// Range mode: breaks should respond to the chosen range, so treat as perTime.
-	const breaksMode = isRangeMode() ? 'perTime' : resolveDatasetOption('timeBreaksMode', 'fixed');
-	if (breaksMode === 'perTime') {
+	const breaksMode = getSelectionBreaksMode();
+	if (breaksMode === 'perSelection') {
 		// Will be recomputed on each time change
 		state.breaks = null;
 		state.colour = d3.scaleThreshold().range(palette);
 		return;
 	}
 
-	// Fixed across all time points (recommended)
-	const values = [];
-	for (const code of Object.keys(state.seriesById)) {
-		for (const v of state.seriesById[code].values) {
-			if (v === null) continue;
-			values.push(v);
-		}
-	}
+	const values = collectFixedBreakValues();
 	values.sort(d3.ascending);
 	const calculated = calculateBreaks(values, breaks, numClasses);
 	state.breaks = calculated;
@@ -331,8 +356,8 @@ function computeBreaksForDataset() {
 }
 
 function ensureBreaksAndLegend() {
-	const breaksMode = isRangeMode() ? 'perTime' : resolveDatasetOption('timeBreaksMode', 'fixed');
-	if (breaksMode === 'perTime') {
+	const breaksMode = getSelectionBreaksMode();
+	if (breaksMode === 'perSelection') {
 		const palette = state.colour.range();
 		const method = resolveBreaksConfig();
 		const values = Object.values(state.rateById).filter(v => v !== null && Number.isFinite(v)).sort(d3.ascending);
@@ -357,6 +382,27 @@ function ensureBreaksAndLegend() {
 
 function setActiveTimeHandle(handle) {
 	state.activeTimeHandle = (handle === 'from') ? 'from' : 'to';
+	if (isRangeMode()) refreshRangeTimelineHandleUI();
+}
+
+function refreshRangeTimelineHandleUI(container = document.getElementById('timeline-slider')) {
+	if (!container) return;
+	const handleFrom = container.querySelector('button.timeline-handle--from');
+	const handleTo = container.querySelector('button.timeline-handle--to');
+	const activeElement = document.activeElement;
+	const isFromFocused = !!handleFrom && activeElement === handleFrom;
+	const isToFocused = !!handleTo && activeElement === handleTo;
+	if (handleFrom) {
+		handleFrom.classList.toggle('is-active-handle', isFromFocused);
+		handleFrom.setAttribute('tabindex', '0');
+	}
+	if (handleTo) {
+		handleTo.classList.toggle('is-active-handle', isToFocused);
+		handleTo.setAttribute('tabindex', '0');
+	}
+	container.querySelectorAll('button.timeline-marker').forEach((btn) => {
+		btn.setAttribute('tabindex', isRangeMode() ? '-1' : '0');
+	});
 }
 
 function syncDisplayValueMode() {
@@ -608,6 +654,398 @@ function beginTimelineTouchDrag(container, event, captureElement, opts = {}) {
 	} catch (err) {
 		// ignore
 	}
+}
+
+function buildTimelineLayout(items, width, padding = 10) {
+	let allHaveDates = items.length > 1 && items.every(d => d.date instanceof Date && Number.isFinite(d.date.getTime()));
+	let timeDomain = null;
+	if (allHaveDates) {
+		timeDomain = d3.extent(items, d => d.date);
+		if (!timeDomain || !timeDomain[0] || !timeDomain[1] || timeDomain[0].getTime() === timeDomain[1].getTime()) {
+			allHaveDates = false;
+		}
+	}
+
+	const x = allHaveDates
+		? d3.scaleTime().domain(timeDomain).range([padding, width - padding])
+		: d3.scalePoint().domain(items.map(d => d.index)).range([padding, width - padding]);
+
+	return {
+		padding,
+		allHaveDates,
+		x,
+		positions: items.map(d => ({
+			index: d.index,
+			x: allHaveDates ? x(d.date) : x(d.index)
+		}))
+	};
+}
+
+function cacheTimelinePositions(container, positions) {
+	container.__timelinePositions = positions;
+}
+
+function getCachedTimelinePosition(container, idx, fallback = 10) {
+	const positions = container.__timelinePositions || [];
+	const match = positions.find(p => p.index === idx);
+	return match ? match.x : fallback;
+}
+
+function getTimelineItemPixel(item, layout) {
+	return layout.allHaveDates ? layout.x(item.date) : layout.x(item.index);
+}
+
+function renderTimelineTickLabels(container, tickLabelItems, layout) {
+	const ticksSel = d3.select(container)
+		.selectAll('div.timeline-tick')
+		.data(tickLabelItems, d => d.raw);
+	ticksSel.exit().remove();
+	const ticksEnter = ticksSel.enter().append('div').attr('class', 'timeline-tick');
+	ticksEnter.merge(ticksSel)
+		.text(d => d.display)
+		.style('left', d => `${getTimelineItemPixel(d, layout)}px`);
+}
+
+function applyTimelinePillSeparation(pillFrom, pillTo, pxFrom, pxTo) {
+	if (!pillFrom || !pillTo) return;
+	let wFrom = 0;
+	let wTo = 0;
+	try { wFrom = pillFrom.getBoundingClientRect().width || 0; } catch (e) { wFrom = 0; }
+	try { wTo = pillTo.getBoundingClientRect().width || 0; } catch (e) { wTo = 0; }
+	const dist = Math.abs(pxTo - pxFrom);
+	const minGap = (wFrom / 2) + (wTo / 2) + 10;
+	if (Number.isFinite(dist) && Number.isFinite(minGap) && dist > 0 && dist < minGap) {
+		const push = (minGap - dist) / 2;
+		const dir = pxFrom <= pxTo ? 1 : -1;
+		pillFrom.style.transform = `translateX(-50%) translateX(${(-push * dir).toFixed(2)}px)`;
+		pillTo.style.transform = `translateX(-50%) translateX(${(push * dir).toFixed(2)}px)`;
+	} else {
+		pillFrom.style.transform = 'translateX(-50%)';
+		pillTo.style.transform = 'translateX(-50%)';
+	}
+}
+
+function resolveNearestRangeHandle(index) {
+	const distFrom = Math.abs(index - state.timeFromIndex);
+	const distTo = Math.abs(index - state.timeToIndex);
+	return distFrom <= distTo ? 'from' : 'to';
+}
+
+function getRangeHandleCurrentIndex(handle) {
+	return handle === 'from' ? state.timeFromIndex : state.timeToIndex;
+}
+
+function handleRangeControlKeydown(event, handle) {
+	const max = Math.max(0, state.timeColumns.length - 1);
+	const jump = getTimelineKeyboardStep();
+	const delta = event.shiftKey ? jump : 1;
+	const currentIdx = getRangeHandleCurrentIndex(handle);
+	if (event.key === 'Home') { event.preventDefault(); setTimeSelection(0, { activeHandle: handle }); return; }
+	if (event.key === 'End') { event.preventDefault(); setTimeSelection(max, { activeHandle: handle }); return; }
+	if (event.key === 'PageUp') { event.preventDefault(); setTimeSelection(currentIdx - jump, { activeHandle: handle }); return; }
+	if (event.key === 'PageDown') { event.preventDefault(); setTimeSelection(currentIdx + jump, { activeHandle: handle }); return; }
+	if (event.key === 'ArrowLeft') { event.preventDefault(); setTimeSelection(currentIdx - delta, { activeHandle: handle }); return; }
+	if (event.key === 'ArrowRight') { event.preventDefault(); setTimeSelection(currentIdx + delta, { activeHandle: handle }); return; }
+}
+
+function wireRangeControlElement(element, handle, {
+	dragContainer,
+	dragCapture = element,
+	refreshUI = null,
+	focusOnPointerDown = true,
+	ignoreTouchPointerEvents = false,
+} = {}) {
+	if (!element || element.__rangeControlWired) return;
+	element.__rangeControlWired = true;
+
+	element.addEventListener('focus', () => {
+		setActiveTimeHandle(handle);
+		if (typeof refreshUI === 'function') refreshUI();
+	});
+
+	element.addEventListener('blur', () => {
+		if (typeof refreshUI !== 'function') return;
+		requestAnimationFrame(() => refreshUI());
+	});
+
+	element.addEventListener('pointerdown', (event) => {
+		if (ignoreTouchPointerEvents && event && event.pointerType === 'touch') return;
+		event.preventDefault();
+		setActiveTimeHandle(handle);
+		if (focusOnPointerDown && element && typeof element.focus === 'function') {
+			try { element.focus({ preventScroll: true }); } catch (e) { /* ignore */ }
+		}
+		beginTimelineDrag(dragContainer, event, dragCapture, {
+			onIndex: (idx) => setTimeSelection(idx, { activeHandle: handle })
+		});
+	});
+
+	element.addEventListener('touchstart', (event) => {
+		setActiveTimeHandle(handle);
+		beginTimelineTouchDrag(dragContainer, event, dragCapture, {
+			onIndex: (idx) => setTimeSelection(idx, { activeHandle: handle })
+		});
+	});
+
+	element.addEventListener('keydown', (event) => {
+		handleRangeControlKeydown(event, handle);
+	});
+}
+
+function syncRangeSelectionState() {
+	const norm = normalizeRange(state.timeFromIndex, state.timeToIndex);
+	state.timeFromIndex = norm.from;
+	state.timeToIndex = norm.to;
+	state.selectedFromRaw = state.timeColumns[state.timeFromIndex] ?? null;
+	state.selectedToRaw = state.timeColumns[state.timeToIndex] ?? null;
+	state.timeIndex = state.timeToIndex;
+	state.selectedTimeRaw = state.selectedToRaw;
+	return norm;
+}
+
+function renderRangeTimelineMarkers(container, items, layout) {
+	const markersSel = d3.select(container)
+		.selectAll('button.timeline-marker')
+		.data(items, d => d.raw);
+	markersSel.exit().remove();
+
+	const markersEnter = markersSel.enter()
+		.append('button')
+		.attr('type', 'button')
+		.attr('class', 'timeline-marker')
+		.attr('role', 'button')
+		.attr('tabindex', 0)
+		.on('pointerdown', (event, d) => {
+			event.preventDefault();
+			try { event.currentTarget.focus(); } catch (e) { /* ignore */ }
+			const handle = resolveNearestRangeHandle(d.index);
+			setActiveTimeHandle(handle);
+			beginTimelineDrag(container, event, event.currentTarget, {
+				onIndex: (idx) => setTimeSelection(idx, { activeHandle: handle })
+			});
+			setTimeSelection(d.index, { activeHandle: handle });
+		})
+		.on('keydown', (event, d) => {
+			const key = event.key;
+			if (key === 'Enter' || key === ' ') {
+				event.preventDefault();
+				event.stopPropagation();
+				const handle = resolveNearestRangeHandle(d.index);
+				setActiveTimeHandle(handle);
+				setTimeSelection(d.index, { activeHandle: handle });
+			}
+		});
+
+	markersEnter.merge(markersSel)
+		.attr('data-index', d => String(d.index))
+		.attr('aria-label', d => d.srText)
+		.attr('tabindex', -1)
+		.classed('is-active', false)
+		.classed('is-complete', false)
+		.classed('is-from', d => d.index === state.timeFromIndex)
+		.classed('is-to', d => d.index === state.timeToIndex)
+		.classed('is-in-range', d => d.index >= state.timeFromIndex && d.index <= state.timeToIndex)
+		.style('left', d => `${getTimelineItemPixel(d, layout)}px`);
+}
+
+function updateRangeTimelineControls(container, items, layout) {
+	const maxIdx = Math.max(0, items.length - 1);
+	const pxFrom = getCachedTimelinePosition(container, state.timeFromIndex, layout.padding);
+	const pxTo = getCachedTimelinePosition(container, state.timeToIndex, layout.padding);
+
+	const rangeEl = container.querySelector('.timeline-range');
+	if (rangeEl) {
+		rangeEl.style.left = `${Math.min(pxFrom, pxTo)}px`;
+		rangeEl.style.width = `${Math.max(2, Math.abs(pxTo - pxFrom))}px`;
+		rangeEl.style.display = '';
+	}
+
+	const handleFrom = container.querySelector('button.timeline-handle--from');
+	const handleTo = container.querySelector('button.timeline-handle--to');
+	if (handleFrom) {
+		handleFrom.style.left = `${pxFrom}px`;
+		handleFrom.setAttribute('aria-valuemin', '0');
+		handleFrom.setAttribute('aria-valuemax', String(maxIdx));
+		handleFrom.setAttribute('aria-valuenow', String(state.timeFromIndex));
+		handleFrom.setAttribute('aria-valuetext', items[state.timeFromIndex]?.srText || '');
+	}
+	if (handleTo) {
+		handleTo.style.left = `${pxTo}px`;
+		handleTo.setAttribute('aria-valuemin', '0');
+		handleTo.setAttribute('aria-valuemax', String(maxIdx));
+		handleTo.setAttribute('aria-valuenow', String(state.timeToIndex));
+		handleTo.setAttribute('aria-valuetext', items[state.timeToIndex]?.srText || '');
+	}
+	refreshRangeTimelineHandleUI(container);
+
+	const pillFrom = container.querySelector('.timeline-pill--from');
+	if (pillFrom && items[state.timeFromIndex]) {
+		pillFrom.textContent = `From: ${items[state.timeFromIndex].display}`;
+		pillFrom.style.left = `${pxFrom}px`;
+		pillFrom.style.display = '';
+	}
+	const pillTo = container.querySelector('.timeline-pill--to');
+	if (pillTo && items[state.timeToIndex]) {
+		pillTo.textContent = `To: ${items[state.timeToIndex].display}`;
+		pillTo.style.left = `${pxTo}px`;
+		pillTo.style.display = '';
+	}
+	applyTimelinePillSeparation(pillFrom, pillTo, pxFrom, pxTo);
+
+	if (!container.__rangeHandlesWired) {
+		container.__rangeHandlesWired = true;
+		const refreshUI = () => refreshRangeTimelineHandleUI(container);
+		wireRangeControlElement(handleFrom, 'from', { dragContainer: container, refreshUI });
+		wireRangeControlElement(handleTo, 'to', { dragContainer: container, refreshUI });
+	}
+}
+
+function renderRangeTimeline(container) {
+	const items = buildTimelineItems();
+	if (!items.length) return;
+	syncRangeSelectionState();
+
+	const width = container.clientWidth || 0;
+	if (!width) return;
+
+	const layout = buildTimelineLayout(items, width);
+	cacheTimelinePositions(container, layout.positions);
+	renderRangeTimelineMarkers(container, items, layout);
+	renderTimelineTickLabels(container, computeTimelineTickLabelItems({ items, containerWidth: width, allHaveDates: layout.allHaveDates }), layout);
+	updateRangeTimelineControls(container, items, layout);
+}
+
+function renderPointTimelineMarkers(container, items, layout, maxIdx) {
+	const markersSel = d3.select(container)
+		.selectAll('button.timeline-marker')
+		.data(items, d => d.raw);
+
+	markersSel.exit().remove();
+
+	const markersEnter = markersSel.enter()
+		.append('button')
+		.attr('type', 'button')
+		.attr('class', 'timeline-marker')
+		.attr('role', 'button')
+		.attr('tabindex', 0)
+		.on('pointerdown', (event, d) => {
+			event.preventDefault();
+			try { event.currentTarget.focus(); } catch (e) { /* ignore */ }
+			beginTimelineDrag(container, event, event.currentTarget);
+			setTimeIndex(d.index);
+		})
+		.on('keydown', (event, d) => {
+			const key = event.key;
+			if (key === 'Enter' || key === ' ') {
+				event.preventDefault();
+				event.stopPropagation();
+				setTimeIndex(d.index);
+				const activeBtn = container.querySelector(`button.timeline-marker[data-index="${state.timeIndex}"]`);
+				if (activeBtn) {
+					try { activeBtn.focus(); } catch (e) { /* ignore */ }
+				}
+				return;
+			}
+			if (key === 'Home') {
+				event.preventDefault();
+				event.stopPropagation();
+				setTimeIndex(0);
+				const first = container.querySelector('button.timeline-marker[data-index="0"]');
+				if (first) {
+					try { first.focus(); } catch (e) { /* ignore */ }
+				}
+				return;
+			}
+			if (key === 'End') {
+				event.preventDefault();
+				event.stopPropagation();
+				setTimeIndex(maxIdx);
+				const last = container.querySelector(`button.timeline-marker[data-index="${state.timeIndex}"]`);
+				if (last) {
+					try { last.focus(); } catch (e) { /* ignore */ }
+				}
+				return;
+			}
+			if (key === 'PageUp') {
+				event.preventDefault();
+				event.stopPropagation();
+				setTimeIndex(state.timeIndex - getTimelineKeyboardStep());
+				const btn = container.querySelector(`button.timeline-marker[data-index="${state.timeIndex}"]`);
+				if (btn) {
+					try { btn.focus(); } catch (e) { /* ignore */ }
+				}
+				return;
+			}
+			if (key === 'PageDown') {
+				event.preventDefault();
+				event.stopPropagation();
+				setTimeIndex(state.timeIndex + getTimelineKeyboardStep());
+				const btn = container.querySelector(`button.timeline-marker[data-index="${state.timeIndex}"]`);
+				if (btn) {
+					try { btn.focus(); } catch (e) { /* ignore */ }
+				}
+				return;
+			}
+			if (key === 'ArrowLeft') {
+				event.preventDefault();
+				event.stopPropagation();
+				setTimeIndex(state.timeIndex - (event.shiftKey ? getTimelineKeyboardStep() : 1));
+				const prev = container.querySelector(`button.timeline-marker[data-index="${state.timeIndex}"]`);
+				if (prev) {
+					try { prev.focus(); } catch (e) { /* ignore */ }
+				}
+				return;
+			}
+			if (key === 'ArrowRight') {
+				event.preventDefault();
+				event.stopPropagation();
+				setTimeIndex(state.timeIndex + (event.shiftKey ? getTimelineKeyboardStep() : 1));
+				const next = container.querySelector(`button.timeline-marker[data-index="${state.timeIndex}"]`);
+				if (next) {
+					try { next.focus(); } catch (e) { /* ignore */ }
+				}
+			}
+		});
+
+	markersEnter.merge(markersSel)
+		.attr('data-index', d => String(d.index))
+		.attr('aria-label', d => d.srText)
+		.attr('tabindex', 0)
+		.classed('is-complete', d => d.index <= state.timeIndex)
+		.classed('is-active', d => d.index === state.timeIndex)
+		.style('left', d => `${getTimelineItemPixel(d, layout)}px`);
+}
+
+function updatePointTimelinePill(container, items, layout) {
+	const pill = container.querySelector('.timeline-pill');
+	if (pill && items[state.timeIndex]) {
+		const active = items[state.timeIndex];
+		pill.textContent = active.display;
+		pill.style.left = `${getTimelineItemPixel(active, layout)}px`;
+		pill.style.display = '';
+	} else if (pill) {
+		pill.style.display = 'none';
+	}
+}
+
+function renderPointTimeline(container) {
+	const items = buildTimelineItems();
+	const maxIdx = Math.max(0, items.length - 1);
+	state.timeIndex = Math.max(0, Math.min(state.timeIndex, maxIdx));
+
+	container.setAttribute('aria-valuemin', '0');
+	container.setAttribute('aria-valuemax', String(maxIdx));
+	container.setAttribute('aria-valuenow', String(state.timeIndex));
+	container.setAttribute('aria-valuetext', items[state.timeIndex] ? items[state.timeIndex].srText : '');
+
+	const width = container.clientWidth || 0;
+	if (!width || items.length === 0) return;
+
+	const layout = buildTimelineLayout(items, width);
+	cacheTimelinePositions(container, layout.positions);
+	renderPointTimelineMarkers(container, items, layout, maxIdx);
+	renderTimelineTickLabels(container, computeTimelineTickLabelItems({ items, containerWidth: width, allHaveDates: layout.allHaveDates }), layout);
+	updatePointTimelinePill(container, items, layout);
 }
 
 function getTimelineConfig() {
@@ -874,6 +1312,7 @@ function ensureTimelineScaffold(container) {
 		if (hFrom) hFrom.remove();
 		const hTo = container.querySelector('button.timeline-handle--to');
 		if (hTo) hTo.remove();
+		container.__rangeHandlesWired = false;
 	}
 }
 
@@ -881,383 +1320,12 @@ function renderTimeline() {
 	const container = document.getElementById('timeline-slider');
 	if (!container) return;
 	ensureTimelineScaffold(container);
-
 	if (isRangeMode()) {
-		const items = buildTimelineItems();
-		const maxIdx = Math.max(0, items.length - 1);
-		if (!items.length) return;
-
-		const norm = normalizeRange(state.timeFromIndex, state.timeToIndex);
-		state.timeFromIndex = norm.from;
-		state.timeToIndex = norm.to;
-		state.selectedFromRaw = state.timeColumns[state.timeFromIndex] ?? null;
-		state.selectedToRaw = state.timeColumns[state.timeToIndex] ?? null;
-		state.timeIndex = state.timeToIndex;
-		state.selectedTimeRaw = state.selectedToRaw;
-
-		const width = container.clientWidth || 0;
-		if (!width) return;
-		const padding = 10;
-
-		let allHaveDates = items.length > 1 && items.every(d => d.date instanceof Date && Number.isFinite(d.date.getTime()));
-		let timeDomain = null;
-		if (allHaveDates) {
-			timeDomain = d3.extent(items, d => d.date);
-			if (!timeDomain || !timeDomain[0] || !timeDomain[1] || timeDomain[0].getTime() === timeDomain[1].getTime()) {
-				allHaveDates = false;
-			}
-		}
-
-		const x = allHaveDates
-			? d3.scaleTime().domain(timeDomain).range([padding, width - padding])
-			: d3.scalePoint().domain(items.map(d => d.index)).range([padding, width - padding]);
-
-		container.__timelinePositions = items.map(d => {
-			const px = allHaveDates ? x(d.date) : x(d.index);
-			return { index: d.index, x: px };
-		});
-
-		// Markers
-		const markersSel = d3.select(container)
-			.selectAll('button.timeline-marker')
-			.data(items, d => d.raw);
-		markersSel.exit().remove();
-
-		const markersEnter = markersSel.enter()
-			.append('button')
-			.attr('type', 'button')
-			.attr('class', 'timeline-marker')
-			.attr('role', 'button')
-			.attr('tabindex', 0)
-			.on('pointerdown', (event, d) => {
-				event.preventDefault();
-				try { event.currentTarget.focus(); } catch (e) { /* ignore */ }
-				const distFrom = Math.abs(d.index - state.timeFromIndex);
-				const distTo = Math.abs(d.index - state.timeToIndex);
-				const handle = distFrom <= distTo ? 'from' : 'to';
-				setActiveTimeHandle(handle);
-				beginTimelineDrag(container, event, event.currentTarget, {
-					onIndex: (idx) => setTimeSelection(idx, { activeHandle: handle })
-				});
-				setTimeSelection(d.index, { activeHandle: handle });
-			})
-			.on('keydown', (event, d) => {
-				const key = event.key;
-				if (key === 'Enter' || key === ' ') {
-					event.preventDefault();
-					event.stopPropagation();
-					const distFrom = Math.abs(d.index - state.timeFromIndex);
-					const distTo = Math.abs(d.index - state.timeToIndex);
-					const handle = distFrom <= distTo ? 'from' : 'to';
-					setActiveTimeHandle(handle);
-					setTimeSelection(d.index, { activeHandle: handle });
-					return;
-				}
-			});
-
-		const markersAll = markersEnter.merge(markersSel);
-		markersAll
-			.attr('data-index', d => String(d.index))
-			.attr('aria-label', d => d.srText)
-			.classed('is-active', false)
-			.classed('is-complete', false)
-			.classed('is-from', d => d.index === state.timeFromIndex)
-			.classed('is-to', d => d.index === state.timeToIndex)
-			.classed('is-in-range', d => d.index >= state.timeFromIndex && d.index <= state.timeToIndex)
-			.style('left', d => {
-				const px = allHaveDates ? x(d.date) : x(d.index);
-				return `${px}px`;
-			});
-
-		// Tick labels
-		const tickLabelItems = computeTimelineTickLabelItems({ items, containerWidth: width, allHaveDates });
-		const ticksSel = d3.select(container)
-			.selectAll('div.timeline-tick')
-			.data(tickLabelItems, d => d.raw);
-		ticksSel.exit().remove();
-		const ticksEnter = ticksSel.enter().append('div').attr('class', 'timeline-tick');
-		ticksEnter.merge(ticksSel)
-			.text(d => d.display)
-			.style('left', d => {
-				const px = allHaveDates ? x(d.date) : x(d.index);
-				return `${px}px`;
-			});
-
-		const posByIndex = (idx) => {
-			const p = (container.__timelinePositions || []).find(p => p.index === idx);
-			return p ? p.x : padding;
-		};
-		const pxFrom = posByIndex(state.timeFromIndex);
-		const pxTo = posByIndex(state.timeToIndex);
-
-		// Range highlight
-		const rangeEl = container.querySelector('.timeline-range');
-		if (rangeEl) {
-			rangeEl.style.left = `${Math.min(pxFrom, pxTo)}px`;
-			rangeEl.style.width = `${Math.max(2, Math.abs(pxTo - pxFrom))}px`;
-			rangeEl.style.display = '';
-		}
-
-		// Handles + pills
-		const handleFrom = container.querySelector('button.timeline-handle--from');
-		const handleTo = container.querySelector('button.timeline-handle--to');
-		if (handleFrom) {
-			handleFrom.style.left = `${pxFrom}px`;
-			handleFrom.setAttribute('aria-valuemin', '0');
-			handleFrom.setAttribute('aria-valuemax', String(maxIdx));
-			handleFrom.setAttribute('aria-valuenow', String(state.timeFromIndex));
-			handleFrom.setAttribute('aria-valuetext', items[state.timeFromIndex]?.srText || '');
-			handleFrom.classList.toggle('is-active-handle', state.activeTimeHandle === 'from');
-		}
-		if (handleTo) {
-			handleTo.style.left = `${pxTo}px`;
-			handleTo.setAttribute('aria-valuemin', '0');
-			handleTo.setAttribute('aria-valuemax', String(maxIdx));
-			handleTo.setAttribute('aria-valuenow', String(state.timeToIndex));
-			handleTo.setAttribute('aria-valuetext', items[state.timeToIndex]?.srText || '');
-			handleTo.classList.toggle('is-active-handle', state.activeTimeHandle === 'to');
-		}
-
-		const pillFrom = container.querySelector('.timeline-pill--from');
-		if (pillFrom && items[state.timeFromIndex]) {
-			pillFrom.textContent = `From: ${items[state.timeFromIndex].display}`;
-			pillFrom.style.left = `${pxFrom}px`;
-			pillFrom.style.display = '';
-		}
-		const pillTo = container.querySelector('.timeline-pill--to');
-		if (pillTo && items[state.timeToIndex]) {
-			pillTo.textContent = `To: ${items[state.timeToIndex].display}`;
-			pillTo.style.left = `${pxTo}px`;
-			pillTo.style.display = '';
-		}
-
-		// If From/To pills are too close, push them apart horizontally.
-		// (Keep handles/vlines at the true positions; this is just label placement.)
-		if (pillFrom && pillTo) {
-			let wFrom = 0;
-			let wTo = 0;
-			try { wFrom = pillFrom.getBoundingClientRect().width || 0; } catch (e) { wFrom = 0; }
-			try { wTo = pillTo.getBoundingClientRect().width || 0; } catch (e) { wTo = 0; }
-			const dist = Math.abs(pxTo - pxFrom);
-			const minGap = (wFrom / 2) + (wTo / 2) + 10;
-			if (Number.isFinite(dist) && Number.isFinite(minGap) && dist > 0 && dist < minGap) {
-				const push = (minGap - dist) / 2;
-				const dir = pxFrom <= pxTo ? 1 : -1;
-				pillFrom.style.transform = `translateX(-50%) translateX(${(-push * dir).toFixed(2)}px)`;
-				pillTo.style.transform = `translateX(-50%) translateX(${(push * dir).toFixed(2)}px)`;
-			} else {
-				pillFrom.style.transform = 'translateX(-50%)';
-				pillTo.style.transform = 'translateX(-50%)';
-			}
-		}
-
-		// Wire handle interactions once
-		if (!container.__rangeHandlesWired) {
-			container.__rangeHandlesWired = true;
-			const wire = (btn, handle) => {
-				if (!btn) return;
-				btn.addEventListener('focus', () => setActiveTimeHandle(handle));
-				btn.addEventListener('pointerdown', (event) => {
-					event.preventDefault();
-					setActiveTimeHandle(handle);
-					try { btn.focus({ preventScroll: true }); } catch (e) { /* ignore */ }
-					beginTimelineDrag(container, event, btn, {
-						onIndex: (idx) => setTimeSelection(idx, { activeHandle: handle })
-					});
-				});
-				btn.addEventListener('touchstart', (event) => {
-					setActiveTimeHandle(handle);
-					beginTimelineTouchDrag(container, event, btn, {
-						onIndex: (idx) => setTimeSelection(idx, { activeHandle: handle })
-					});
-				});
-				btn.addEventListener('keydown', (event) => {
-					const max = Math.max(0, state.timeColumns.length - 1);
-					const jump = getTimelineKeyboardStep();
-					const delta = event.shiftKey ? jump : 1;
-					const currentIdx = handle === 'from' ? state.timeFromIndex : state.timeToIndex;
-					if (event.key === 'Home') { event.preventDefault(); setTimeSelection(0, { activeHandle: handle }); return; }
-					if (event.key === 'End') { event.preventDefault(); setTimeSelection(max, { activeHandle: handle }); return; }
-					if (event.key === 'PageUp') { event.preventDefault(); setTimeSelection(currentIdx - jump, { activeHandle: handle }); return; }
-					if (event.key === 'PageDown') { event.preventDefault(); setTimeSelection(currentIdx + jump, { activeHandle: handle }); return; }
-					if (event.key === 'ArrowLeft') { event.preventDefault(); setTimeSelection(currentIdx - delta, { activeHandle: handle }); return; }
-					if (event.key === 'ArrowRight') { event.preventDefault(); setTimeSelection(currentIdx + delta, { activeHandle: handle }); return; }
-				});
-			};
-			wire(handleFrom, 'from');
-			wire(handleTo, 'to');
-		}
-
+		renderRangeTimeline(container);
 		return;
 	}
 
-	const items = buildTimelineItems();
-	const maxIdx = Math.max(0, items.length - 1);
-	const clamped = Math.max(0, Math.min(state.timeIndex, maxIdx));
-	state.timeIndex = clamped;
-
-	container.setAttribute('aria-valuemin', '0');
-	container.setAttribute('aria-valuemax', String(maxIdx));
-	container.setAttribute('aria-valuenow', String(state.timeIndex));
-	container.setAttribute('aria-valuetext', items[state.timeIndex] ? items[state.timeIndex].srText : '');
-
-	const width = container.clientWidth || 0;
-	if (!width || items.length === 0) return;
-	const padding = 10;
-
-	let allHaveDates = items.length > 1 && items.every(d => d.date instanceof Date && Number.isFinite(d.date.getTime()));
-	let timeDomain = null;
-	if (allHaveDates) {
-		timeDomain = d3.extent(items, d => d.date);
-		if (!timeDomain || !timeDomain[0] || !timeDomain[1] || timeDomain[0].getTime() === timeDomain[1].getTime()) {
-			allHaveDates = false;
-		}
-	}
-
-	const x = allHaveDates
-		? d3.scaleTime().domain(timeDomain).range([padding, width - padding])
-		: d3.scalePoint().domain(items.map(d => d.index)).range([padding, width - padding]);
-
-	// Cache discrete positions for drag snapping.
-	container.__timelinePositions = items.map(d => {
-		const px = allHaveDates ? x(d.date) : x(d.index);
-		return { index: d.index, x: px };
-	});
-
-	const markersSel = d3.select(container)
-		.selectAll('button.timeline-marker')
-		.data(items, d => d.raw);
-
-	markersSel.exit().remove();
-
-	const markersEnter = markersSel.enter()
-		.append('button')
-		.attr('type', 'button')
-		.attr('class', 'timeline-marker')
-		.attr('role', 'button')
-		.attr('tabindex', 0)
-		.on('pointerdown', (event, d) => {
-			// Allow click-to-set and drag-to-scrub from a marker (especially the active one)
-			event.preventDefault();
-			try { event.currentTarget.focus(); } catch (e) { /* ignore */ }
-			beginTimelineDrag(container, event, event.currentTarget);
-			setTimeIndex(d.index);
-		})
-		.on('keydown', (event, d) => {
-			const key = event.key;
-			if (key === 'Enter' || key === ' ') {
-				event.preventDefault();
-				event.stopPropagation();
-				setTimeIndex(d.index);
-				const activeBtn = container.querySelector(`button.timeline-marker[data-index="${state.timeIndex}"]`);
-				if (activeBtn) {
-					try { activeBtn.focus(); } catch (e) { /* ignore */ }
-				}
-				return;
-			}
-			if (key === 'Home') {
-				event.preventDefault();
-				event.stopPropagation();
-				setTimeIndex(0);
-				const first = container.querySelector(`button.timeline-marker[data-index="0"]`);
-				if (first) {
-					try { first.focus(); } catch (e) { /* ignore */ }
-				}
-				return;
-			}
-			if (key === 'End') {
-				event.preventDefault();
-				event.stopPropagation();
-				setTimeIndex(maxIdx);
-				const last = container.querySelector(`button.timeline-marker[data-index="${state.timeIndex}"]`);
-				if (last) {
-					try { last.focus(); } catch (e) { /* ignore */ }
-				}
-				return;
-			}
-			if (key === 'PageUp') {
-				event.preventDefault();
-				event.stopPropagation();
-				setTimeIndex(state.timeIndex - getTimelineKeyboardStep());
-				const btn = container.querySelector(`button.timeline-marker[data-index="${state.timeIndex}"]`);
-				if (btn) {
-					try { btn.focus(); } catch (e) { /* ignore */ }
-				}
-				return;
-			}
-			if (key === 'PageDown') {
-				event.preventDefault();
-				event.stopPropagation();
-				setTimeIndex(state.timeIndex + getTimelineKeyboardStep());
-				const btn = container.querySelector(`button.timeline-marker[data-index="${state.timeIndex}"]`);
-				if (btn) {
-					try { btn.focus(); } catch (e) { /* ignore */ }
-				}
-				return;
-			}
-			if (key === 'ArrowLeft') {
-				event.preventDefault();
-				event.stopPropagation();
-				setTimeIndex(state.timeIndex - (event.shiftKey ? getTimelineKeyboardStep() : 1));
-				const prev = container.querySelector(`button.timeline-marker[data-index="${state.timeIndex}"]`);
-				if (prev) {
-					try { prev.focus(); } catch (e) { /* ignore */ }
-				}
-				return;
-			}
-			if (key === 'ArrowRight') {
-				event.preventDefault();
-				event.stopPropagation();
-				setTimeIndex(state.timeIndex + (event.shiftKey ? getTimelineKeyboardStep() : 1));
-				const next = container.querySelector(`button.timeline-marker[data-index="${state.timeIndex}"]`);
-				if (next) {
-					try { next.focus(); } catch (e) { /* ignore */ }
-				}
-				return;
-			}
-		});
-
-	const markersAll = markersEnter.merge(markersSel);
-	markersAll
-		.attr('data-index', d => String(d.index))
-		.attr('aria-label', d => d.srText)
-		.classed('is-complete', d => d.index <= state.timeIndex)
-		.classed('is-active', d => d.index === state.timeIndex)
-		.style('left', d => {
-			const px = allHaveDates ? x(d.date) : x(d.index);
-			return `${px}px`;
-		});
-
-	// Tick labels
-	const tickLabelItems = computeTimelineTickLabelItems({ items, containerWidth: width, allHaveDates });
-	const ticksSel = d3.select(container)
-		.selectAll('div.timeline-tick')
-		.data(tickLabelItems, d => d.raw);
-
-	ticksSel.exit().remove();
-
-	const ticksEnter = ticksSel.enter()
-		.append('div')
-		.attr('class', 'timeline-tick');
-
-	ticksEnter.merge(ticksSel)
-		.text(d => d.display)
-		.style('left', d => {
-			const px = allHaveDates ? x(d.date) : x(d.index);
-			return `${px}px`;
-		});
-
-	// Active pill label
-	const pill = container.querySelector('.timeline-pill');
-	if (pill && items[state.timeIndex]) {
-		const active = items[state.timeIndex];
-		pill.textContent = active.display;
-		const px = allHaveDates ? x(active.date) : x(active.index);
-		pill.style.left = `${px}px`;
-		pill.style.display = '';
-	} else if (pill) {
-		pill.style.display = 'none';
-	}
+	renderPointTimeline(container);
 }
 
 function wireTimelineEvents() {
@@ -1394,37 +1462,427 @@ function getOverlayInnerHeightPx() {
 	return Number.isFinite(inner) && inner > 0 ? inner : null;
 }
 
+function createChartOptionResolver(chartCfg, datasetChartCfg) {
+	return (key, fallback = undefined) => {
+		if (Object.prototype.hasOwnProperty.call(datasetChartCfg, key)) {
+			return datasetChartCfg[key];
+		}
+		const raw = chartCfg[key];
+		if (!Array.isArray(raw)) return (typeof raw === 'undefined') ? fallback : raw;
+		const idx = (state && typeof state.datasetIndex === 'number') ? state.datasetIndex : 0;
+		const resolved = (idx >= 0 && idx < raw.length) ? raw[idx] : raw[0];
+		return (typeof resolved === 'undefined') ? fallback : resolved;
+	};
+}
+
+function resolveChartYTicks(resolveChartOption, overlayMode, fallback) {
+	const modeKey = overlayMode === 'hover' ? 'hover' : 'pinned';
+	const cfg = resolveChartOption('yTicks');
+	let value = cfg;
+	if (cfg && typeof cfg === 'object' && !Array.isArray(cfg)) {
+		value = cfg[modeKey];
+		if (value === null || typeof value === 'undefined') value = cfg.default;
+	}
+	const n = (value === null || typeof value === 'undefined') ? NaN : Math.round(+value);
+	return (Number.isFinite(n) && n > 0) ? n : fallback;
+}
+
+function measureChartMetaHeights({ headerMeta, legend, initialSubTitle }) {
+	let headerHeight = 0;
+	let legendHeight = 0;
+	try {
+		const rect = headerMeta && headerMeta.node ? headerMeta.node().getBoundingClientRect() : null;
+		headerHeight = (rect && Number.isFinite(rect.height)) ? rect.height : 0;
+	} catch (e) {
+		headerHeight = initialSubTitle ? 40 : 25;
+	}
+	try {
+		const rect = legend && legend.node ? legend.node().getBoundingClientRect() : null;
+		legendHeight = rect ? rect.height : 0;
+		legendHeight += 8;
+	} catch (e) {
+		legendHeight = 28;
+	}
+	return { headerHeight, legendHeight };
+}
+
+function createChartTimelinePillGroup(g, { className, ariaLabel }) {
+	const group = g.append('g')
+		.attr('class', className)
+		.attr('tabindex', 0)
+		.attr('role', 'slider')
+		.attr('aria-label', ariaLabel)
+		.style('cursor', 'pointer')
+		.style('touch-action', 'none')
+		.style('display', 'none');
+
+	const rect = group.append('rect')
+		.attr('fill', 'var(--ons-color-ocean-blue)')
+		.attr('stroke', 'none');
+
+	const text = group.append('text')
+		.attr('text-anchor', 'middle')
+		.attr('dominant-baseline', 'middle')
+		.attr('fill', 'var(--ons-color-white)')
+		.style('font-size', '15px')
+		.style('font-weight', '700');
+
+	return { group, rect, text };
+}
+
+function layoutChartPill(pill, xPos, yPos) {
+	const { group, rect, text } = pill;
+	text.attr('x', 0).attr('y', 0).attr('transform', null);
+	let textWidth = 0;
+	let textBox = null;
+	try {
+		textBox = text.node().getBBox();
+		textWidth = textBox.width;
+	} catch (e) {
+		textWidth = 0;
+		textBox = null;
+	}
+	const padX = 10;
+	const pillHeight = 22;
+	const pillWidth = Math.max(24, textWidth + padX * 2);
+	group.attr('transform', `translate(${xPos},${yPos})`);
+	rect
+		.attr('x', -pillWidth / 2)
+		.attr('y', 0)
+		.attr('width', pillWidth)
+		.attr('height', pillHeight)
+		.attr('rx', Math.max(2, Math.round(pillHeight * 0.35)))
+		.attr('ry', Math.max(2, Math.round(pillHeight * 0.35)));
+	if (textBox) {
+		const dy = (pillHeight / 2) - (textBox.y + textBox.height / 2);
+		text.attr('transform', `translate(0,${dy})`);
+	} else {
+		text.attr('y', pillHeight / 2);
+	}
+}
+
+function applySeparatedChartPillPositions(fromPill, toPill, xFrom, xTo, innerWidth, yPos) {
+	let wFrom = 0;
+	let wTo = 0;
+	try { wFrom = fromPill.rect.attr('width') ? +fromPill.rect.attr('width') : 0; } catch (e) { wFrom = 0; }
+	try { wTo = toPill.rect.attr('width') ? +toPill.rect.attr('width') : 0; } catch (e) { wTo = 0; }
+	wFrom = Number.isFinite(wFrom) && wFrom > 0 ? wFrom : 40;
+	wTo = Number.isFinite(wTo) && wTo > 0 ? wTo : 40;
+	const dist = Math.abs(xTo - xFrom);
+	const minGap = (wFrom / 2) + (wTo / 2) + 10;
+	if (!Number.isFinite(dist) || dist <= 0 || dist >= minGap) return;
+	const push = (minGap - dist) / 2;
+	const dir = xFrom <= xTo ? 1 : -1;
+	const minFrom = wFrom / 2;
+	const maxFrom = innerWidth - (wFrom / 2);
+	const minTo = wTo / 2;
+	const maxTo = innerWidth - (wTo / 2);
+	const xFromAdj = Math.max(minFrom, Math.min(maxFrom, xFrom + (-push * dir)));
+	const xToAdj = Math.max(minTo, Math.min(maxTo, xTo + (push * dir)));
+	fromPill.group.attr('transform', `translate(${xFromAdj},${yPos})`);
+	toPill.group.attr('transform', `translate(${xToAdj},${yPos})`);
+}
+
+function createSeriesLookup(series) {
+	const lookup = new Map();
+	if (!Array.isArray(series)) return lookup;
+	for (const point of series) {
+		if (!point || typeof point.t === 'undefined') continue;
+		lookup.set(point.t, point);
+	}
+	return lookup;
+}
+
+function updateChartChangeSummaryElement({
+	changeSummary,
+	changeSummaryCfg,
+	selectionMode,
+	areaSeries,
+	timeFromIndex,
+	timeToIndex,
+	colourScale,
+	solidStroke,
+}) {
+	const summaryEnabled = changeSummaryCfg.enabled !== false;
+	const summaryThresholdRaw = (changeSummaryCfg.threshold === null || typeof changeSummaryCfg.threshold === 'undefined')
+		? 0
+		: +changeSummaryCfg.threshold;
+	const summaryThreshold = Number.isFinite(summaryThresholdRaw) ? Math.abs(summaryThresholdRaw) : 0;
+	const summaryNoChangeText = changeSummaryCfg.noSignificantChangeText || 'No significant change';
+	const summaryIncreaseText = changeSummaryCfg.increaseText || 'Increase';
+	const summaryDecreaseText = changeSummaryCfg.decreaseText || 'Decrease';
+	const summaryIndicatorStyle = String(changeSummaryCfg.indicatorStyle || 'triangle').toLowerCase();
+	const summaryContrast = Number.isFinite(+changeSummaryCfg.requiredContrast) ? +changeSummaryCfg.requiredContrast : 4.5;
+	const summaryNeutralColour = changeSummaryCfg.neutralColour || 'var(--ons-color-grey-60)';
+	const showChangeSummary = summaryEnabled && selectionMode === 'range' && Array.isArray(areaSeries);
+
+	if (!showChangeSummary) {
+		changeSummary.text('').style('visibility', 'hidden');
+		return;
+	}
+
+	const fromIdx = clampTimeIndex(timeFromIndex ?? state.timeFromIndex);
+	const toIdx = clampTimeIndex(timeToIndex ?? state.timeToIndex);
+	const fromPoint = areaSeries[fromIdx] || null;
+	const toPoint = areaSeries[toIdx] || null;
+	const changeValue = computeRangeSelectionValue(fromPoint?.v ?? null, toPoint?.v ?? null);
+	if (changeValue === null || !Number.isFinite(changeValue)) {
+		changeSummary.text('').style('visibility', 'hidden');
+		return;
+	}
+	if (Math.abs(changeValue) <= summaryThreshold) {
+		changeSummary
+			.text(summaryNoChangeText)
+			.style('color', summaryNeutralColour)
+			.style('visibility', 'visible');
+		return;
+	}
+
+	const baseColour = (colourScale && Number.isFinite(changeValue))
+		? (() => { try { return colourScale(changeValue); } catch (e) { return solidStroke; } })()
+		: solidStroke;
+	const textColour = adjustColorForContrast(baseColour || solidStroke, summaryContrast, '#FFFFFF');
+	const magnitudeText = formatConfiguredChangeValue(Math.abs(changeValue));
+	let summaryText = magnitudeText;
+	if (summaryIndicatorStyle === 'text') {
+		summaryText = `${changeValue > 0 ? summaryIncreaseText : summaryDecreaseText} ${magnitudeText}`;
+	} else if (summaryIndicatorStyle === 'triangle') {
+		summaryText = `${changeValue > 0 ? '▲' : '▼'} ${magnitudeText}`;
+	}
+	changeSummary
+		.text(summaryText)
+		.style('color', textColour)
+		.style('visibility', 'visible');
+}
+
+function applyChartEmptyState({
+	gridG,
+	xAxisG,
+	yAxisG,
+	yTicksEmpty,
+	innerWidth,
+	yScaleSwatchesG,
+	areaPath,
+	areaGradient,
+	meanPath,
+	marker,
+	vlineFrom,
+	vline,
+	indicatorTriangle,
+	indicatorValueFrom,
+	indicatorValue,
+	chartPillFrom,
+	chartPillTo,
+}) {
+	gridG.call(d3.axisLeft(d3.scaleLinear()).tickValues([]).tickSize(-innerWidth).tickFormat(''));
+	xAxisG.call(d3.axisBottom(d3.scalePoint()).tickValues([]));
+	yAxisG.call(d3.axisLeft(d3.scaleLinear()).ticks(yTicksEmpty));
+	yScaleSwatchesG.style('display', 'none').selectAll('rect').remove();
+	areaPath.style('opacity', 0);
+	areaGradient.selectAll('stop').remove();
+	meanPath.style('opacity', 0);
+	marker.style('opacity', 0);
+	vlineFrom.style('opacity', 0);
+	vline.style('opacity', 0);
+	indicatorTriangle.style('opacity', 0);
+	indicatorValueFrom.style('opacity', 0);
+	indicatorValue.style('opacity', 0);
+	chartPillFrom.group.style('display', 'none');
+	chartPillTo.group.style('display', 'none');
+}
+
+function updateChartSwatches({ showBreaks, colourScale, breaks, y, innerHeight, yScaleSwatchesG }) {
+	if (!(showBreaks && colourScale && typeof colourScale.range === 'function')) {
+		yScaleSwatchesG.style('display', 'none').selectAll('rect').remove();
+		return;
+	}
+
+	const palette = colourScale.range() || [];
+	let bins = [];
+	const yd = y.domain();
+	const domLo = Math.min(yd[0], yd[1]);
+	const domHi = Math.max(yd[0], yd[1]);
+
+	if (Array.isArray(breaks) && breaks.length >= 2) {
+		const n = Math.min(palette.length, breaks.length - 1);
+		for (let i = 0; i < n; i++) {
+			const b0 = +breaks[i];
+			const b1 = +breaks[i + 1];
+			if (!Number.isFinite(b0) || !Number.isFinite(b1) || b0 === b1) continue;
+			bins.push({ i, b0, b1, c: palette[i] });
+		}
+	} else if (typeof colourScale.invertExtent === 'function' && palette.length) {
+		bins = palette.map((c, i) => {
+			const ext = colourScale.invertExtent(c) || [undefined, undefined];
+			const d0 = ext[0];
+			const d1 = ext[1];
+			return {
+				i,
+				b0: Number.isFinite(d0) ? d0 : y.domain()[0],
+				b1: Number.isFinite(d1) ? d1 : y.domain()[1],
+				c,
+			};
+		}).filter(d => Number.isFinite(d.b0) && Number.isFinite(d.b1) && d.b0 !== d.b1);
+	}
+
+	bins = bins.filter(d => {
+		const lo = Math.min(d.b0, d.b1);
+		const hi = Math.max(d.b0, d.b1);
+		return hi > domLo && lo < domHi;
+	});
+
+	if (!bins.length) {
+		yScaleSwatchesG.style('display', 'none').selectAll('rect').remove();
+		return;
+	}
+
+	yScaleSwatchesG.style('display', null);
+	const rects = yScaleSwatchesG.selectAll('rect').data(bins, d => d.i);
+	rects.exit().remove();
+	rects.enter().append('rect')
+		.merge(rects)
+		.attr('x', 2)
+		.attr('width', 10)
+		.attr('fill', d => d.c)
+		.attr('y', d => {
+			const lo = Math.min(d.b0, d.b1);
+			const hi = Math.max(d.b0, d.b1);
+			const v0 = Math.max(lo, domLo);
+			const v1 = Math.min(hi, domHi);
+			const y0 = y(v0);
+			const y1 = y(v1);
+			if (!Number.isFinite(y0) || !Number.isFinite(y1)) return 0;
+			let top = Math.min(y0, y1);
+			let bottom = Math.max(y0, y1);
+			top = Math.max(0, Math.min(innerHeight, top));
+			bottom = Math.max(0, Math.min(innerHeight, bottom));
+			return top;
+		})
+		.attr('height', d => {
+			const lo = Math.min(d.b0, d.b1);
+			const hi = Math.max(d.b0, d.b1);
+			const v0 = Math.max(lo, domLo);
+			const v1 = Math.min(hi, domHi);
+			const y0 = y(v0);
+			const y1 = y(v1);
+			if (!Number.isFinite(y0) || !Number.isFinite(y1)) return 0;
+			let top = Math.min(y0, y1);
+			let bottom = Math.max(y0, y1);
+			top = Math.max(0, Math.min(innerHeight, top));
+			bottom = Math.max(0, Math.min(innerHeight, bottom));
+			return Math.max(0, bottom - top);
+		});
+}
+
+function updateAreaSeriesStroke({ areaSeries, areaPath, areaGradient, x, colourScale, lineStyleDefault, solidStroke, innerWidth }) {
+	if (!areaSeries) {
+		areaPath.style('opacity', 0);
+		areaGradient.selectAll('stop').remove();
+		return;
+	}
+
+	areaPath.style('opacity', 1);
+	if (lineStyleDefault === 'solid') {
+		areaPath.style('stroke', solidStroke);
+		areaGradient.selectAll('stop').remove();
+		return;
+	}
+
+	areaPath.style('stroke', `url(#${areaGradient.attr('id')})`);
+	const thresholds = (colourScale && typeof colourScale.domain === 'function') ? (colourScale.domain() || []) : [];
+	const segments = [];
+	for (let i = 0; i < areaSeries.length - 1; i++) {
+		const a = areaSeries[i];
+		const b = areaSeries[i + 1];
+		if (!a || !b || a.v === null || b.v === null) continue;
+		const x0 = x(a.t);
+		const x1 = x(b.t);
+		if (typeof x0 !== 'number' || typeof x1 !== 'number') continue;
+		const v0 = a.v;
+		const v1 = b.v;
+		if (!Number.isFinite(v0) || !Number.isFinite(v1)) continue;
+
+		const pts = [{ x: x0, v: v0 }];
+		if (v0 !== v1 && thresholds.length) {
+			const lo = Math.min(v0, v1);
+			const hi = Math.max(v0, v1);
+			const crosses = thresholds
+				.filter(t => t > lo && t < hi)
+				.map(t => ({ t, f: (t - v0) / (v1 - v0) }))
+				.filter(d => d.f > 0 && d.f < 1)
+				.sort((p, q) => p.f - q.f);
+			for (const c of crosses) {
+				pts.push({ x: x0 + (x1 - x0) * c.f, v: c.t });
+			}
+		}
+		pts.push({ x: x1, v: v1 });
+
+		for (let j = 0; j < pts.length - 1; j++) {
+			const p0 = pts[j];
+			const p1 = pts[j + 1];
+			const vm = (p0.v + p1.v) / 2;
+			let c = null;
+			if (colourScale && Number.isFinite(vm)) {
+				try { c = colourScale(vm); } catch (e) { c = null; }
+			}
+			segments.push({ x0: p0.x, x1: p1.x, c: c || solidStroke });
+		}
+	}
+
+	segments.sort((a, b) => a.x0 - b.x0);
+	const merged = [];
+	for (const s of segments) {
+		const last = merged[merged.length - 1];
+		if (last && last.c === s.c && Math.abs(last.x1 - s.x0) < 0.5) {
+			last.x1 = s.x1;
+		} else {
+			merged.push({ ...s });
+		}
+	}
+
+	let minX = Infinity;
+	let maxX = -Infinity;
+	for (const s of merged) {
+		minX = Math.min(minX, s.x0, s.x1);
+		maxX = Math.max(maxX, s.x0, s.x1);
+	}
+	if (!Number.isFinite(minX) || !Number.isFinite(maxX) || maxX <= minX) {
+		minX = 0;
+		maxX = innerWidth;
+	}
+
+	const stops = [];
+	for (const s of merged) {
+		const o0 = Math.max(0, Math.min(1, (s.x0 - minX) / (maxX - minX)));
+		const o1 = Math.max(0, Math.min(1, (s.x1 - minX) / (maxX - minX)));
+		stops.push({ o: o0, c: s.c });
+		stops.push({ o: o1, c: s.c });
+	}
+	stops.sort((a, b) => a.o - b.o);
+	if (!stops.length) {
+		stops.push({ o: 0, c: solidStroke }, { o: 1, c: solidStroke });
+	} else {
+		if (stops[0].o > 0) stops.unshift({ o: 0, c: stops[0].c });
+		if (stops[stops.length - 1].o < 1) stops.push({ o: 1, c: stops[stops.length - 1].c });
+	}
+
+	const stopSel = areaGradient.selectAll('stop').data(stops);
+	stopSel.exit().remove();
+	stopSel.enter()
+		.append('stop')
+		.merge(stopSel)
+		.attr('offset', d => `${(d.o * 100).toFixed(2)}%`)
+		.attr('stop-color', d => d.c);
+}
+
 function createChart({ overlayInnerHeight = null } = {}) {
 	const container = d3.select('#chart');
 	container.html('');
 	const chartCfg = (config && config.chart && typeof config.chart === 'object') ? config.chart : {};
 	const datasetCfg = getCurrentDatasetConfig();
 	const datasetChartCfg = (datasetCfg && datasetCfg.chart && typeof datasetCfg.chart === 'object') ? datasetCfg.chart : {};
-	const resolveChartValue = (val) => {
-		if (!Array.isArray(val)) return val;
-		const idx = (state && typeof state.datasetIndex === 'number') ? state.datasetIndex : 0;
-		if (idx >= 0 && idx < val.length) return val[idx];
-		return val[0];
-	};
-	const resolveChartOption = (key, fallback = undefined) => {
-		if (Object.prototype.hasOwnProperty.call(datasetChartCfg, key)) {
-			return datasetChartCfg[key];
-		}
-		const resolved = resolveChartValue(chartCfg[key]);
-		return (typeof resolved === 'undefined') ? fallback : resolved;
-	};
-	const resolveYTicks = (fallback) => {
-		const modeKey = state.overlayMode === 'hover' ? 'hover' : 'pinned';
-		const cfg = resolveChartOption('yTicks');
-		let v = cfg;
-		if (cfg && typeof cfg === 'object' && !Array.isArray(cfg)) {
-			v = cfg[modeKey];
-			if (v === null || typeof v === 'undefined') v = cfg.default;
-		}
-		const n = (v === null || typeof v === 'undefined') ? NaN : Math.round(+v);
-		if (Number.isFinite(n) && n > 0) return n;
-		return fallback;
-	};
+	const resolveChartOption = createChartOptionResolver(chartCfg, datasetChartCfg);
+	const resolveYTicks = (fallback) => resolveChartYTicks(resolveChartOption, state.overlayMode, fallback);
 	const getChartSubTitle = () => {
 		const v = resolveChartOption('subTitle', '');
 		return (typeof v === 'string') ? v : (v === null || typeof v === 'undefined') ? '' : String(v);
@@ -1520,25 +1978,8 @@ function createChart({ overlayInnerHeight = null } = {}) {
 	const heightFallback = 220;
 	let height = heightFallback;
 	if (overlayInnerHeight !== null && Number.isFinite(+overlayInnerHeight)) {
-		let subtitleH = 0;
-		let legendH = 0;
-		try {
-			const subNode = headerMeta.node();
-			const sr = subNode ? subNode.getBoundingClientRect() : null;
-			subtitleH = (sr && Number.isFinite(sr.height)) ? sr.height : 0;
-		} catch (e) {
-			subtitleH = initialSubTitle ? 40 : 25;
-		}
-		try {
-			const node = legend.node();
-			const r = node ? node.getBoundingClientRect() : null;
-			legendH = r ? r.height : 0;
-			// include the inline margin-bottom (8px)
-			legendH += 8;
-		} catch (e) {
-			legendH = 28;
-		}
-		height = Math.max(120, Math.floor(overlayInnerHeight - subtitleH - legendH));
+		const { headerHeight, legendHeight } = measureChartMetaHeights({ headerMeta, legend, initialSubTitle });
+		height = Math.max(120, Math.floor(overlayInnerHeight - headerHeight - legendHeight));
 	}
 
 	const innerHeight = Math.max(10, height - margin.top - margin.bottom);
@@ -1683,103 +2124,29 @@ function createChart({ overlayInnerHeight = null } = {}) {
 	const yAxisG = g.append('g')
 		.attr('class', 'y axis numeric');
 
-	const chartPillFromG = g.append('g')
-		.attr('class', 'chart-timeline-pill chart-timeline-pill--from')
-		.attr('tabindex', 0)
-		.attr('role', 'slider')
-		.attr('aria-label', `${tCfg.ariaLabel} (From)`)
-		.style('cursor', 'pointer')
-		.style('touch-action', 'none')
-		.style('display', 'none')
-		.on('focus', () => setActiveTimeHandle('from'))
-		.on('pointerdown', (event) => {
-			if (event && event.pointerType === 'touch') return;
-			event.preventDefault();
-			setActiveTimeHandle('from');
-			try { event.currentTarget.focus({ preventScroll: true }); } catch (e) { /* ignore */ }
-			beginTimelineDrag(svg.node(), event, event.currentTarget, {
-				onIndex: (idx) => setTimeSelection(idx, { activeHandle: 'from' })
-			});
-		})
-		.on('touchstart', (event) => {
-			setActiveTimeHandle('from');
-			beginTimelineTouchDrag(svg.node(), event, event.currentTarget, {
-				onIndex: (idx) => setTimeSelection(idx, { activeHandle: 'from' })
-			});
-		})
-		.on('keydown', (event) => {
-			const maxIdx = Math.max(0, state.timeColumns.length - 1);
-			const jump = getTimelineKeyboardStep();
-			const delta = event.shiftKey ? jump : 1;
-			const currentIdx = state.timeFromIndex;
-			if (event.key === 'Home') { event.preventDefault(); setTimeSelection(0, { activeHandle: 'from' }); return; }
-			if (event.key === 'End') { event.preventDefault(); setTimeSelection(maxIdx, { activeHandle: 'from' }); return; }
-			if (event.key === 'PageUp') { event.preventDefault(); setTimeSelection(currentIdx - jump, { activeHandle: 'from' }); return; }
-			if (event.key === 'PageDown') { event.preventDefault(); setTimeSelection(currentIdx + jump, { activeHandle: 'from' }); return; }
-			if (event.key === 'ArrowLeft') { event.preventDefault(); setTimeSelection(currentIdx - delta, { activeHandle: 'from' }); return; }
-			if (event.key === 'ArrowRight') { event.preventDefault(); setTimeSelection(currentIdx + delta, { activeHandle: 'from' }); return; }
-		});
+	const chartPillFrom = createChartTimelinePillGroup(g, {
+		className: 'chart-timeline-pill chart-timeline-pill--from',
+		ariaLabel: `${tCfg.ariaLabel} (From)`
+	});
+	const chartPillTo = createChartTimelinePillGroup(g, {
+		className: 'chart-timeline-pill',
+		ariaLabel: tCfg.ariaLabel
+	});
+	const chartPillFromG = chartPillFrom.group;
+	const chartPillFromText = chartPillFrom.text;
+	const chartPillG = chartPillTo.group;
+	const chartPillText = chartPillTo.text;
 
-	const chartPillFromRect = chartPillFromG.append('rect')
-		.attr('fill', 'var(--ons-color-ocean-blue)')
-		.attr('stroke', 'none');
-
-	const chartPillFromText = chartPillFromG.append('text')
-		.attr('text-anchor', 'middle')
-		.attr('dominant-baseline', 'middle')
-		.attr('fill', 'var(--ons-color-white)')
-		.style('font-size', '15px')
-		.style('font-weight', '700');
-
-	const chartPillG = g.append('g')
-		.attr('class', 'chart-timeline-pill')
-		.attr('tabindex', 0)
-		.attr('role', 'slider')
-		.attr('aria-label', tCfg.ariaLabel)
-		.style('cursor', 'pointer')
-		.style('touch-action', 'none')
-		.style('display', 'none')
-		.on('focus', () => setActiveTimeHandle('to'))
-		.on('pointerdown', (event) => {
-			// On some mobile browsers (notably Safari/SVG), pointer events can be unreliable.
-			// Prefer the explicit touch handlers for touch interactions.
-			if (event && event.pointerType === 'touch') return;
-			event.preventDefault();
-			setActiveTimeHandle('to');
-			try { event.currentTarget.focus({ preventScroll: true }); } catch (e) { /* ignore */ }
-			beginTimelineDrag(svg.node(), event, event.currentTarget, {
-				onIndex: (idx) => setTimeSelection(idx, { activeHandle: 'to' })
-			});
-		})
-		.on('touchstart', (event) => {
-			setActiveTimeHandle('to');
-			beginTimelineTouchDrag(svg.node(), event, event.currentTarget, {
-				onIndex: (idx) => setTimeSelection(idx, { activeHandle: 'to' })
-			});
-		})
-		.on('keydown', (event) => {
-			const maxIdx = Math.max(0, state.timeColumns.length - 1);
-			const jump = getTimelineKeyboardStep();
-			const delta = event.shiftKey ? jump : 1;
-			const currentIdx = state.timeToIndex;
-			if (event.key === 'Home') { event.preventDefault(); setTimeSelection(0, { activeHandle: 'to' }); return; }
-			if (event.key === 'End') { event.preventDefault(); setTimeSelection(maxIdx, { activeHandle: 'to' }); return; }
-			if (event.key === 'PageUp') { event.preventDefault(); setTimeSelection(currentIdx - jump, { activeHandle: 'to' }); return; }
-			if (event.key === 'PageDown') { event.preventDefault(); setTimeSelection(currentIdx + jump, { activeHandle: 'to' }); return; }
-			if (event.key === 'ArrowLeft') { event.preventDefault(); setTimeSelection(currentIdx - delta, { activeHandle: 'to' }); return; }
-			if (event.key === 'ArrowRight') { event.preventDefault(); setTimeSelection(currentIdx + delta, { activeHandle: 'to' }); return; }
-		});
-
-	const chartPillRect = chartPillG.append('rect')
-		.attr('fill', 'var(--ons-color-ocean-blue)')
-		.attr('stroke', 'none');
-
-	const chartPillText = chartPillG.append('text')
-		.attr('text-anchor', 'middle')
-		.attr('dominant-baseline', 'middle')
-		.attr('fill', 'var(--ons-color-white)')
-		.style('font-size', '15px')
-		.style('font-weight', '700');
+	wireRangeControlElement(chartPillFromG.node(), 'from', {
+		dragContainer: svg.node(),
+		dragCapture: chartPillFromG.node(),
+		ignoreTouchPointerEvents: true,
+	});
+	wireRangeControlElement(chartPillG.node(), 'to', {
+		dragContainer: svg.node(),
+		dragCapture: chartPillG.node(),
+		ignoreTouchPointerEvents: true,
+	});
 
 	const marker = g.append('circle')
 		.attr('r', 4)
@@ -1812,51 +2179,16 @@ function createChart({ overlayInnerHeight = null } = {}) {
 		const changeSummaryCfg = (changeSummaryCfgResolved && typeof changeSummaryCfgResolved === 'object')
 			? changeSummaryCfgResolved
 			: {};
-		const summaryEnabled = changeSummaryCfg.enabled !== false;
-		const summaryThresholdRaw = (changeSummaryCfg.threshold === null || typeof changeSummaryCfg.threshold === 'undefined')
-			? 0
-			: +changeSummaryCfg.threshold;
-		const summaryThreshold = Number.isFinite(summaryThresholdRaw) ? Math.abs(summaryThresholdRaw) : 0;
-		const summaryNoChangeText = changeSummaryCfg.noSignificantChangeText || 'No significant change';
-		const summaryIncreaseText = changeSummaryCfg.increaseText || 'Increase';
-		const summaryDecreaseText = changeSummaryCfg.decreaseText || 'Decrease';
-		const summaryIndicatorStyle = String(changeSummaryCfg.indicatorStyle || 'triangle').toLowerCase();
-		const summaryContrast = Number.isFinite(+changeSummaryCfg.requiredContrast) ? +changeSummaryCfg.requiredContrast : 4.5;
-		const summaryNeutralColour = changeSummaryCfg.neutralColour || 'var(--ons-color-grey-60)';
-		const showChangeSummary = summaryEnabled && selectionMode === 'range' && Array.isArray(areaSeries);
-		if (showChangeSummary) {
-			const fromIdx = clampTimeIndex(timeFromIndex ?? state.timeFromIndex);
-			const toIdx = clampTimeIndex(timeToIndex ?? state.timeToIndex);
-			const fromPointForSummary = areaSeries[fromIdx] || null;
-			const toPointForSummary = areaSeries[toIdx] || null;
-			const changeValue = computeRangeSelectionValue(fromPointForSummary?.v ?? null, toPointForSummary?.v ?? null);
-			if (changeValue === null || !Number.isFinite(changeValue)) {
-				changeSummary.text('').style('visibility', 'hidden');
-			} else if (Math.abs(changeValue) <= summaryThreshold) {
-				changeSummary
-					.text(summaryNoChangeText)
-					.style('color', summaryNeutralColour)
-					.style('visibility', 'visible');
-			} else {
-				const baseColour = (colourScale && Number.isFinite(changeValue))
-					? (() => { try { return colourScale(changeValue); } catch (e) { return solidStroke; } })()
-					: solidStroke;
-				const textColour = adjustColorForContrast(baseColour || solidStroke, summaryContrast, '#FFFFFF');
-				const magnitudeText = formatConfiguredChangeValue(Math.abs(changeValue));
-				let summaryText = magnitudeText;
-				if (summaryIndicatorStyle === 'text') {
-					summaryText = `${changeValue > 0 ? summaryIncreaseText : summaryDecreaseText} ${magnitudeText}`;
-				} else if (summaryIndicatorStyle === 'triangle') {
-					summaryText = `${changeValue > 0 ? '▲' : '▼'} ${magnitudeText}`;
-				}
-				changeSummary
-					.text(summaryText)
-					.style('color', textColour)
-					.style('visibility', 'visible');
-			}
-		} else {
-			changeSummary.text('').style('visibility', 'hidden');
-		}
+		updateChartChangeSummaryElement({
+			changeSummary,
+			changeSummaryCfg,
+			selectionMode,
+			areaSeries,
+			timeFromIndex,
+			timeToIndex,
+			colourScale,
+			solidStroke,
+		});
 
 		const hasAreaData = Array.isArray(areaSeries)
 			&& areaSeries.some(d => d && d.v !== null && Number.isFinite(d.v));
@@ -1868,6 +2200,7 @@ function createChart({ overlayInnerHeight = null } = {}) {
 
 		legendSwatch.style('background', meanLegendCfg.color);
 		legendLabel.text(meanLegendCfg.label);
+		const showChangeSummary = changeSummaryCfg.enabled !== false && selectionMode === 'range' && Array.isArray(areaSeries);
 
 		x.domain(timeColumns);
 
@@ -1881,22 +2214,25 @@ function createChart({ overlayInnerHeight = null } = {}) {
 		if (areaSeries) values.push(...areaSeries.filter(d => d.v !== null).map(d => d.v));
 		if (showMeanLine && meanSeries) values.push(...meanSeries.filter(d => d.v !== null).map(d => d.v));
 		if (!values.length) {
-			// Empty chart state
-			gridG.call(d3.axisLeft(y).tickValues([]).tickSize(-innerWidth).tickFormat(''));
-			xAxisG.call(d3.axisBottom(x).tickValues([]));
-			yAxisG.call(d3.axisLeft(y).ticks(yTicksEmpty));
-			yScaleSwatchesG.style('display', 'none').selectAll('rect').remove();
-			areaPath.style('opacity', 0);
-			areaGradient.selectAll('stop').remove();
-			meanPath.style('opacity', 0);
-			marker.style('opacity', 0);
-			vlineFrom.style('opacity', 0);
-			vline.style('opacity', 0);
-			indicatorTriangle.style('opacity', 0);
-			indicatorValueFrom.style('opacity', 0);
-			indicatorValue.style('opacity', 0);
-			chartPillFromG.style('display', 'none');
-			chartPillG.style('display', 'none');
+			applyChartEmptyState({
+				gridG,
+				xAxisG,
+				yAxisG,
+				yTicksEmpty,
+				innerWidth,
+				yScaleSwatchesG,
+				areaPath,
+				areaGradient,
+				meanPath,
+				marker,
+				vlineFrom,
+				vline,
+				indicatorTriangle,
+				indicatorValueFrom,
+				indicatorValue,
+				chartPillFrom,
+				chartPillTo,
+			});
 			return;
 		}
 
@@ -1931,88 +2267,7 @@ function createChart({ overlayInnerHeight = null } = {}) {
 			zeroLineTick.style('display', 'none');
 		}
 
-		// Optional: show choropleth scale colours as a vertical strip next to the y-axis.
-		if (showBreaks && colourScale && typeof colourScale.range === 'function') {
-			const palette = colourScale.range() || [];
-			let bins = [];
-			const yd = y.domain();
-			const domLo = Math.min(yd[0], yd[1]);
-			const domHi = Math.max(yd[0], yd[1]);
-
-			if (Array.isArray(breaks) && breaks.length >= 2) {
-				const n = Math.min(palette.length, breaks.length - 1);
-				for (let i = 0; i < n; i++) {
-					const b0 = +breaks[i];
-					const b1 = +breaks[i + 1];
-					if (!Number.isFinite(b0) || !Number.isFinite(b1) || b0 === b1) continue;
-					bins.push({ i, b0, b1, c: palette[i] });
-				}
-			} else if (typeof colourScale.invertExtent === 'function' && palette.length) {
-				bins = palette.map((c, i) => {
-					const ext = colourScale.invertExtent(c) || [undefined, undefined];
-					const d0 = ext[0];
-					const d1 = ext[1];
-					return {
-						i,
-						b0: Number.isFinite(d0) ? d0 : y.domain()[0],
-						b1: Number.isFinite(d1) ? d1 : y.domain()[1],
-						c
-					};
-				}).filter(d => Number.isFinite(d.b0) && Number.isFinite(d.b1) && d.b0 !== d.b1);
-			}
-
-			// Only show bins that overlap the current (data-driven) y-domain.
-			bins = bins.filter(d => {
-				const lo = Math.min(d.b0, d.b1);
-				const hi = Math.max(d.b0, d.b1);
-				return hi > domLo && lo < domHi;
-			});
-
-			if (!bins.length) {
-				yScaleSwatchesG.style('display', 'none').selectAll('rect').remove();
-			} else {
-				yScaleSwatchesG.style('display', null);
-				const swatchX = 2;
-				const swatchW = 10;
-				const rects = yScaleSwatchesG.selectAll('rect').data(bins, d => d.i);
-				rects.exit().remove();
-				rects.enter().append('rect')
-					.merge(rects)
-					.attr('x', swatchX)
-					.attr('width', swatchW)
-					.attr('fill', d => d.c)
-					.attr('y', d => {
-						const lo = Math.min(d.b0, d.b1);
-						const hi = Math.max(d.b0, d.b1);
-						const v0 = Math.max(lo, domLo);
-						const v1 = Math.min(hi, domHi);
-						const y0 = y(v0);
-						const y1 = y(v1);
-						if (!Number.isFinite(y0) || !Number.isFinite(y1)) return 0;
-						let top = Math.min(y0, y1);
-						let bottom = Math.max(y0, y1);
-						top = Math.max(0, Math.min(innerHeight, top));
-						bottom = Math.max(0, Math.min(innerHeight, bottom));
-						return top;
-					})
-					.attr('height', d => {
-						const lo = Math.min(d.b0, d.b1);
-						const hi = Math.max(d.b0, d.b1);
-						const v0 = Math.max(lo, domLo);
-						const v1 = Math.min(hi, domHi);
-						const y0 = y(v0);
-						const y1 = y(v1);
-						if (!Number.isFinite(y0) || !Number.isFinite(y1)) return 0;
-						let top = Math.min(y0, y1);
-						let bottom = Math.max(y0, y1);
-						top = Math.max(0, Math.min(innerHeight, top));
-						bottom = Math.max(0, Math.min(innerHeight, bottom));
-						return Math.max(0, bottom - top);
-					});
-			}
-		} else {
-			yScaleSwatchesG.style('display', 'none').selectAll('rect').remove();
-		}
+		updateChartSwatches({ showBreaks, colourScale, breaks, y, innerHeight, yScaleSwatchesG });
 
 		const line = d3.line()
 			.defined(d => d.v !== null)
@@ -2031,109 +2286,17 @@ function createChart({ overlayInnerHeight = null } = {}) {
 
 		if (areaSeries) {
 			areaPath.attr('d', line(areaSeries)).style('opacity', 1);
-
-			const lineStyle = lineStyleDefault;
-			if (lineStyle === 'solid') {
-				areaPath.style('stroke', solidStroke);
-				areaGradient.selectAll('stop').remove();
-			} else {
-				areaPath.style('stroke', `url(#${gradientId})`);
-				// Build hard-stop gradient stops where the series crosses choropleth breaks.
-				const thresholds = (colourScale && typeof colourScale.domain === 'function') ? (colourScale.domain() || []) : [];
-				const segments = [];
-				for (let i = 0; i < areaSeries.length - 1; i++) {
-					const a = areaSeries[i];
-					const b = areaSeries[i + 1];
-					if (!a || !b) continue;
-					if (a.v === null || b.v === null) continue;
-					const x0 = x(a.t);
-					const x1 = x(b.t);
-					if (typeof x0 !== 'number' || typeof x1 !== 'number') continue;
-					const v0 = a.v;
-					const v1 = b.v;
-					if (!Number.isFinite(v0) || !Number.isFinite(v1)) continue;
-
-					const pts = [{ x: x0, v: v0 }];
-					if (v0 !== v1 && thresholds && thresholds.length) {
-						const lo = Math.min(v0, v1);
-						const hi = Math.max(v0, v1);
-						const crosses = thresholds
-							.filter(t => t > lo && t < hi)
-							.map(t => ({ t, f: (t - v0) / (v1 - v0) }))
-							.filter(d => d.f > 0 && d.f < 1)
-							.sort((p, q) => p.f - q.f);
-						for (const c of crosses) {
-							pts.push({ x: x0 + (x1 - x0) * c.f, v: c.t });
-						}
-					}
-					pts.push({ x: x1, v: v1 });
-
-					for (let j = 0; j < pts.length - 1; j++) {
-						const p0 = pts[j];
-						const p1 = pts[j + 1];
-						const vm = (p0.v + p1.v) / 2;
-						let c = null;
-						if (colourScale && Number.isFinite(vm)) {
-							try { c = colourScale(vm); } catch (e) { c = null; }
-						}
-						segments.push({ x0: p0.x, x1: p1.x, c: c || 'var(--ons-color-ocean-blue)' });
-					}
-				}
-
-				// Merge adjacent segments of the same colour.
-				segments.sort((a, b) => a.x0 - b.x0);
-				const merged = [];
-				for (const s of segments) {
-					const last = merged[merged.length - 1];
-					if (last && last.c === s.c && Math.abs(last.x1 - s.x0) < 0.5) {
-						last.x1 = s.x1;
-					} else {
-						merged.push({ ...s });
-					}
-				}
-
-				// Compute normalised offsets based on visible x-range.
-				let minX = Infinity;
-				let maxX = -Infinity;
-				for (const s of merged) {
-					minX = Math.min(minX, s.x0, s.x1);
-					maxX = Math.max(maxX, s.x0, s.x1);
-				}
-				if (!Number.isFinite(minX) || !Number.isFinite(maxX) || maxX <= minX) {
-					minX = 0;
-					maxX = innerWidth;
-				}
-
-				const stops = [];
-				for (const s of merged) {
-					const o0 = Math.max(0, Math.min(1, (s.x0 - minX) / (maxX - minX)));
-					const o1 = Math.max(0, Math.min(1, (s.x1 - minX) / (maxX - minX)));
-					stops.push({ o: o0, c: s.c });
-					stops.push({ o: o1, c: s.c });
-				}
-
-				// Ensure stops are ordered and include endpoints.
-				stops.sort((a, b) => a.o - b.o);
-				if (!stops.length) {
-					stops.push({ o: 0, c: 'var(--ons-color-ocean-blue)' }, { o: 1, c: 'var(--ons-color-ocean-blue)' });
-				} else {
-					if (stops[0].o > 0) stops.unshift({ o: 0, c: stops[0].c });
-					if (stops[stops.length - 1].o < 1) stops.push({ o: 1, c: stops[stops.length - 1].c });
-				}
-
-				const stopSel = areaGradient.selectAll('stop')
-					.data(stops);
-				stopSel.exit().remove();
-				stopSel.enter()
-					.append('stop')
-					.merge(stopSel)
-					.attr('offset', d => `${(d.o * 100).toFixed(2)}%`)
-					.attr('stop-color', d => d.c);
-			}
-		} else {
-			areaPath.style('opacity', 0);
-			areaGradient.selectAll('stop').remove();
 		}
+		updateAreaSeriesStroke({
+			areaSeries,
+			areaPath,
+			areaGradient,
+			x,
+			colourScale,
+			lineStyleDefault,
+			solidStroke,
+			innerWidth,
+		});
 
 		const mode = (selectionMode === 'range') ? 'range' : 'point';
 		const idxFrom = mode === 'range' ? clampTimeIndex(timeFromIndex ?? state.timeFromIndex) : clampTimeIndex(timeIndex);
@@ -2144,35 +2307,7 @@ function createChart({ overlayInnerHeight = null } = {}) {
 		const xTo = x(tTo);
 
 		const maxIdx = Math.max(0, timeColumns.length - 1);
-		const layoutPill = (pillG, pillRect, pillText, xPos, yPos) => {
-			pillText.attr('x', 0).attr('y', 0).attr('transform', null);
-			let textW = 0;
-			let textBox = null;
-			try {
-				textBox = pillText.node().getBBox();
-				textW = textBox.width;
-			} catch (e) {
-				textW = 0;
-				textBox = null;
-			}
-			const padX = 10;
-			const pillH = 22;
-			const pillW = Math.max(24, textW + padX * 2);
-			pillG.attr('transform', `translate(${xPos},${yPos})`);
-			pillRect
-				.attr('x', -pillW / 2)
-				.attr('y', 0)
-				.attr('width', pillW)
-				.attr('height', pillH)
-				.attr('rx', Math.max(2, Math.round(pillH * 0.35)))
-				.attr('ry', Math.max(2, Math.round(pillH * 0.35)));
-			if (textBox) {
-				const dy = (pillH / 2) - (textBox.y + textBox.height / 2);
-				pillText.attr('transform', `translate(0,${dy})`);
-			} else {
-				pillText.attr('y', pillH / 2);
-			}
-		};
+		const areaSeriesLookup = createSeriesLookup(areaSeries);
 
 		if (typeof xTo === 'number') {
 			vline.attr('x1', xTo).attr('x2', xTo).style('opacity', 1);
@@ -2184,7 +2319,7 @@ function createChart({ overlayInnerHeight = null } = {}) {
 				.attr('aria-valuetext', pillTo.srText)
 				.style('display', null);
 			chartPillText.text(pillTo.display);
-			layoutPill(chartPillG, chartPillRect, chartPillText, xTo, innerHeight + 6);
+			layoutChartPill(chartPillTo, xTo, innerHeight + 6);
 
 			if (mode === 'range' && typeof xFrom === 'number') {
 				vlineFrom.attr('x1', xFrom).attr('x2', xFrom).style('opacity', 1);
@@ -2196,36 +2331,14 @@ function createChart({ overlayInnerHeight = null } = {}) {
 					.attr('aria-valuetext', pillFrom.srText)
 					.style('display', null);
 				chartPillFromText.text(pillFrom.display);
-				// Same vertical position as the To pill; apply horizontal separation below if needed.
-				layoutPill(chartPillFromG, chartPillFromRect, chartPillFromText, xFrom, innerHeight + 6);
+				layoutChartPill(chartPillFrom, xFrom, innerHeight + 6);
 			} else {
 				vlineFrom.style('opacity', 0);
 				chartPillFromG.style('display', 'none');
 			}
 
-			// If range mode and both pills are visible, separate them horizontally if they overlap.
 			if (mode === 'range' && typeof xFrom === 'number' && typeof xTo === 'number') {
-				let wFrom = 0;
-				let wTo = 0;
-				try { wFrom = chartPillFromRect.attr('width') ? +chartPillFromRect.attr('width') : 0; } catch (e) { wFrom = 0; }
-				try { wTo = chartPillRect.attr('width') ? +chartPillRect.attr('width') : 0; } catch (e) { wTo = 0; }
-				// Fallback to a reasonable minimum when widths aren't measurable yet.
-				wFrom = Number.isFinite(wFrom) && wFrom > 0 ? wFrom : 40;
-				wTo = Number.isFinite(wTo) && wTo > 0 ? wTo : 40;
-				const dist = Math.abs(xTo - xFrom);
-				const minGap = (wFrom / 2) + (wTo / 2) + 10;
-				if (Number.isFinite(dist) && dist > 0 && dist < minGap) {
-					const push = (minGap - dist) / 2;
-					const dir = xFrom <= xTo ? 1 : -1;
-					const minFrom = (wFrom / 2);
-					const maxFrom = innerWidth - (wFrom / 2);
-					const minTo = (wTo / 2);
-					const maxTo = innerWidth - (wTo / 2);
-					const xFromAdj = Math.max(minFrom, Math.min(maxFrom, xFrom + (-push * dir)));
-					const xToAdj = Math.max(minTo, Math.min(maxTo, xTo + (push * dir)));
-					chartPillFromG.attr('transform', `translate(${xFromAdj},${innerHeight + 6})`);
-					chartPillG.attr('transform', `translate(${xToAdj},${innerHeight + 6})`);
-				}
+				applySeparatedChartPillPositions(chartPillFrom, chartPillTo, xFrom, xTo, innerWidth, innerHeight + 6);
 			}
 		} else {
 			vlineFrom.style('opacity', 0);
@@ -2241,10 +2354,7 @@ function createChart({ overlayInnerHeight = null } = {}) {
 		const tActive = activeIsFrom ? tFrom : tTo;
 		const xPos = activeIsFrom ? xFrom : xTo;
 
-		let activePoint = null;
-		if (areaSeries) {
-			activePoint = areaSeries.find(d => d.t === tActive) || null;
-		}
+		const activePoint = areaSeriesLookup.get(tActive) || null;
 
 		if (activePoint && activePoint.v !== null && Number.isFinite(activePoint.v) && typeof xPos === 'number') {
 			const w = 6;
@@ -2265,8 +2375,8 @@ function createChart({ overlayInnerHeight = null } = {}) {
 		}
 
 		if (mode === 'range' && areaSeries) {
-			const fromPoint = areaSeries.find(d => d.t === tFrom) || null;
-			const toPoint = areaSeries.find(d => d.t === tTo) || null;
+			const fromPoint = areaSeriesLookup.get(tFrom) || null;
+			const toPoint = areaSeriesLookup.get(tTo) || null;
 			const h = 8;
 			let xFromLabel = xFrom;
 			let xToLabel = xTo;

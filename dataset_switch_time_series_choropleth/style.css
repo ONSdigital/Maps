@@ -29,11 +29,6 @@
   touch-action: pan-y;
 }
 
-/* Range mode needs a little more vertical room for two pill labels */
-#timeline-slider.timeline-slider.is-range {
-  height: 86px;
-}
-
 #timeline-slider.timeline-slider:focus-visible {
   outline: none;
 }
@@ -57,17 +52,6 @@
   background: var(--ons-color-grey-50);
 }
 
-/* Highlighted selected range (From -> To) */
-.timeline-range {
-  position: absolute;
-  top: 18px;
-  height: 4px;
-  transform: translateY(-50%);
-  background: var(--ons-color-ocean-blue);
-  border-radius: 999px;
-  z-index: 0;
-}
-
 .timeline-marker {
   position: absolute;
   top: 18px;
@@ -87,8 +71,9 @@
   z-index: 1;
 }
 
-/* In range mode, keep markers subtle; the handles show endpoints */
+/* In range mode, fill the selected span markers while the handles show endpoints */
 #timeline-slider.timeline-slider.is-range .timeline-marker.is-in-range {
+  background: var(--ons-color-ocean-blue);
   border-color: var(--ons-color-ocean-blue);
 }
 

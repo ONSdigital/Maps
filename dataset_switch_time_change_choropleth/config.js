@@ -13,6 +13,7 @@ config = {
 	// Top-level values act as fallbacks.
 	// Each dataset below can override these with its own:
 	// - timeSelectionMode: "point" | "range"
+	// - selectionBreaksMode: "fixed" | "perSelection"
 	// - startTime
 	// - startFromTime / startToTime
 	// - changeMetric
@@ -29,7 +30,7 @@ config = {
 	// Reference the sample datasets from the time-series folder (so we don't duplicate data)
 	datasets: [
 		{
-			label: "Per 1,000 population (point)",
+			label: "Per 1,000 population",
 			url: "../dataset_switch_time_series_choropleth/data_over_time_0.csv",
 			timeSelectionMode: "point",
 			startTime: "2015",
@@ -41,7 +42,7 @@ config = {
 			label: "Per 100 sales (% change)",
 			url: "../dataset_switch_time_series_choropleth/data_over_time_1.csv",
 			timeSelectionMode: "range",
-			changeMetric: "percent",
+			changeMetric: "absolute",
 			startFromTime: "2013",
 			startToTime: "2015",
 			chart: {
@@ -59,8 +60,6 @@ config = {
 			}
 		},
 	],
-	dataUrl: "../dataset_switch_time_series_choropleth/data_over_time_0.csv",
-
 	geoUrl: "../dataset_switch_time_series_choropleth/geog.json",
 	geoYear: 2025,
 	geoLayer: "ltla",
@@ -78,11 +77,13 @@ config = {
 		ONScolours.diverging.negativeToPositive[5]
 	],
 	colourUnavailable: ONScolours.noData,
-	breaks: ["jenks", [-50, -25, -2, 2, 25, 50]],
+	breaks: ["jenks", "jenks"],
 	breaksNumber: [5, 5],
 
-	// In range mode, breaks are recomputed for the chosen range.
-	timeBreaksMode: "fixed",
+	// Keep this as "perSelection" if you want each point/range selection to use its own breaks.
+	// Use "fixed" if you want one consistent legend across all point years or all valid range combinations.
+	// This can also be overridden per dataset.
+	selectionBreaksMode: "fixed",
 
 	// Timeline formatting
 	timeline: {

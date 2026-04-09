@@ -1615,10 +1615,11 @@ function updateChartChangeSummaryElement({
 	const summaryIndicatorStyle = String(changeSummaryCfg.indicatorStyle || 'triangle').toLowerCase();
 	const summaryContrast = Number.isFinite(+changeSummaryCfg.requiredContrast) ? +changeSummaryCfg.requiredContrast : 4.5;
 	const summaryNeutralColour = changeSummaryCfg.neutralColour || 'var(--ons-color-grey-60)';
-	const showChangeSummary = summaryEnabled && selectionMode === 'range' && Array.isArray(areaSeries);
+	const showChangeSummary = shouldRenderChartChangeSummary({ selectionMode, changeSummaryCfg, areaSeries });
 
 	if (!showChangeSummary) {
-		changeSummary.text('').style('visibility', 'hidden');
+		changeSummary.text('');
+		setChartChangeSummaryVisibility(changeSummary, false);
 		return;
 	}
 
@@ -1628,14 +1629,15 @@ function updateChartChangeSummaryElement({
 	const toPoint = areaSeries[toIdx] || null;
 	const changeValue = computeRangeSelectionValue(fromPoint?.v ?? null, toPoint?.v ?? null);
 	if (changeValue === null || !Number.isFinite(changeValue)) {
-		changeSummary.text('').style('visibility', 'hidden');
+		changeSummary.text('');
+		setChartChangeSummaryVisibility(changeSummary, false);
 		return;
 	}
 	if (Math.abs(changeValue) <= summaryThreshold) {
 		changeSummary
 			.text(summaryNoChangeText)
-			.style('color', summaryNeutralColour)
-			.style('visibility', 'visible');
+			.style('color', summaryNeutralColour);
+		setChartChangeSummaryVisibility(changeSummary, true);
 		return;
 	}
 
@@ -1652,8 +1654,8 @@ function updateChartChangeSummaryElement({
 	}
 	changeSummary
 		.text(summaryText)
-		.style('color', textColour)
-		.style('visibility', 'visible');
+		.style('color', textColour);
+	setChartChangeSummaryVisibility(changeSummary, true);
 }
 
 function applyChartEmptyState({
@@ -1775,6 +1777,17 @@ function updateChartSwatches({ showBreaks, colourScale, breaks, y, innerHeight, 
 		});
 }
 
+function shouldRenderChartChangeSummary({ selectionMode, changeSummaryCfg, areaSeries = null }) {
+	const summaryEnabled = !changeSummaryCfg || changeSummaryCfg.enabled !== false;
+	return summaryEnabled && selectionMode === 'range' && (areaSeries === null || Array.isArray(areaSeries));
+}
+
+function setChartChangeSummaryVisibility(changeSummary, shouldShow) {
+	changeSummary
+		.style('display', shouldShow ? null : 'none')
+		.style('visibility', shouldShow ? 'visible' : 'hidden');
+}
+
 function updateAreaSeriesStroke({ areaSeries, areaPath, areaGradient, x, colourScale, lineStyleDefault, solidStroke, innerWidth }) {
 	if (!areaSeries) {
 		areaPath.style('opacity', 0);
@@ -1888,6 +1901,11 @@ function createChart({ overlayInnerHeight = null } = {}) {
 		const v = resolveChartOption('subTitle', '');
 		return (typeof v === 'string') ? v : (v === null || typeof v === 'undefined') ? '' : String(v);
 	};
+	const initialSelectionMode = isRangeMode() ? 'range' : 'point';
+	const initialChangeSummaryCfgResolved = resolveChartOption('changeSummary', {});
+	const initialChangeSummaryCfg = (initialChangeSummaryCfgResolved && typeof initialChangeSummaryCfgResolved === 'object')
+		? initialChangeSummaryCfgResolved
+		: {};
 	const solidStroke = chartCfg.solidStroke || 'var(--ons-color-ocean-blue)';
 	const lineStyleDefault = chartCfg.lineStyle || 'gradient';
 	const showMeanLine = (typeof chartCfg.showMeanLine === 'boolean') ? chartCfg.showMeanLine : true;
@@ -1944,6 +1962,13 @@ function createChart({ overlayInnerHeight = null } = {}) {
 		.style('visibility', 'hidden')
 		.style('color', 'var(--ons-color-grey-60)')
 		.text('');
+	setChartChangeSummaryVisibility(
+		changeSummary,
+		shouldRenderChartChangeSummary({
+			selectionMode: initialSelectionMode,
+			changeSummaryCfg: initialChangeSummaryCfg,
+		})
+	);
 	const initialSubTitle = getChartSubTitle();
 	if (initialSubTitle) {
 		subtitle.html(initialSubTitle).style('display', null);

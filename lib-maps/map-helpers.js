@@ -1590,9 +1590,15 @@ function debugReportDataGeographyMatch({ data, areas, config, state, rateById, a
 
 export function setupMap(config, data, rateById, areaById, areas, colour, state) {
     state.map.on('load', () => {
+        const currentData = (state && Array.isArray(state.dataForMap) && state.dataForMap.length)
+            ? state.dataForMap
+            : data;
+        const currentRateById = (state && state.rateById) || rateById;
+        const currentAreaById = (state && state.areaById) || areaById;
+        const currentColour = (state && state.colour) || colour;
 
         // Optional debug report to help diagnose ID mismatches between the data and the geography.
-        debugReportDataGeographyMatch({ data, areas, config, state, rateById, areaById });
+        debugReportDataGeographyMatch({ data: currentData, areas, config, state, rateById: currentRateById, areaById: currentAreaById });
 
         if (config.debugInfo && Array.isArray(config.__autoMapBounds)) {
             const viewBounds = state.map.getBounds().toArray();
@@ -1630,10 +1636,10 @@ export function setupMap(config, data, rateById, areaById, areas, colour, state)
                 const code = (rawCode === null || typeof rawCode === 'undefined') ? '' : String(rawCode).trim();
                 if (!code) continue;
 
-                const raw = rateById ? rateById[code] : undefined;
+                const raw = currentRateById ? currentRateById[code] : undefined;
                 const value = (raw === null || typeof raw === 'undefined' || raw === '') ? NaN : +raw;
                 const hasData = Number.isFinite(value);
-                const fillColor = hasData ? colour(value) : unavailableColour;
+                const fillColor = hasData ? currentColour(value) : unavailableColour;
 
                 state.map.setFeatureState(
                     { source: 'area', sourceLayer: '', id: code },
@@ -1641,15 +1647,15 @@ export function setupMap(config, data, rateById, areaById, areas, colour, state)
                 );
             }
         } else {
-            (Array.isArray(data) ? data : []).forEach(d => {
+            (Array.isArray(currentData) ? currentData : []).forEach(d => {
                 const rawCode = d ? d[config.dataIdField] : null;
                 const code = (rawCode === null || typeof rawCode === 'undefined') ? '' : String(rawCode).trim();
                 if (!code) return;
 
-                const raw = rateById ? rateById[code] : (d ? d.value : undefined);
+                const raw = currentRateById ? currentRateById[code] : (d ? d.value : undefined);
                 const value = (raw === null || typeof raw === 'undefined' || raw === '') ? NaN : +raw;
                 const hasData = Number.isFinite(value);
-                const fillColor = hasData ? colour(value) : unavailableColour;
+                const fillColor = hasData ? currentColour(value) : unavailableColour;
                 state.map.setFeatureState(
                     { source: 'area', sourceLayer: (state.geographySource === "vector" ? config.geoLayer : ""), id: code },
                     { value: hasData ? value : null, color: fillColor }
@@ -1834,13 +1840,13 @@ export function setupMap(config, data, rateById, areaById, areas, colour, state)
                 id: state.hoveredAreaCode
             }, { hovered: true });
             const areaName = e.features[0].properties[config.geoNameField];
-            const value = rateById[e.features[0].properties[config.geoIdField]];
+            const value = currentRateById[e.features[0].properties[config.geoIdField]];
 
             // Always show hover info if hovering, but if an area is selected, show faded indicator for it
             if (typeof value !== 'undefined' && value !== null && !isNaN(value)) {
                 window.moveKeyIndicator(value);
                 if (state.selectedAreaCode && state.selectedAreaCode !== code) {
-                    const selectedVal = rateById[state.selectedAreaCode];
+                    const selectedVal = currentRateById[state.selectedAreaCode];
                     window.moveKeyIndicatorSelected(selectedVal);
                 } else {
                     window.moveKeyIndicatorSelected(undefined);
@@ -1850,7 +1856,7 @@ export function setupMap(config, data, rateById, areaById, areas, colour, state)
                 // Value is missing, show unavailable message
                 window.moveKeyIndicator(undefined);
                 if (state.selectedAreaCode && state.selectedAreaCode !== code) {
-                    const selectedVal = rateById[state.selectedAreaCode];
+                    const selectedVal = currentRateById[state.selectedAreaCode];
                     window.moveKeyIndicatorSelected(selectedVal);
                 } else {
                     window.moveKeyIndicatorSelected(undefined);
@@ -1870,10 +1876,10 @@ export function setupMap(config, data, rateById, areaById, areas, colour, state)
             }
             // If an area is selected, show its info and indicator; otherwise clear
             if (state.selectedAreaCode) {
-                const selectedVal = rateById[state.selectedAreaCode];
+                const selectedVal = currentRateById[state.selectedAreaCode];
                 window.moveKeyIndicator(undefined);
                 window.moveKeyIndicatorSelected(selectedVal);
-                updateKeyInfo(selectedVal, areaById[state.selectedAreaCode], state);
+                updateKeyInfo(selectedVal, currentAreaById[state.selectedAreaCode], state);
             } else {
                 window.moveKeyIndicator(undefined);
                 window.moveKeyIndicatorSelected(undefined);
@@ -1917,7 +1923,7 @@ export function setupMap(config, data, rateById, areaById, areas, colour, state)
                 state.hoveredAreaCode = null;
             }
             // Show faded indicator for selected, hide hover indicator
-            const selectedVal = rateById[e.features[0].properties[config.geoIdField]];
+            const selectedVal = currentRateById[e.features[0].properties[config.geoIdField]];
             window.moveKeyIndicator(undefined);
             window.moveKeyIndicatorSelected(selectedVal);
             // Show explainer for selected area
@@ -1963,7 +1969,7 @@ export function setupMap(config, data, rateById, areaById, areas, colour, state)
 
         // Legend hover handlers (from keyscale)
         const sourceLayerName = (state.geographySource === "vector" ? config.geoLayer : "");
-        const legendCodes = data.map(d => d[config.dataIdField]);
+        const legendCodes = currentData.map(d => d[config.dataIdField]);
 
         function setLegendHover(range) {
             if (!state.map) return;
@@ -1972,7 +1978,7 @@ export function setupMap(config, data, rateById, areaById, areas, colour, state)
             const isLast = range.isLast === true;
 
             for (const code of legendCodes) {
-                const raw = rateById ? rateById[code] : null;
+                const raw = currentRateById ? currentRateById[code] : null;
                 const value = (raw === null || typeof raw === 'undefined' || raw === '') ? NaN : +raw;
                 const match = Number.isFinite(value) && value >= min && (isLast ? value <= max : value < max);
                 state.map.setFeatureState(
@@ -2105,7 +2111,11 @@ export function setupDatasetSwitch(csv, state, keyscale) {
 export function redrawMapFill(data, rateById, colour, state) {
     if (!state.map || !data || !colour || !config.dataIdField) return;
     if (!state.map.isStyleLoaded()) {
-        state.map.once('styledata', () => redrawMapFill(data, rateById, colour, state));
+        state.map.once('load', () => redrawMapFill(data, rateById, colour, state));
+        return;
+    }
+    if (!state.map.getSource('area')) {
+        state.map.once('load', () => redrawMapFill(data, rateById, colour, state));
         return;
     }
     data.forEach(d => {

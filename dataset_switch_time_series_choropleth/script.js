@@ -28,6 +28,7 @@ const state = {
 
 	// dataset/time series
 	datasetIndex: 0,
+	datasetLoadToken: 0,
 	timeColumns: [],
 	// Point mode selection
 	timeIndex: 0,
@@ -2746,6 +2747,8 @@ function wireOverlayHoverEvents() {
 async function loadDataset(datasetIndex) {
 	const datasets = Array.isArray(config.datasets) && config.datasets.length ? config.datasets : [{ label: 'Data', url: config.dataUrl }];
 	const ds = datasets[datasetIndex] || datasets[0];
+	const loadToken = (state.datasetLoadToken || 0) + 1;
+	state.datasetLoadToken = loadToken;
 	state.datasetIndex = datasetIndex;
 	// Chart subtitle and other chart config can be dataset-dependent.
 	// Force a rebuild so height calculations (subtitle+legend) stay correct.
@@ -2760,6 +2763,10 @@ async function loadDataset(datasetIndex) {
 	const prevToDate = prevToRaw ? parseTimeColumn(prevToRaw) : null;
 
 	const csv = await d3.csv(ds.url);
+	if (loadToken !== state.datasetLoadToken) {
+		return;
+	}
+
 	const { timeColumns, seriesById, areaById, meanSeries } = buildSeriesStore(csv);
 	state.timeColumns = timeColumns;
 	state.seriesById = seriesById;

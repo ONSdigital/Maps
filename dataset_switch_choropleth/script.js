@@ -52,6 +52,11 @@ function createMap() {
 	}
 	if (state.data && state.rateById && state.areaById) {
 		setupMap(config, state.data, state.rateById, state.areaById, state.areas, state.colour, state);
+		state.map.once('load', () => {
+			if (state.data) {
+				updateDataset(keyscale, state.data, state);
+			}
+		});
 	}
 
 	updateKeyInfo(undefined, undefined, state);

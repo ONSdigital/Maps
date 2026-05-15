@@ -12,8 +12,15 @@ export function drawKeyScale({ keyscale, breaks, colour, config, window, state }
         return;
     }
 
+    const keyScaleMarginBase = {
+        top: 0,
+        right: 0,
+        bottom: 0,
+        left: 0,
+        ...(config.keyScaleMargin || {})
+    };
     const mapWidth = window.d3.select('#graphic').node().getBoundingClientRect().width || 400;
-    const width = mapWidth - config.keyScaleMargin.left - config.keyScaleMargin.right;
+    const width = mapWidth;
     let height = 39;
 
     const resolveConfigByDataset = (key) => {
@@ -45,9 +52,26 @@ export function drawKeyScale({ keyscale, breaks, colour, config, window, state }
         x: null
     }));
 
+    const getTickAnchor = (index) => {
+        if (index === 0) return 'start';
+        if (index === tickData.length - 1) return 'end';
+        return 'middle';
+    };
+
+    const getTickBounds = (tick) => {
+        const anchor = getTickAnchor(tick.index);
+        if (anchor === 'start') {
+            return { left: tick.x, right: tick.x + tick.width };
+        }
+        if (anchor === 'end') {
+            return { left: tick.x - tick.width, right: tick.x };
+        }
+        return { left: tick.x - tick.width / 2, right: tick.x + tick.width / 2 };
+    };
+
     const x = window.d3.scaleLinear()
         .domain([breaks[0], breaks[breaks.length - 1]])
-        .range([config.keyScaleMargin.left, width + config.keyScaleMargin.left]);
+        .range([0, width]);
     tickData.forEach(d => { d.x = x(d.value); });
 
     // This is all to do with working out if dropticks are needed (overlap)
@@ -59,8 +83,8 @@ export function drawKeyScale({ keyscale, breaks, colour, config, window, state }
         .append('text')
         .attr('class', 'keyscale-tick-temp')
         .attr('x', d => d.x)
-        .attr('y', height + config.keyScaleMargin.top - 2)
-        .attr('text-anchor', 'middle')
+        .attr('y', height + keyScaleMarginBase.top - 2)
+        .attr('text-anchor', d => getTickAnchor(d.index))
         .attr('font-size', 13)
         .attr('fill', ONScolours.grey75)
         .style('opacity', 0)
@@ -74,19 +98,22 @@ export function drawKeyScale({ keyscale, breaks, colour, config, window, state }
     // Remove temp SVG
     tempTicks.node().ownerSVGElement.remove();
 
+    // Start staggering before labels actually touch so a small gap is preserved.
+    const minTickLabelGap = 6;
+
     // Check for any overlaps
     let lastRight = -Infinity;
     let anyOverlap = false;
     tickData.forEach((d) => {
-        const left = d.x - d.width / 2;
-        if (left < lastRight) {
+        const { left, right } = getTickBounds(d);
+        if (left < lastRight + minTickLabelGap) {
             anyOverlap = true;
         }
-        lastRight = Math.max(lastRight, d.x + d.width / 2);
+        lastRight = Math.max(lastRight, right);
     });
 
     // Set y positions: alternate if any overlap, else all baseline
-    const yBase = height + config.keyScaleMargin.top - 2;
+    const yBase = height + keyScaleMarginBase.top - 2;
     const yOffset = 13; // vertical offset for staggered ticks
     tickData.forEach((d, i) => {
         if (anyOverlap) {
@@ -99,14 +126,14 @@ export function drawKeyScale({ keyscale, breaks, colour, config, window, state }
     });
 
     // If dropticks, increase bottom margin to fit lower row
-    let keyScaleMargin = { ...config.keyScaleMargin };
+    let keyScaleMargin = { ...keyScaleMarginBase };
     if (anyOverlap) {
-        keyScaleMargin = { ...keyScaleMargin, bottom: (config.keyScaleMargin.bottom || 0) + yOffset + 4 };
+        keyScaleMargin = { ...keyScaleMargin, bottom: keyScaleMarginBase.bottom + yOffset + 4 };
     }
 
     // Now create the SVG with possibly increased bottom margin
     const scaleSvg = keyscale.append('svg')
-        .attr('width', width + keyScaleMargin.left + keyScaleMargin.right)
+        .attr('width', width)
         .attr('height', height + keyScaleMargin.top + keyScaleMargin.bottom)
         .attr('class', 'keyscale-svg');
 
@@ -175,7 +202,7 @@ export function drawKeyScale({ keyscale, breaks, colour, config, window, state }
         .attr('class', d => 'keyscale-tick' + (d.stagger ? ' keyscale-tick-stagger' : ''))
         .attr('x', d => d.x)
         .attr('y', d => d.y)
-        .attr('text-anchor', 'middle')
+        .attr('text-anchor', d => getTickAnchor(d.index))
         .attr('font-size', 13)
         .attr('fill', ONScolours.grey75)
         .text(d => d.label);

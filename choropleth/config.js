@@ -13,7 +13,7 @@ config = {
 	// colourPalette: ['#edf8b1','#c7e9b4','#7fcdbb','#41b6c4','#1d91c0','#225ea8','#0c2c84'], // example of a custom array
 	colourUnavailable: ONScolours.noData,
 	breaks: "jenks", // can be "equal", "jenks", or a custom array of breaks - number of values in palette determines number of breaks
-	breaksNumber: 7, // only needed if breaks is "equal" or "jenks" and colour palette a string (then this number defines how many breaks to calculate) - default is 5
+	breaksNumber: 5, // only needed if breaks is "equal" or "jenks" and colour palette a string (then this number defines how many breaks to calculate) - default is 5
 	valueFormat: ",.0f", // d3 format for values
 	valuePrefix: "£",
 	valueSuffix: "",

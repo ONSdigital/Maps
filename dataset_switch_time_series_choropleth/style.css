@@ -34,12 +34,12 @@
 }
 
 #timeline-slider.timeline-slider:focus-visible .timeline-marker.is-active {
-  box-shadow: 0 0 0 3px var(--ons-color-highlight-orange);
+  box-shadow: 0 0 0 3px var(--ons-color-focus);
 }
 
 /* While dragging, keep the highlight following the active marker */
 #timeline-slider.timeline-slider.is-dragging .timeline-marker.is-active {
-  box-shadow: 0 0 0 3px var(--ons-color-highlight-orange);
+  box-shadow: 0 0 0 3px var(--ons-color-focus);
 }
 
 .timeline-track {
@@ -85,7 +85,7 @@
 }
 
 .timeline-marker:focus-visible {
-  outline: 3px solid var(--ons-color-highlight-orange);
+  outline: 3px solid var(--ons-color-focus);
   outline-offset: 3px;
 }
 
@@ -179,7 +179,7 @@
 }
 
 .chart-overlay-close:focus {
-  outline: 3px solid var(--ons-color-highlight-orange);
+  outline: 3px solid var(--ons-color-focus);
   outline-offset: 2px;
 }
 
@@ -202,7 +202,7 @@
 }
 
 .chart-timeline-pill:focus rect {
-  stroke: var(--ons-color-highlight-orange);
+  stroke: var(--ons-color-focus);
   stroke-width: 3px;
   vector-effect: non-scaling-stroke;
 }

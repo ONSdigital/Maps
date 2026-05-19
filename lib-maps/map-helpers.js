@@ -558,7 +558,7 @@ export function setupSearch(areas, config, state, rateById, areaById) {
                     pointer-events: auto;
                 }
                 #search-container .autocomplete__clear-button:hover { background-color: rgba(0, 0, 0, 0.1); }
-                #search-container .autocomplete__clear-button:focus { outline: 2px solid #fbc900; outline-offset: 2px; }
+                #search-container .autocomplete__clear-button:focus { outline: 2px solid var(--ons-color-focus); outline-offset: 2px; }
                 #search-container .autocomplete__clear-button.hidden { display: none; }
                 #search-container .autocomplete__input-wrapper.visible-clear .autocomplete__dropdown-arrow-down { display: none; }
             `;

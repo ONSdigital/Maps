@@ -157,17 +157,34 @@ fieldset legend {
   margin-bottom: 6px;
 }
 
-div.dataset-switch-buttons {
-  display: inline-flex;
-  gap: 8px;
-  flex-wrap: wrap;
-  background: var(--ons-color-grey-5);
-  padding: 4px;
-  border-radius: 8px;
+fieldset.dataset-switch-fieldset {
+  display: block;
+  width: 100%;
+  min-inline-size: 0;
 }
 
-div.dataset-switch-buttons:focus-within {
-  box-shadow: 0 0 0 3px var(--ons-color-focus);
+fieldset.dataset-switch-fieldset legend:empty {
+  display: none;
+}
+
+div.dataset-switch-buttons {
+  position: relative;
+  display: flex;
+  width: 100%;
+  gap: 0;
+  flex-wrap: nowrap;
+  align-items: stretch;
+  border: 1px solid #b7b7b8;
+  border-radius: 6px;
+  background: #f5f5f6;
+  box-shadow: 0 4px 0 #BCBCBD;
+}
+
+div.dataset-switch-buttons > .dataset-switch-option {
+  position: relative;
+  flex: 1 1 0;
+  min-width: 0;
+  display: flex;
 }
 
 div.dataset-switch-buttons input[type=radio]{
@@ -178,30 +195,64 @@ div.dataset-switch-buttons input[type=radio]{
 }
 
 div.dataset-switch-buttons label{
-  padding: 4px 8px;
+  position: relative;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  min-height: 32px;
+  padding: 8px 14px;
   border: none;
-  background: transparent;
+  border-right: 1px solid #d0d0d1;
+  background: #f5f5f6;
   font-size: 14px;
   cursor: pointer;
-  border-radius: 6px;
-  transition: background .2s ease,color .2s ease;
-  color: #707071;
+  border-radius: 0;
+  transition: background .2s ease, color .2s ease, box-shadow .2s ease;
+  color: #3d3d3d;
   text-align: center;
+  box-sizing: border-box;
+}
+
+div.dataset-switch-buttons > .dataset-switch-option:first-child label {
+  border-top-left-radius: 5px;
+  border-bottom-left-radius: 5px;
+}
+
+div.dataset-switch-buttons > .dataset-switch-option:last-child label {
+  border-right: none;
+  border-top-right-radius: 5px;
+  border-bottom-right-radius: 5px;
+}
+
+div.dataset-switch-buttons .dataset-switch-button-text {
+  display: -webkit-box;
+  overflow: hidden;
+  max-width: 100%;
+  line-height: 1.25;
+  text-align: center;
+  -webkit-line-clamp: 3;
+  line-clamp: 3;
+  -webkit-box-orient: vertical;
 }
 
 div.dataset-switch-buttons input[type=radio]:focus-visible + label {
-  box-shadow: 0 0 0 2px var(--ons-color-black), 0 0 0 4px var(--ons-color-focus);
+  outline: 3px solid var(--ons-color-focus);
+  z-index: 3;
 }
 
 div.dataset-switch-buttons label.selected {
-  background: #fff;
+  background: #206095;
   font-weight: 700;
-  color: #206095;
-  box-shadow: 0 2px 4px #0003;
+  color: #fff;
+  border-color: #206095;
+  z-index: 2;
 }
 
-div.dataset-switch-buttons label:hover{
-  background-color: #e8e8e8;
+div.dataset-switch-buttons input[type=radio]:not(:checked) + label:hover,
+div.dataset-switch-buttons input[type=radio]:not(:checked):focus-visible + label {
+  background-color: #E2E2E3;
 }
 
 .maplibregl-ctrl-attrib-button:focus,

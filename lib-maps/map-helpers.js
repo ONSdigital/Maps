@@ -543,10 +543,22 @@ export function setupSearch(areas, config, state, rateById, areaById) {
             styleEl.id = searchStyleId;
             styleEl.textContent = `
                 #search-container { width: 100%; }
+                #search-container .autocomplete__wrapper { position: relative; width: 100%; flex: 1 1 auto; }
                 #search-container .autocomplete__wrapper { width: 100%; flex: 1 1 auto; }
                 #search-container .autocomplete__input { width: 100% !important; box-sizing: border-box; padding-right: 30px; }
                 #search-container .autocomplete__hint { pointer-events: none; }
                 #search-container .autocomplete__input-wrapper { position: relative; display: flex; width: 100%; }
+                #search-container .autocomplete__dropdown-arrow-down {
+                    display: block;
+                    position: absolute;
+                    right: 8px;
+                    top: 10px;
+                    width: 18px !important;
+                    transform: translateY(-2px);
+                    pointer-events: none;
+                    color: currentColor;
+                    z-index: 2;
+                }
                 #search-container .autocomplete__error { margin-top: 4px; font-size: 0.875em; }
                 #search-container .autocomplete__error.hidden { display: none; }
                 #search-container .autocomplete__clear-button {

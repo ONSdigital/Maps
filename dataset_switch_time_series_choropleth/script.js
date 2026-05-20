@@ -1398,6 +1398,7 @@ function renderDatasetSwitch() {
 	if (datasets.length <= 1) return;
 
 	const fieldset = document.createElement('fieldset');
+	fieldset.className = 'dataset-switch-fieldset';
 	fieldset.style = 'border: none; padding: 0; margin: 0;';
 	fieldset.setAttribute('role', 'radiogroup');
 
@@ -1406,12 +1407,14 @@ function renderDatasetSwitch() {
 	fieldset.appendChild(legend);
 
 	const buttonsWrapper = document.createElement('div');
+	buttonsWrapper.id = 'dataset-switch-buttons';
 	buttonsWrapper.className = 'dataset-switch-buttons';
 	const groupName = 'file-switch-group';
 
 	datasets.forEach((ds, idx) => {
 		const id = `file-switch-${idx}`;
 		const wrapper = document.createElement('div');
+		wrapper.className = 'dataset-switch-option';
 		wrapper.style = 'display: flex; align-items: center; gap: 6px;';
 
 		const radio = document.createElement('input');
@@ -1422,9 +1425,15 @@ function renderDatasetSwitch() {
 		radio.checked = idx === state.datasetIndex;
 
 		const label = document.createElement('label');
+		label.className = 'dataset-switch-button';
 		label.setAttribute('for', id);
-		label.textContent = ds.label || ds.url;
 		label.style = 'font-size: 15px; cursor: pointer;';
+
+		const labelText = document.createElement('span');
+		labelText.className = 'dataset-switch-button-text';
+		labelText.textContent = ds.label || ds.url;
+		label.appendChild(labelText);
+
 		if (radio.checked) label.classList.add('selected');
 
 		radio.addEventListener('change', async () => {

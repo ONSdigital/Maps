@@ -567,7 +567,7 @@ export function setupSearch(areas, config, state, rateById, areaById) {
                     pointer-events: auto;
                 }
                 #search-container .autocomplete__clear-button:hover { background-color: rgba(0, 0, 0, 0.1); }
-                #search-container .autocomplete__clear-button:focus { outline: 2px solid #fbc900; outline-offset: 2px; }
+                #search-container .autocomplete__clear-button:focus { outline: 2px solid var(--ons-color-focus); outline-offset: 2px; }
                 #search-container .autocomplete__clear-button.hidden { display: none; }
                 #search-container .autocomplete__input-wrapper.visible-clear .autocomplete__dropdown-arrow-down { display: none; }
             `;
@@ -2038,6 +2038,7 @@ export function addDatasetSwitchButtons(data, state, keyscale) {
     container.innerHTML = '';
 
     const fieldset = document.createElement('fieldset');
+    fieldset.className = 'dataset-switch-fieldset';
     fieldset.style = 'border: none; padding: 0; margin: 0;';
     fieldset.setAttribute('role', 'radiogroup');
 
@@ -2046,6 +2047,7 @@ export function addDatasetSwitchButtons(data, state, keyscale) {
     fieldset.appendChild(legend);
 
     const buttonsWrapper = document.createElement('div');
+    buttonsWrapper.id = 'dataset-switch-buttons';
     buttonsWrapper.className = 'dataset-switch-buttons';
 
     const groupName = 'dataset-switch-group';
@@ -2054,6 +2056,7 @@ export function addDatasetSwitchButtons(data, state, keyscale) {
         const id = `dataset-switch-${idx}`;
 
         const wrapper = document.createElement('div');
+        wrapper.className = 'dataset-switch-option';
         wrapper.style = 'display: flex; align-items: center; gap: 6px;';
 
         const radio = document.createElement('input');
@@ -2064,9 +2067,14 @@ export function addDatasetSwitchButtons(data, state, keyscale) {
         radio.checked = col === state.selectedValueColumn;
 
         const label = document.createElement('label');
+    label.className = 'dataset-switch-button';
         label.setAttribute('for', id);
-        label.textContent = col;
         label.style = 'font-size: 15px; cursor: pointer;';
+
+    const labelText = document.createElement('span');
+    labelText.className = 'dataset-switch-button-text';
+    labelText.textContent = col;
+    label.appendChild(labelText);
 
         // Mark label as selected if its radio is initially checked
         if (radio.checked) {

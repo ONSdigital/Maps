@@ -2026,10 +2026,7 @@ export function addDatasetSwitchButtons(data, state, keyscale) {
     fieldset.className = 'dataset-switch-fieldset';
     fieldset.style = 'border: none; padding: 0; margin: 0;';
     fieldset.setAttribute('role', 'radiogroup');
-
-    const legend = document.createElement('legend');
-    legend.textContent = 'Select data variable';
-    fieldset.appendChild(legend);
+    fieldset.setAttribute('aria-label', 'Select data variable');
 
     const buttonsWrapper = document.createElement('div');
     buttonsWrapper.id = 'dataset-switch-buttons';

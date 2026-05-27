@@ -538,6 +538,22 @@ export function setupSearch(areas, config, state, rateById, areaById) {
                 #search-container .autocomplete__input { width: 100% !important; box-sizing: border-box; padding-right: 30px; }
                 #search-container .autocomplete__hint { pointer-events: none; }
                 #search-container .autocomplete__input-wrapper { position: relative; display: flex; width: 100%; }
+                #search-container .autocomplete__dropdown-arrow-down-wrapper { display: none; }
+                #search-container .autocomplete__chevron {
+                    position: absolute;
+                    right: 10px;
+                    top: 50%;
+                    transform: translateY(-50%);
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                    width: 18px;
+                    height: 18px;
+                    color: currentColor;
+                    pointer-events: none;
+                    z-index: 11;
+                }
+                #search-container .autocomplete__chevron.hidden { display: none; }
                 #search-container .autocomplete__error { margin-top: 4px; font-size: 0.875em; }
                 #search-container .autocomplete__error.hidden { display: none; }
                 #search-container .autocomplete__clear-button {
@@ -560,7 +576,6 @@ export function setupSearch(areas, config, state, rateById, areaById) {
                 #search-container .autocomplete__clear-button:hover { background-color: rgba(0, 0, 0, 0.1); }
                 #search-container .autocomplete__clear-button:focus { outline: 2px solid var(--ons-color-focus); outline-offset: 2px; }
                 #search-container .autocomplete__clear-button.hidden { display: none; }
-                #search-container .autocomplete__input-wrapper.visible-clear .autocomplete__dropdown-arrow-down { display: none; }
             `;
             document.head.appendChild(styleEl);
         };
@@ -591,6 +606,18 @@ export function setupSearch(areas, config, state, rateById, areaById) {
             return btn;
         };
 
+        const createChevron = () => {
+            const chevron = document.createElement('span');
+            chevron.className = 'autocomplete__chevron';
+            chevron.setAttribute('aria-hidden', 'true');
+            chevron.innerHTML = `
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 11.75 7.7" width="18" height="12" focusable="false">
+                    <path fill="currentColor" d="m1.37.15 4.5 5.1 4.5-5.1a.37.37 0 0 1 .6 0l.7.7a.45.45 0 0 1 0 .5l-5.5 6.2a.37.37 0 0 1-.6 0l-5.5-6.1a.64.64 0 0 1 0-.6l.7-.7a.64.64 0 0 1 .6 0Z"></path>
+                </svg>
+            `;
+            return chevron;
+        };
+
         const stopEvent = (e) => {
             e.preventDefault();
             e.stopPropagation();
@@ -606,7 +633,7 @@ export function setupSearch(areas, config, state, rateById, areaById) {
         }
 
         const isVectorSearch = !!(state && state.geographySource === 'vector');
-        const placeholderText = isVectorSearch ? 'Enter a postcode' : 'Type a place name or postcode';
+        const placeholderText = isVectorSearch ? 'Enter a postcode' : 'Search for a place name or postcode';
 
         // Initialise the accessible autocomplete
         accessibleAutocomplete({
@@ -639,8 +666,6 @@ export function setupSearch(areas, config, state, rateById, areaById) {
                     setTimeout(() => toggleClearButton(), 0);
                 }
             },
-            dropdownArrow: (opts) =>
-                `<svg class="${opts?.className}" xmlns="http://www.w3.org/2000/svg" aria-hidden="true" viewBox="0 0 11.75 7.7" width="18" style="z-index:1"><path fill="currentColor" d="m1.37.15 4.5 5.1 4.5-5.1a.37.37 0 0 1 .6 0l.7.7a.45.45 0 0 1 0 .5l-5.5 6.2a.37.37 0 0 1-.6 0l-5.5-6.1a.64.64 0 0 1 0-.6l.7-.7a.64.64 0 0 1 .6 0Z"></path></svg>`
         });
 
         setupSearchClearButton(inputWrapper);
@@ -654,12 +679,15 @@ export function setupSearch(areas, config, state, rateById, areaById) {
 
             ensureSearchStyles();
 
+            const chevron = isVectorSearch ? null : createChevron();
             const clearButton = createClearButton();
 
             const toggle = () => {
                 const hasValue = !!input.value;
+                if (chevron) {
+                    chevron.classList.toggle('hidden', hasValue);
+                }
                 clearButton.classList.toggle('hidden', !hasValue);
-                uiWrapper.classList.toggle('visible-clear', hasValue);
             };
 
             toggleClearButton = toggle;
@@ -720,6 +748,9 @@ export function setupSearch(areas, config, state, rateById, areaById) {
             input.addEventListener('change', toggle);
             input.addEventListener('input', clearSearchError);
             input.addEventListener('change', clearSearchError);
+            if (chevron) {
+                uiWrapper.appendChild(chevron);
+            }
             uiWrapper.appendChild(clearButton);
             toggle();
         }

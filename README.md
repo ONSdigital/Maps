@@ -26,3 +26,6 @@ Each template exposes common options such as:
 - `dataset_switch_time_series_choropleth/` – time‑series + dataset switcher
 - `lib-maps/` – assets shared between map templates
 - `lib/` - assets shared with both the map and [chart](https://github.com/ONSdigital/Charts) templates
+
+## Technical notes
+- [`lib-maps/README-postcode-lookup.md`](lib-maps/README-postcode-lookup.md) – how postcode search works, including autocomplete, postcode-to-point lookup, and point-in-polygon / rendered-feature area matching

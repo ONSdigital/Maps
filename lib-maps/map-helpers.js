@@ -318,6 +318,10 @@ export function validateBreaksArray(breaks, label = 'breaks') {
     return true;
 }
 
+function isNumericBreakArray(breaks) {
+    return Array.isArray(breaks) && breaks.length > 0 && breaks.every(v => typeof v === 'number' && Number.isFinite(v));
+}
+
 export function getBreaks(config, data, palette, state) {
     const debug = config.debugInfo === true;
     const dataValues = data.map(d => state.selectedValueColumn ? +d[state.selectedValueColumn] : +d.value).filter(v => !isNaN(v)).sort(d3.ascending);
@@ -343,6 +347,17 @@ export function getBreaks(config, data, palette, state) {
     })();
 
     if (Array.isArray(config.breaks)) {
+        if (isNumericBreakArray(config.breaks)) {
+            if (debug) {
+                console.log('[Map Debug] Using shared custom breaks for all datasets:', config.breaks);
+            }
+
+            if (!validateBreaksArray(config.breaks, 'config.breaks')) {
+                return null;
+            }
+            return config.breaks;
+        }
+
         const selectedBreaks = config.breaks[selectedIndex] ?? config.breaks[0];
 
         if (Array.isArray(selectedBreaks)) {
@@ -446,17 +461,18 @@ export function setupSearch(areas, config, state, rateById, areaById) {
             return;
         }
 
-        return buildAreaLookups(areas.features, config.geoIdField, config.geoNameField)
+        return buildAreaLookups(areas.features, config, areaById)
     }
 
-    function buildAreaLookups(features, geoIdField, geoNameField) {
+    function buildAreaLookups(features, config, areaById) {
         let areaNames = [];
         let areaNameToCode = {};
         let areaCodeToFeature = {};
 
         features.forEach(f => {
-            const code = f.properties[geoIdField];
-            const name = f.properties[geoNameField];
+            const code = f.properties[config.geoIdField];
+            const name = getAreaName(code, f.properties, areaById, config);
+            if (!name) return;
             areaNames.push(name);
             areaNameToCode[name.toLowerCase()] = code;
             areaCodeToFeature[code] = f;
@@ -914,11 +930,10 @@ export function setupSearch(areas, config, state, rateById, areaById) {
 
             const disableSelectionZoom = (config && config.disableSelectionZoom) || (state && state.disableSelectionZoom);
             const code = feature.properties[config.geoIdField];
-            const areaName = feature.properties[config.geoNameField];
+            const areaName = getAreaName(code, feature.properties, areaById, config);
             if (!code) return;
 
-            // Always ensure areaById is set for this code
-            if (!areaById[code] && areaName) areaById[code] = areaName;
+            syncAreaNameLookup(code, areaName, areaById);
 
             // Clear previous selected state if different
             if (state.selectedAreaCode && state.selectedAreaCode !== code) {
@@ -1481,9 +1496,52 @@ export function buildValueAndAreaLookups(data, config, state) {
     const areaById = {};
     data.forEach((d) => {
         rateById[d[config.dataIdField]] = state.selectedValueColumn ? +d[state.selectedValueColumn] : +d.value;
-        areaById[d[config.dataIdField]] = d[config.dataNameField] ?? d[config.geoNameField];
+        areaById[d[config.dataIdField]] = resolveDataAreaName(d, config);
     });
     return { rateById, areaById };
+}
+
+function resolveDataAreaName(row, config) {
+    if (!row) return undefined;
+    const preferGeoName = config && config.takeNameFromGeo === true;
+
+    if (!preferGeoName) {
+        const dataName = row[config.dataNameField];
+        if (dataName !== null && typeof dataName !== 'undefined' && String(dataName).trim()) {
+            return dataName;
+        }
+    }
+
+    const geoName = row[config.geoNameField];
+    if (geoName !== null && typeof geoName !== 'undefined' && String(geoName).trim()) {
+        return geoName;
+    }
+
+    if (preferGeoName) {
+        const dataName = row[config.dataNameField];
+        if (dataName !== null && typeof dataName !== 'undefined' && String(dataName).trim()) {
+            return dataName;
+        }
+    }
+
+    return undefined;
+}
+
+function getAreaName(code, properties, areaById, config) {
+    const preferGeoName = config && config.takeNameFromGeo === true;
+    const dataName = code && areaById ? areaById[code] : undefined;
+    const geoName = properties ? properties[config.geoNameField] : undefined;
+
+    if (preferGeoName) {
+        return geoName ?? dataName ?? null;
+    }
+
+    return dataName ?? geoName ?? null;
+}
+
+function syncAreaNameLookup(code, areaName, areaById) {
+    if (!code || !areaById || !areaName) return;
+    if (!areaById[code]) areaById[code] = areaName;
 }
 
 function debugReportDataGeographyMatch({ data, areas, config, state, rateById, areaById }) {
@@ -1871,8 +1929,9 @@ export function setupMap(config, data, rateById, areaById, areas, colour, state)
                 sourceLayer: (state.geographySource === "vector" ? config.geoLayer : ""),
                 id: state.hoveredAreaCode
             }, { hovered: true });
-            const areaName = e.features[0].properties[config.geoNameField];
-            const value = currentRateById[e.features[0].properties[config.geoIdField]];
+            const properties = e.features[0].properties;
+            const areaName = getAreaName(code, properties, currentAreaById, config);
+            const value = rateById[properties[config.geoIdField]];
 
             // Always show hover info if hovering, but if an area is selected, show faded indicator for it
             if (typeof value !== 'undefined' && value !== null && !isNaN(value)) {
@@ -1922,15 +1981,12 @@ export function setupMap(config, data, rateById, areaById, areas, colour, state)
             const disableSelectionZoom = (config && config.disableSelectionZoom) || (state && state.disableSelectionZoom);
             // On click, lock the info display to this area until mouse leaves
             const code = e.features[0].properties[config.geoIdField];
-            const areaName = e.features[0].properties[config.geoNameField];
+            const areaName = getAreaName(code, e.features[0].properties, currentAreaById, config);
 
             // Reset search box to placeholder
             setSearchText(areaName);
 
-            // Always ensure areaById is set for this code
-            if (!areaById[code]) {
-                areaById[code] = areaName;
-            }
+            syncAreaNameLookup(code, areaName, currentAreaById);
             // Remove previous selected state
             if (state.selectedAreaCode && state.selectedAreaCode !== code) {
                 state.map.setFeatureState({
@@ -2174,8 +2230,8 @@ export function redeclareMouseEvents(rateById, state) {
         const feature = e.features && e.features[0];
         if (!feature || !feature.properties) return;
 
-        const areaName = feature.properties[config.geoNameField];
         const hoveredCode = feature.properties[config.geoIdField];
+        const areaName = getAreaName(hoveredCode, feature.properties, state.areaById, config);
         const value = rateById[hoveredCode];
 
         const showSelectedIndicatorIfNeeded = () => {
@@ -2201,9 +2257,9 @@ export function redeclareMouseEvents(rateById, state) {
         }
     });
     state.map.on('click', 'area', (e) => {
-        const areaName = e.features[0].properties[config.geoNameField];
-
-        const value = rateById[e.features[0].properties[config.geoIdField]];
+        const code = e.features[0].properties[config.geoIdField];
+        const areaName = getAreaName(code, e.features[0].properties, state.areaById, config);
+        const value = rateById[code];
         // window.moveKeyIndicator(undefined);
         window.moveKeyIndicatorSelected(value);
         // Show explainer for selected area
@@ -2243,6 +2299,10 @@ export function updateDataset(keyscale, data, state) {
 
     let palette = getPalette(config, state);
     let breaks = getBreaks(config, data, palette, state)
+    if (!Array.isArray(breaks) || breaks.length < 2) {
+        console.error('[Map Config] Unable to resolve a valid breaks array for the current dataset.', breaks);
+        return;
+    }
     let colour = d3.scaleThreshold()
         .domain(breaks.slice(1))
         .range(palette);

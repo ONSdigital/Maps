@@ -1119,6 +1119,7 @@ function computeTimelineTickLabelIndices({ items, size, allHaveDates, tickCfg })
 	};
 
 	const method = tickCfg.tickMethod || 'interval';
+	const usesTickCount = method === 'total' || !allHaveDates;
 
 	if (allHaveDates) {
 		const dated = items.filter(d => d.date instanceof Date && Number.isFinite(d.date.getTime()));
@@ -1180,9 +1181,34 @@ function computeTimelineTickLabelIndices({ items, size, allHaveDates, tickCfg })
 		for (const v of candidates) addIndex(v);
 	}
 
-	// Apply endpoint forcing (line-chart semantics)
-	if (tickCfg.addFirstDate) addIndex(0);
-	if (tickCfg.addFinalDate) addIndex(maxIdx);
+	// Forced endpoints occupy slots within the configured maximum.
+	const forcedIndices = [];
+	if (tickCfg.addFinalDate) forcedIndices.push(maxIdx);
+	if (tickCfg.addFirstDate && !forcedIndices.includes(0)) forcedIndices.push(0);
+	forcedIndices.forEach(addIndex);
+
+	if (usesTickCount) {
+		const maxCount = Math.max(1, Math.floor(resolveTickCount(tickCfg, size, 5)));
+		const forced = forcedIndices.slice(0, maxCount);
+		const forcedSet = new Set(forced);
+		const candidates = Array.from(indices)
+			.filter(index => !forcedSet.has(index))
+			.sort((a, b) => a - b);
+		const slots = maxCount - forced.length;
+
+		if (candidates.length > slots) {
+			const sampled = [];
+			for (let i = 0; i < slots; i++) {
+				const position = slots === 1
+					? 0
+					: Math.round(i * (candidates.length - 1) / (slots - 1));
+				sampled.push(candidates[position]);
+			}
+			return forced.concat(sampled).sort((a, b) => a - b);
+		}
+
+		return forced.concat(candidates).sort((a, b) => a - b);
+	}
 
 	return Array.from(indices).sort((a, b) => a - b);
 }

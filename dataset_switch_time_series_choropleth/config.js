@@ -88,7 +88,7 @@ config = {
 		// If ticktext is omitted (or null), tick labels are shown for every time point
 		ticktext: {
 			tickMethod: "interval", // "interval" or "total"
-			tickCount: { // for "total" method
+			tickCount: { // maximum labels for "total", including forced endpoints
 				sm: 2,
 				md: 2,
 				lg: 6
@@ -102,6 +102,7 @@ config = {
 				}
 			},
 			addFirstDate: false,
+			// If both endpoints are forced with tickCount: 1, the final date takes priority.
 			addFinalDate: true,
 		},
 		ariaLabel: "Select time period",

@@ -27,7 +27,7 @@ export function drawKeyScale({ keyscale, breaks, colour, config, window, state }
     };
     const mapWidth = window.d3.select('#graphic').node().getBoundingClientRect().width || 400;
     const width = mapWidth;
-    let height = 39;
+    const height = 39;
 
     const resolveBaseConfigByDataset = (key) => {
         const datasetCfg = (state && typeof state.datasetIndex === 'number' && Array.isArray(config.datasets))
@@ -84,27 +84,28 @@ export function drawKeyScale({ keyscale, breaks, colour, config, window, state }
     const getTickBounds = (tick) => {
         const anchor = getTickAnchor(tick.index);
         if (anchor === 'start') {
-            return { left: tick.x, right: tick.x + tick.width };
+            return { left: tick.labelX, right: tick.labelX + tick.width };
         }
         if (anchor === 'end') {
-            return { left: tick.x - tick.width, right: tick.x };
+            return { left: tick.labelX - tick.width, right: tick.labelX };
         }
-        return { left: tick.x - tick.width / 2, right: tick.x + tick.width / 2 };
+        return { left: tick.labelX - tick.width / 2, right: tick.labelX + tick.width / 2 };
     };
 
     const x = window.d3.scaleLinear()
         .domain([breaks[0], breaks[breaks.length - 1]])
         .range([0, width]);
-    tickData.forEach(d => { d.x = x(d.value); });
+    tickData.forEach(d => { d.x = d.labelX = x(d.value); });
 
-    // This is all to do with working out if dropticks are needed (overlap)
-    // First, create the ticks (invisible) to measure their widths
-    const tempTicks = window.d3.select(document.createElementNS('http://www.w3.org/2000/svg', 'svg'))
+    const scaleSvg = keyscale.append('svg')
+        .attr('width', width)
+        .attr('class', 'keyscale-svg');
+    const tempTicks = scaleSvg
         .selectAll('text.keyscale-tick-temp')
         .data(tickData)
         .enter()
         .append('text')
-        .attr('class', 'keyscale-tick-temp')
+        .attr('class', 'keyscale-tick keyscale-tick-temp')
         .attr('x', d => d.x)
         .attr('y', height + keyScaleMarginBase.top - 2)
         .attr('text-anchor', d => getTickAnchor(d.index))
@@ -112,55 +113,48 @@ export function drawKeyScale({ keyscale, breaks, colour, config, window, state }
         .attr('fill', ONScolours.grey75)
         .style('opacity', 0)
         .text(d => d.label);
-    // Attach to DOM to measure
-    document.body.appendChild(tempTicks.node().ownerSVGElement);
+    const tickNodes = tempTicks.nodes();
     tickData.forEach((d, i) => {
-        const node = tempTicks.nodes()[i];
-        d.width = node ? node.getBBox().width : 0;
+        const bounds = tickNodes[i].getBBox();
+        d.width = bounds.width;
+        d.ascent = height + keyScaleMarginBase.top - 2 - bounds.y;
+        d.descent = bounds.height - d.ascent;
+        const { left, right } = getTickBounds(d);
+        if (left < 0) d.labelX -= left;
+        else if (right > width) d.labelX -= right - width;
     });
-    // Remove temp SVG
-    tempTicks.node().ownerSVGElement.remove();
+    tempTicks.remove();
 
-    // Start staggering before labels actually touch so a small gap is preserved.
     const minTickLabelGap = 6;
-
-    // Check for any overlaps
-    let lastRight = -Infinity;
-    let anyOverlap = false;
+    const labelAscent = Math.max(...tickData.map(d => d.ascent));
+    const labelDescent = Math.max(...tickData.map(d => d.descent));
+    const rowHeight = labelAscent + labelDescent + 4;
+    const rowRights = [];
+    // Fill the nearest available row, alternating below and above the bar.
     tickData.forEach((d) => {
         const { left, right } = getTickBounds(d);
-        if (left < lastRight + minTickLabelGap) {
-            anyOverlap = true;
-        }
-        lastRight = Math.max(lastRight, right);
+        let row = rowRights.findIndex(lastRight => left >= lastRight + minTickLabelGap);
+        if (row === -1) row = rowRights.length;
+        rowRights[row] = right;
+        d.row = Math.floor(row / 2);
+        d.above = row % 2 === 1;
+        d.stagger = row > 0 || d.labelX !== d.x;
     });
 
-    // Set y positions: alternate if any overlap, else all baseline
-    const yBase = height + keyScaleMarginBase.top - 2;
-    const yOffset = 13; // vertical offset for staggered ticks
-    tickData.forEach((d, i) => {
-        if (anyOverlap) {
-            d.stagger = (i % 2 === 1);
-            d.y = yBase + (d.stagger ? yOffset : 0);
-        } else {
-            d.stagger = false;
-            d.y = yBase;
-        }
+    const aboveRows = Math.floor(rowRights.length / 2);
+    const belowRows = Math.ceil(rowRights.length / 2);
+    const aboveLabelGap = 20; // Leave room for the map-value indicators.
+    const keyScaleMargin = {
+        ...keyScaleMarginBase,
+        top: keyScaleMarginBase.top + (aboveRows ? aboveLabelGap + labelAscent + (aboveRows - 1) * rowHeight : 0),
+        bottom: keyScaleMarginBase.bottom + Math.max(0, belowRows - 1) * rowHeight + Math.max(0, labelDescent - 2)
+    };
+    tickData.forEach(d => {
+        d.y = d.above
+            ? keyScaleMargin.top - aboveLabelGap - d.row * rowHeight
+            : keyScaleMargin.top + height - 2 + d.row * rowHeight;
     });
-
-    // If dropticks, increase bottom margin to fit lower row
-    let keyScaleMargin = { ...keyScaleMarginBase };
-    if (anyOverlap) {
-        keyScaleMargin = { ...keyScaleMargin, bottom: keyScaleMarginBase.bottom + yOffset + 4 };
-    }
-
-    // Now create the SVG with possibly increased bottom margin
-    const scaleSvg = keyscale.append('svg')
-        .attr('width', width)
-        .attr('height', height + keyScaleMargin.top + keyScaleMargin.bottom)
-        .attr('class', 'keyscale-svg');
-
-
+    scaleSvg.attr('height', height + keyScaleMargin.top + keyScaleMargin.bottom);
 
     // Draw colored rectangles for each break interval
     const breakRanges = breaks.slice(0, -1).map((d, i) => ({
@@ -200,18 +194,16 @@ export function drawKeyScale({ keyscale, breaks, colour, config, window, state }
             }
         });
 
-    // Draw leader lines for dropped ticks if anyOverlap
-    if (anyOverlap) {
-        const colorBarTop = keyScaleMargin.top + height - 16;
+    if (tickData.some(d => d.stagger)) {
         scaleSvg.selectAll('line.keyscale-tick-leader')
             .data(tickData.filter(d => d.stagger))
             .enter()
             .append('line')
             .attr('class', 'keyscale-tick-leader')
             .attr('x1', d => d.x)
-            .attr('x2', d => d.x)
-            .attr('y1', colorBarTop)
-            .attr('y2', d => d.y - 11)
+            .attr('x2', d => d.labelX)
+            .attr('y1', d => keyScaleMargin.top + (d.above ? 0 : height - 16))
+            .attr('y2', d => d.above ? d.y + labelDescent : d.y - labelAscent)
             .attr('stroke', ONScolours.grey75)
             .attr('stroke-width', 1.1)
             .attr('stroke-dasharray', '2,2');
@@ -223,7 +215,7 @@ export function drawKeyScale({ keyscale, breaks, colour, config, window, state }
         .enter()
         .append('text')
         .attr('class', d => 'keyscale-tick' + (d.stagger ? ' keyscale-tick-stagger' : ''))
-        .attr('x', d => d.x)
+        .attr('x', d => d.labelX)
         .attr('y', d => d.y)
         .attr('text-anchor', d => getTickAnchor(d.index))
         .attr('font-size', 13)

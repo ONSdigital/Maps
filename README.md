@@ -20,6 +20,18 @@ Each template exposes common options such as:
 - Titles, labels, and annotations
 - Explainer and legend settings
 
+Keyscale labels are measured using their rendered text widths. Crowded labels
+use additional rows above and below the colour bar, with leader lines and
+automatically expanded legend spacing.
+
+In the time-series and time-change templates, `timeline.ticktext.tickMethod:
+"total"` treats `tickCount.sm`, `tickCount.md`, and `tickCount.lg` as strict
+maximum label counts, including `addFirstDate` and `addFinalDate`. If the limit
+is one and both endpoints are forced, the final date takes priority. Non-date
+headers also use these limits. Interval mode is unchanged, and all time-point
+markers remain available regardless of which text labels are shown.
+
+
 ## Repository structure
 - `choropleth/` – single‑dataset choropleth template
 - `dataset_switch_choropleth/` – choropleth with dataset switcher

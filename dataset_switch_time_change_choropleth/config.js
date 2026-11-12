@@ -92,6 +92,8 @@ config = {
 		parseFormat: null,
 		ticktext: {
 			tickMethod: "interval",
+			// Maximum labels for "total", including forced endpoints.
+			// With a limit of 1, a forced final date takes priority over a forced first date.
 			tickCount: { sm: 2, md: 2, lg: 6 },
 			tickInterval: { unit: "year", step: { sm: 2, md: 2, lg: 2 } },
 			addFirstDate: false,

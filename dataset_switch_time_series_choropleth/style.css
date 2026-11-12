@@ -11,7 +11,6 @@
 
 #timeline-container {
   margin: 6px 0 2px 0;
-  padding: 0 12px;
   box-sizing: border-box;
 }
 
@@ -50,6 +49,16 @@
   height: 2px;
   transform: translateY(-50%);
   background: var(--ons-color-grey-50);
+}
+
+#timeline-slider.is-continuous .timeline-track {
+  height: 6px;
+  border-radius: 3px;
+}
+
+#timeline-slider.is-continuous .timeline-marker:not(.is-active),
+#timeline-slider.is-continuous.is-range .timeline-marker {
+  display: none;
 }
 
 .timeline-marker {
@@ -126,7 +135,6 @@
 .timeline-pill {
   position: absolute;
   top: 34px;
-  transform: translateX(-50%);
   background: var(--ons-color-ocean-blue);
   color: var(--ons-color-white);
   font-weight: 700;
@@ -134,12 +142,26 @@
   line-height: 1;
   padding: 5px 8px;
   border-radius: 10px;
-  white-space: nowrap;
+  width: max-content;
+  max-width: 100%;
+  box-sizing: border-box;
+  overflow-wrap: anywhere;
+  cursor: pointer;
   z-index: 1;
 }
 
-/* In range mode, pills share the same vertical position.
-   When they are too close, JS applies a horizontal offset. */
+.timeline-pill::before {
+  content: "";
+  position: absolute;
+  left: var(--timeline-caret-x);
+  bottom: 100%;
+  width: 12px;
+  height: var(--timeline-caret-height, 8px);
+  transform: translateX(-50%) skewX(var(--timeline-caret-skew, 0rad));
+  transform-origin: 50% 100%;
+  background: var(--ons-color-ocean-blue);
+  clip-path: polygon(50% 0, 100% 100%, 0 100%);
+}
 
 /* Hide tick text labels in range mode to avoid overlap */
 #timeline-slider.timeline-slider.is-range .timeline-tick {

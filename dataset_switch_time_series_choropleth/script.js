@@ -657,7 +657,7 @@ function beginTimelineTouchDrag(container, event, captureElement, opts = {}) {
 	}
 }
 
-function buildTimelineLayout(items, width, padding = 10) {
+function buildTimelineLayout(items, width, start = 0, end = width) {
 	let allHaveDates = items.length > 1 && items.every(d => d.date instanceof Date && Number.isFinite(d.date.getTime()));
 	let timeDomain = null;
 	if (allHaveDates) {
@@ -668,11 +668,11 @@ function buildTimelineLayout(items, width, padding = 10) {
 	}
 
 	const x = allHaveDates
-		? d3.scaleTime().domain(timeDomain).range([padding, width - padding])
-		: d3.scalePoint().domain(items.map(d => d.index)).range([padding, width - padding]);
+		? d3.scaleTime().domain(timeDomain).range([start, end])
+		: d3.scalePoint().domain(items.map(d => d.index)).range([start, end]);
 
 	return {
-		padding,
+		padding: start,
 		allHaveDates,
 		x,
 		positions: items.map(d => ({
@@ -680,6 +680,50 @@ function buildTimelineLayout(items, width, padding = 10) {
 			x: allHaveDates ? x(d.date) : x(d.index)
 		}))
 	};
+}
+
+function getTimelineBounds(container) {
+	const rect = container.getBoundingClientRect();
+	const bars = document.querySelectorAll('#keyscale .keyscale-rect');
+	const start = bars.length ? bars[0].getBoundingClientRect().left - rect.left : 0;
+	const end = bars.length ? bars[bars.length - 1].getBoundingClientRect().right - rect.left : rect.width;
+	return { origin: rect.left, start, end };
+}
+
+function layoutTimeline(container, items, width) {
+	const { start, end } = getTimelineBounds(container);
+	// Keep the 22px endpoint thumb and its 6px focus outline inside the keyscale.
+	const inset = Math.min(17, Math.max(0, end - start) / 2);
+	const layout = buildTimelineLayout(items, width, start + inset, end - inset);
+	cacheTimelinePositions(container, layout.positions);
+
+	const mode = getTimelineConfig().mode;
+	const crowded = layout.positions.some((p, i, positions) => i > 0 && p.x - positions[i - 1].x < 28);
+	const continuous = mode === 'continuous' || (mode === 'auto' && crowded);
+	const focusedMarker = container.querySelector('.timeline-marker:focus');
+	container.classList.toggle('is-continuous', continuous);
+	if (continuous && focusedMarker && (isRangeMode() || Number(focusedMarker.dataset.index) !== state.timeIndex)) {
+		const target = isRangeMode()
+			? container.querySelector(`.timeline-handle--${state.activeTimeHandle}`)
+			: container;
+		target.focus({ preventScroll: true });
+	}
+
+	const track = container.querySelector('.timeline-track');
+	const first = layout.positions[0].x;
+	const last = layout.positions[layout.positions.length - 1].x;
+	track.style.left = `${first}px`;
+	track.style.right = 'auto';
+	track.style.width = `${last - first}px`;
+	const from = isRangeMode() ? state.timeFromIndex : 0;
+	const to = isRangeMode() ? state.timeToIndex : state.timeIndex;
+	const span = last - first;
+	const fromPercent = span ? 100 * (layout.positions[from].x - first) / span : 0;
+	const toPercent = span ? 100 * (layout.positions[to].x - first) / span : 0;
+	track.style.background = continuous
+		? `linear-gradient(to right, var(--ons-color-grey-50) ${fromPercent}%, var(--ons-color-ocean-blue) ${fromPercent}%, var(--ons-color-ocean-blue) ${toPercent}%, var(--ons-color-grey-50) ${toPercent}%)`
+		: '';
+	return layout;
 }
 
 function cacheTimelinePositions(container, positions) {
@@ -707,23 +751,36 @@ function renderTimelineTickLabels(container, tickLabelItems, layout) {
 		.style('left', d => `${getTimelineItemPixel(d, layout)}px`);
 }
 
-function applyTimelinePillSeparation(pillFrom, pillTo, pxFrom, pxTo) {
-	if (!pillFrom || !pillTo) return;
-	let wFrom = 0;
-	let wTo = 0;
-	try { wFrom = pillFrom.getBoundingClientRect().width || 0; } catch (e) { wFrom = 0; }
-	try { wTo = pillTo.getBoundingClientRect().width || 0; } catch (e) { wTo = 0; }
-	const dist = Math.abs(pxTo - pxFrom);
-	const minGap = (wFrom / 2) + (wTo / 2) + 10;
-	if (Number.isFinite(dist) && Number.isFinite(minGap) && dist > 0 && dist < minGap) {
-		const push = (minGap - dist) / 2;
-		const dir = pxFrom <= pxTo ? 1 : -1;
-		pillFrom.style.transform = `translateX(-50%) translateX(${(-push * dir).toFixed(2)}px)`;
-		pillTo.style.transform = `translateX(-50%) translateX(${(push * dir).toFixed(2)}px)`;
-	} else {
-		pillFrom.style.transform = 'translateX(-50%)';
-		pillTo.style.transform = 'translateX(-50%)';
+function positionTimelinePills(container, entries) {
+	const { origin, start, end } = getTimelineBounds(container);
+	const min = Math.max(start, 8 - origin);
+	const max = Math.max(min, Math.min(end, document.documentElement.clientWidth - 8 - origin));
+	const pills = entries.filter(d => d.pill).map(d => {
+		d.pill.style.maxWidth = `${Math.max(0, max - min)}px`;
+		const { width, height } = d.pill.getBoundingClientRect();
+		return { ...d, width, height, left: Math.max(min, Math.min(d.x - width / 2, max - width)), top: 34 };
+	});
+	if (pills.length === 2) {
+		const [from, to] = pills;
+		if (from.left + from.width + 10 > to.left) {
+			if (from.width + to.width + 10 <= max - min) {
+				from.left = Math.max(min, Math.min(from.left, max - from.width - to.width - 10));
+				to.left = Math.max(to.left, from.left + from.width + 10);
+			} else {
+				to.top = from.top + from.height + 8;
+			}
+		}
 	}
+	pills.forEach(({ pill, x, left, top, width }) => {
+		// Anchor the caret inside the pill, then skew its tip back to the selected date.
+		const caretX = Math.max(6, Math.min(x - left, width - 6));
+		pill.style.left = `${left}px`;
+		pill.style.top = `${top}px`;
+		pill.style.setProperty('--timeline-caret-x', `${caretX}px`);
+		pill.style.setProperty('--timeline-caret-height', `${top - 26}px`);
+		pill.style.setProperty('--timeline-caret-skew', `${Math.atan((caretX - (x - left)) / (top - 26))}rad`);
+	});
+	container.style.height = `${Math.max(64, ...pills.map(d => d.top + d.height + 6))}px`;
 }
 
 function resolveNearestRangeHandle(index) {
@@ -891,7 +948,7 @@ function updateRangeTimelineControls(container, items, layout) {
 		pillTo.style.left = `${pxTo}px`;
 		pillTo.style.display = '';
 	}
-	applyTimelinePillSeparation(pillFrom, pillTo, pxFrom, pxTo);
+	positionTimelinePills(container, [{ pill: pillFrom, x: pxFrom }, { pill: pillTo, x: pxTo }]);
 
 	if (!container.__rangeHandlesWired) {
 		container.__rangeHandlesWired = true;
@@ -909,8 +966,7 @@ function renderRangeTimeline(container) {
 	const width = container.clientWidth || 0;
 	if (!width) return;
 
-	const layout = buildTimelineLayout(items, width);
-	cacheTimelinePositions(container, layout.positions);
+	const layout = layoutTimeline(container, items, width);
 	renderRangeTimelineMarkers(container, items, layout);
 	renderTimelineTickLabels(container, computeTimelineTickLabelItems({ items, containerWidth: width, allHaveDates: layout.allHaveDates }), layout);
 	updateRangeTimelineControls(container, items, layout);
@@ -1024,6 +1080,7 @@ function updatePointTimelinePill(container, items, layout) {
 		pill.textContent = active.display;
 		pill.style.left = `${getTimelineItemPixel(active, layout)}px`;
 		pill.style.display = '';
+		positionTimelinePills(container, [{ pill, x: getTimelineItemPixel(active, layout) }]);
 	} else if (pill) {
 		pill.style.display = 'none';
 	}
@@ -1042,8 +1099,7 @@ function renderPointTimeline(container) {
 	const width = container.clientWidth || 0;
 	if (!width || items.length === 0) return;
 
-	const layout = buildTimelineLayout(items, width);
-	cacheTimelinePositions(container, layout.positions);
+	const layout = layoutTimeline(container, items, width);
 	renderPointTimelineMarkers(container, items, layout, maxIdx);
 	renderTimelineTickLabels(container, computeTimelineTickLabelItems({ items, containerWidth: width, allHaveDates: layout.allHaveDates }), layout);
 	updatePointTimelinePill(container, items, layout);
@@ -1051,7 +1107,13 @@ function renderPointTimeline(container) {
 
 function getTimelineConfig() {
 	const t = resolveDatasetOption('timeline', {});
+	let mode = t.mode || 'auto';
+	if (!['auto', 'pearls', 'continuous'].includes(mode)) {
+		console.error("[Map Config] Invalid timeline.mode; expected 'auto', 'pearls' or 'continuous'. Got:", mode);
+		mode = 'auto';
+	}
 	return {
+		mode,
 		displayFormat: t.displayFormat || '%Y',
 		screenreaderFormat: t.screenreaderFormat || t.displayFormat || '%Y',
 		parseFormat: t.parseFormat || null,
@@ -2985,6 +3047,7 @@ function setupUI() {
 				applyOverlayDimensionsForMode(state.overlayMode);
 				state.chart = null;
 				updateChart();
+				ensureBreaksAndLegend();
 				renderTimeline();
 				if (state.selectedAreaCode) deferFocusSelectedArea();
 			});
@@ -2993,13 +3056,7 @@ function setupUI() {
 	}
 
 	// Keep chart responsive
-	window.addEventListener('resize', () => {
-		applyOverlayDimensionsForMode(state.overlayMode);
-		state.chart = null;
-		updateChart();
-		renderTimeline();
-		if (state.selectedAreaCode) deferFocusSelectedArea();
-	});
+	window.addEventListener('resize', onResize);
 }
 
 function setupChartOverlayUI() {

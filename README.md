@@ -31,6 +31,15 @@ is one and both endpoints are forced, the final date takes priority. Non-date
 headers also use these limits. Interval mode is unchanged, and all time-point
 markers remain available regardless of which text labels are shown.
 
+The time-series and time-change templates support `timeline.mode`: `"auto"` (default),
+`"pearls"`, or `"continuous"`, including inside a dataset's `timeline` override.
+Auto switches to a continuous track when any adjacent time points are less
+than 28px apart, and re-evaluates on resize. Both styles snap to the available
+dates and retain keyboard navigation. Timeline thumbs (including focus rings)
+and active labels stay within the keyscale's horizontal bounds, including in
+wide pym iframes. Carets point to the selected dates. Range labels separate
+horizontally, or stack if they cannot fit.
+
 
 ## Repository structure
 - `choropleth/` – single‑dataset choropleth template

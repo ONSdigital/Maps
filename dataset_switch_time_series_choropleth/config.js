@@ -80,11 +80,15 @@ config = {
 	// - parseFormat (optional) is a d3.timeParse format used to parse CSV header strings into Date objects
 	//   If omitted, the template will attempt a simple heuristic parse (YYYY, YYYY-MM, YYYY-MM-DD).
 	timeline: {
+		// "auto" uses a continuous track when adjacent points are less than 28px apart.
+		// Force either appearance with "pearls" or "continuous" (also supported per dataset).
+		// Both appearances still snap to the available time points.
+		mode: "auto",
 		displayFormat: "%Y",
 		screenreaderFormat: "%B %Y",
 		parseFormat: null,
 		// Configure which tick *text labels* appear under the timeline track.
-		// Markers (dots) always render for every time point.
+		// In pearls mode, markers (dots) render for every time point.
 		// If ticktext is omitted (or null), tick labels are shown for every time point
 		ticktext: {
 			tickMethod: "interval", // "interval" or "total"

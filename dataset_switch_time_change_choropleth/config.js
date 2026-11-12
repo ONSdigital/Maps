@@ -87,6 +87,10 @@ config = {
 
 	// Timeline formatting
 	timeline: {
+		// "auto" uses a continuous track when adjacent points are less than 28px apart.
+		// Force either appearance with "pearls" or "continuous" (also supported per dataset).
+		// Both appearances still snap to the available time points.
+		mode: "auto",
 		displayFormat: "%Y",
 		screenreaderFormat: "%B %Y",
 		parseFormat: null,

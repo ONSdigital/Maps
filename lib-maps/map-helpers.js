@@ -346,6 +346,10 @@ export function getBreaks(config, data, palette, state) {
         return (typeof config.breaksNumber === 'number' && config.breaksNumber > 1) ? config.breaksNumber : undefined;
     })();
 
+    const breaksRoundTo = Array.isArray(config.breaksRoundTo)
+        ? (selectedIndex < config.breaksRoundTo.length ? config.breaksRoundTo[selectedIndex] : config.breaksRoundTo[0])
+        : config.breaksRoundTo;
+
     if (Array.isArray(config.breaks)) {
         if (isNumericBreakArray(config.breaks)) {
             if (debug) {
@@ -381,7 +385,7 @@ export function getBreaks(config, data, palette, state) {
             } else {
                 n = 5;
             }
-            const calculated = calculateBreaks(dataValues, selectedBreaks, n);
+            const calculated = calculateBreaks(dataValues, selectedBreaks, n, breaksRoundTo);
             if (debug) {
 				console.log(`[Map Debug] Calculated breaks for dataset index ${selectedIndex} using method '${selectedBreaks}' and n=${n}:`, calculated);
             }
@@ -399,7 +403,7 @@ export function getBreaks(config, data, palette, state) {
         } else {
             n = 5;
         }
-        const calculated = calculateBreaks(dataValues, config.breaks, n);
+        const calculated = calculateBreaks(dataValues, config.breaks, n, breaksRoundTo);
         if (debug) {
             console.log(`[Map Debug] Calculated breaks using method '${config.breaks}' and n=${n}:`, calculated);
         }
@@ -413,18 +417,25 @@ export function getBreaks(config, data, palette, state) {
  * Breaks are *data-space* numbers.
  * Formatting (e.g. `legendFormat: ",.0%"`) is for display only and should not change
  * the numeric breakpoints used by the scale.
+ * Optional roundTo rounds inner breaks to the nearest interval and outer breaks
+ * outwards to cover the data. Rounded breaks must remain strictly increasing.
  */
-export function calculateBreaks(values, method, numClasses) {
+export function calculateBreaks(values, method, numClasses, roundTo = null) {
+    if (roundTo !== null && (typeof roundTo !== 'number' || !Number.isFinite(roundTo) || roundTo <= 0)) {
+        throw new RangeError('[Map Config] Invalid config.breaksRoundTo: expected null or a positive finite number (e.g. 0.1, 1, 10, 1000).');
+    }
+
+    let breaks;
     if (method === 'equal') {
         const min = d3.min(values), max = d3.max(values);
-        return Array.from({ length: numClasses + 1 }, (_, i) => {
+        breaks = Array.from({ length: numClasses + 1 }, (_, i) => {
             const val = min + i * (max - min) / numClasses;
             return val;
         });
     } else if (method === 'jenks' && typeof ss !== 'undefined') {
         const sorted = values.filter(v => !isNaN(v)).sort(d3.ascending);
         let clusters = ss.ckmeans(sorted, numClasses);
-        let breaks = [];
+        breaks = [];
         clusters.forEach((cluster, i) => {
             if (i < numClasses - 1) {
                 breaks.push(cluster[0]);
@@ -433,9 +444,35 @@ export function calculateBreaks(values, method, numClasses) {
                 breaks.push(cluster[cluster.length - 1]);
             }
         });
-        return breaks;
+    } else {
+        return null;
     }
-    return null;
+
+    if (roundTo === null) return breaks;
+
+    // Shift decimal digits rather than multiply, avoiding errors such as 0.29 * 100.
+    const shiftDecimal = (value, places) => {
+        const [coefficient, exponent = 0] = String(value).split('e');
+        return Number(`${coefficient}e${Number(exponent) + places}`);
+    };
+    const [coefficient, exponent = 0] = String(roundTo).split('e');
+    const places = (coefficient.split('.')[1] || '').length - Number(exponent);
+    const increment = shiftDecimal(roundTo, places);
+    const roundedBreaks = breaks.map((value, i) => {
+        const scaled = shiftDecimal(value, places) / increment;
+        // Equal-interval arithmetic can leave a halfway point one float away.
+        const nearestHalf = Math.round(scaled * 2) / 2;
+        const tolerance = Number.EPSILON * Math.max(1, Math.abs(scaled));
+        const adjusted = i > 0 && i < breaks.length - 1 && Math.abs(scaled - nearestHalf) <= tolerance
+            ? nearestHalf : scaled;
+        const round = i === 0 ? Math.floor : (i === breaks.length - 1 ? Math.ceil : Math.round);
+        return shiftDecimal(round(adjusted) * increment, -places);
+    });
+
+    if (roundedBreaks.some((value, i) => !Number.isFinite(value) || (i > 0 && value <= roundedBreaks[i - 1]))) {
+        throw new RangeError(`[Map Config] config.breaksRoundTo (${roundTo}) must produce finite, strictly increasing breaks. Use a smaller interval or fewer classes.`);
+    }
+    return roundedBreaks;
 }
 
 export function setupSearch(areas, config, state, rateById, areaById) {

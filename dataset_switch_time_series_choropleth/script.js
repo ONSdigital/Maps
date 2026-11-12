@@ -351,7 +351,7 @@ function computeBreaksForDataset() {
 
 	const values = collectFixedBreakValues();
 	values.sort(d3.ascending);
-	const calculated = calculateBreaks(values, breaks, numClasses);
+	const calculated = calculateBreaks(values, breaks, numClasses, resolveDatasetOption('breaksRoundTo', null));
 	state.breaks = calculated;
 	state.colour = d3.scaleThreshold().domain(calculated.slice(1)).range(palette);
 }
@@ -366,7 +366,7 @@ function ensureBreaksAndLegend() {
 		const numClasses = Array.isArray(palette) ? palette.length : (breaksNumber || 5);
 		const calculated = Array.isArray(method)
 			? (validateBreaksArray(method, 'config.breaks') ? method : null)
-			: calculateBreaks(values, method, numClasses);
+			: calculateBreaks(values, method, numClasses, resolveDatasetOption('breaksRoundTo', null));
 		if (!calculated) {
 			state.breaks = null;
 			const fallbackColour = (config && config.colourUnavailable)

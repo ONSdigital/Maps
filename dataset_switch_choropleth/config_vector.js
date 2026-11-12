@@ -11,6 +11,7 @@ config = {
 	colourPalette: ["#E92730","#f0702f","#f6ae35","#f1ec37","#95ca53","#2ea949","#0a8647"], // can be preset colourbrewer palette or custom array of colours
 	colourUnavailable: "#ccc",
 	breaks: [0,20,38,54,68,80,91,110], // can be "equal", "jenks", or a custom array of breaks - number of values in palette determines number of breaks
+	breaksRoundTo: null, // calculated breaks only; custom break arrays are unchanged
 	valueFormat: ",.0f", // d3 format for values
 	valuePrefix: "",
 	valueSuffix: "",

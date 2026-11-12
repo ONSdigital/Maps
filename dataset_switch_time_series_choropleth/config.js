@@ -8,6 +8,7 @@ Multi-dataset behaviour:
     - colourPalette
     - breaks
 	- breaksNumber
+	- breaksRoundTo
 	- valueFormat/Prefix/Suffix
 	- changeFormat/Prefix/Suffix
 	- legendFormat/Prefix/Suffix
@@ -62,6 +63,7 @@ config = {
 	colourUnavailable: ONScolours.noData,
 	breaks: "jenks", // "equal", "jenks", or a custom array of breaks
 	breaksNumber: 5,
+	breaksRoundTo: null, // 0.1, 1, 10, 1000, 10000, 1000000, etc.; null = no rounding; also supports per-dataset values
 	// Controls whether choropleth breaks stay fixed or respond to the current selection.
 	// - "fixed":
 	//    point mode -> breaks are calculated once from all years in the dataset

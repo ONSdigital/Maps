@@ -105,7 +105,8 @@ async function setupOnce() {
 			state.breaks = calculateBreaks(
 				state.data.map(d => +d.value).filter(v => !isNaN(v)).sort(d3.ascending),
 				config.breaks,
-				palette.length
+				palette.length,
+				config.breaksRoundTo
 			);
 		}
 

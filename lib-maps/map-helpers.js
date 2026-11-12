@@ -1929,8 +1929,9 @@ export function setupMap(config, data, rateById, areaById, areas, colour, state)
                 sourceLayer: (state.geographySource === "vector" ? config.geoLayer : ""),
                 id: state.hoveredAreaCode
             }, { hovered: true });
-            const areaName = getAreaName(code, e.features[0].properties, currentAreaById, config);
-            const value = currentRateById[e.features[0].properties[config.geoIdField]];
+            const properties = e.features[0].properties;
+            const areaName = getAreaName(code, properties, currentAreaById, config);
+            const value = rateById[properties[config.geoIdField]];
 
             // Always show hover info if hovering, but if an area is selected, show faded indicator for it
             if (typeof value !== 'undefined' && value !== null && !isNaN(value)) {
@@ -2096,7 +2097,7 @@ export function setupMap(config, data, rateById, areaById, areas, colour, state)
 
 export function detectValueColumns(csv) {
     if (!csv || !csv.columns) return [];
-    return csv.columns.filter(col => col !== config.dataIdField && col !== config.geoNameField && col.toLowerCase() !== config.dataNameField);
+    return csv.columns.filter(col => col !== config.dataIdField && col !== config.geoNameField && col.toLowerCase() !== String(config.dataNameField).toLowerCase());
 }
 
 export function addDatasetSwitchButtons(data, state, keyscale) {

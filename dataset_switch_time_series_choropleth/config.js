@@ -9,7 +9,9 @@ Multi-dataset behaviour:
     - breaks
 	- breaksNumber
 	- valueFormat/Prefix/Suffix
+	- changeFormat/Prefix/Suffix
 	- legendFormat/Prefix/Suffix
+	- changeLegendFormat/Prefix/Suffix
 	- explainerPlaceholder
 	- explainerPlaceholderTextSize
     - explainerPrefix
@@ -22,8 +24,12 @@ Multi-dataset behaviour:
     - a single value (used for all datasets).
 
 - Palette selection is controlled by paletteMode:
-    - "single":   All datasets use the first palette in colourPalette (or the string value if not an array)
-    - "multiple": Each dataset uses its own palette from colourPalette (array, one per dataset)
+	- "single":   All datasets use the first palette in colourPalette (or the string value if not an array)
+	- "multiple": Each dataset uses its own palette from colourPalette (array, one per dataset)
+
+- If paletteMode is omitted, it is inferred from colourPalette:
+	- a flat array of colour strings = a single palette
+	- an array of palette entries (palette names or arrays) = per-dataset palettes
 
 - When switching datasets, the map, legend, info area, and explainer/unavailable text
   will update to reflect the selected dataset's config values.
@@ -32,6 +38,9 @@ Multi-dataset behaviour:
 config = {
 	debugInfo: true,
 	// Time-series datasets (wide format: id + name + one column per time point)
+	// Per-dataset overrides are supported on each dataset object, for example:
+	// { label: "A", url: "a.csv", timeSelectionMode: "point", startTime: "2011", selectionBreaksMode: "perSelection" }
+	// { label: "B", url: "b.csv", timeSelectionMode: "range", startFromTime: "2011", startToTime: "2021", changeMetric: "percent", selectionBreaksMode: "fixed" }
 	datasets: [
 		{ label: "Per 1,000 population", url: "data_over_time_0.csv" },
 		{ label: "Per 100 sales", url: "data_over_time_1.csv" }
@@ -53,8 +62,15 @@ config = {
 	colourUnavailable: ONScolours.noData,
 	breaks: "jenks", // "equal", "jenks", or a custom array of breaks
 	breaksNumber: 5,
-	// If true, breaks are calculated once per dataset across all time points (recommended for comparison)
-	timeBreaksMode: "fixed", // "fixed" | "perTime"
+	// Controls whether choropleth breaks stay fixed or respond to the current selection.
+	// - "fixed":
+	//    point mode -> breaks are calculated once from all years in the dataset
+	//    range mode -> breaks are calculated once from all valid from<to combinations in the dataset
+	// - "perSelection":
+	//    point mode -> breaks are recalculated for the currently selected year
+	//    range mode -> breaks are recalculated for the currently selected from/to pair
+	// This can also be set per dataset inside config.datasets[].
+	selectionBreaksMode: "fixed", // "fixed" | "perSelection"
 	// Timeline start position. If null/undefined or not found in the data headers, defaults to the last time point.
 	// Example: startTime: "2011"
 	startTime: null,
@@ -94,9 +110,17 @@ config = {
 	valueFormat: ",.1f", // d3 format for values
 	valuePrefix: "",
 	valueSuffix: "",
+	// Range-mode computed changes can use a separate display format.
+	// If omitted, change displays fall back to the raw value settings above.
+	changeFormat: null,
+	changePrefix: null,
+	changeSuffix: null,
 	legendFormat: ",.0f",
 	legendPrefix: "",
 	legendSuffix: "",
+	changeLegendFormat: null,
+	changeLegendPrefix: null,
+	changeLegendSuffix: null,
 	mapBounds: [[-7, 50.2], [1.77, 59]], // Set to "auto" to use GeoJSON/TopoJSON extents (not supported for vector tiles). Ensure maxBounds and minZoom are set so the auto view displays correctly. UK bounds (Shetland cut off a bit): [[-8.62, 48.87], [1.77, 60.84]] England and Wales: [[-6.43, 50], [1.77, 55.81]]
 	maxBounds: [[-14, 46], [8, 62]], // restrict panning to these bounds
 

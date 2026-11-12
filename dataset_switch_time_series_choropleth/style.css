@@ -71,6 +71,40 @@
   z-index: 1;
 }
 
+/* In range mode, fill the selected span markers while the handles show endpoints */
+#timeline-slider.timeline-slider.is-range .timeline-marker.is-in-range {
+  background: var(--ons-color-ocean-blue);
+  border-color: var(--ons-color-ocean-blue);
+}
+
+/* From/To handles */
+.timeline-handle {
+  position: absolute;
+  top: 18px;
+  transform: translate(-50%, -50%);
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: var(--ons-color-ocean-blue);
+  border: 2px solid var(--ons-color-ocean-blue);
+  padding: 0;
+  margin: 0;
+  cursor: pointer;
+  appearance: none;
+  -webkit-appearance: none;
+  touch-action: none;
+  z-index: 3;
+}
+
+.timeline-handle:focus-visible {
+  outline: 3px solid var(--ons-color-highlight-orange);
+  outline-offset: 3px;
+}
+
+.timeline-handle.is-active-handle {
+  box-shadow: 0 0 0 3px var(--ons-color-highlight-orange);
+}
+
 .timeline-marker.is-complete {
   background: var(--ons-color-ocean-blue);
   border-color: var(--ons-color-ocean-blue);
@@ -102,6 +136,14 @@
   border-radius: 10px;
   white-space: nowrap;
   z-index: 1;
+}
+
+/* In range mode, pills share the same vertical position.
+   When they are too close, JS applies a horizontal offset. */
+
+/* Hide tick text labels in range mode to avoid overlap */
+#timeline-slider.timeline-slider.is-range .timeline-tick {
+  display: none;
 }
 
 .timeline-tick {

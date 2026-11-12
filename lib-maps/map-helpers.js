@@ -429,6 +429,7 @@ export function calculateBreaks(values, method, numClasses, roundTo = null) {
     if (method === 'equal') {
         const min = d3.min(values), max = d3.max(values);
         breaks = Array.from({ length: numClasses + 1 }, (_, i) => {
+            if (i === numClasses) return max;
             const val = min + i * (max - min) / numClasses;
             return val;
         });

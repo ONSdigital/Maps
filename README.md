@@ -70,6 +70,70 @@ wide pym iframes. Carets point to the selected dates. Range labels separate
 horizontally, or stack if they cannot fit.
 
 
+### Time-series chart average/reference line
+
+The over-time template (`dataset_switch_time_series_choropleth`) supports
+`chart.average`:
+
+```js
+average: {
+  method: "mean", // "mean" | "median" | "row" | "none"
+  rowId: null,    // required only for "row": exact ID from dataIdField
+  // label: "Published UK average", // optional; defaults to a method-specific label
+  color: "#707071"
+}
+```
+
+The bundled example configuration uses `"row"` with `rowId: "EXAMPLE_AVERAGE"`.
+Both example time-series CSVs contain this row, with **fictional, illustrative
+values only**, labelled "Example average (illustrative)". These are not
+published, population-weighted or statistically valid estimates. Replace the
+example values with an appropriate aggregate before publishing.
+
+**Statistical warning:** `"mean"` is the arithmetic mean of available area
+values at each time point. Each area has equal weight: it is **not weighted
+by population or the relevant denominator**. Averaging area rates or percentages
+this way is generally **not a statistically valid national or combined
+estimate**. Do not label it "UK Average" or imply it is a population average.
+The default label is "Mean of areas (unweighted)", with a warning on the legend.
+For a national/combined estimate, prefer a published or correctly calculated
+aggregate supplied in the CSV; the template does not calculate weighted estimates.
+
+- `"median"` uses the middle available area value (the mean of the two middle
+  values for an even count). This describes a typical **area**, not a typical
+  person or a population-weighted/combined estimate.
+- `"row"` reads the reference series directly from one CSV row, for example
+  `{ method: "row", rowId: "K02000001", label: "Published UK average" }`.
+  The ID must match **exactly one** row using `dataIdField`; a missing, blank or
+  duplicate ID reports a configuration error, never a fallback mean.
+  Supply a value under each time-column header just as for area rows.
+  This reference row is excluded from map values, data-derived area lookups and
+  fixed/per-selection break calculations. The publisher remains responsible
+  for its statistical validity and a label that accurately describes it.
+  Geography features are not removed: if the reference ID is also in the
+  geography, that area remains selectable but has no mapped area values.
+- `"none"` removes the reference line and its legend, and excludes it from
+  chart y-axis scaling. It does not disable the separate `chart.zeroLine`.
+
+Mean and median omit blank, non-numeric and non-finite values independently at
+each time point, so the set of contributing areas can change over time.
+If no valid values remain, the reference has a gap. Row mode also preserves
+missing/invalid values as gaps; it never replaces them with calculated values.
+Only include the intended set of comparable areas in calculated modes: no
+geography/population weighting or filtering of other aggregate rows is inferred.
+In range mode the line still represents raw time-point values, not the mean
+or median of changes.
+
+Set `datasets[i].chart.average` to override the whole object for one dataset
+(including its method, row ID, label and colour). `chart.average` also accepts
+an array of objects in dataset order. Omit `label` to use the method-specific
+default; supply an appropriate label when switching to a published row.
+
+For existing configurations without `chart.average`, `chart.showMeanLine: false`
+still disables the line and `chart.meanLegend` still sets its label/colour.
+Otherwise the historical unweighted mean remains the default. An explicit
+`chart.average.method` takes precedence over `showMeanLine`.
+
 ## Repository structure
 - `choropleth/` – single‑dataset choropleth template
 - `dataset_switch_choropleth/` – choropleth with dataset switcher
@@ -79,4 +143,4 @@ horizontally, or stack if they cannot fit.
 
 ## Technical notes
 - [`lib-maps/README-postcode-lookup.md`](lib-maps/README-postcode-lookup.md) – how postcode search works, including autocomplete, postcode-to-point lookup, and point-in-polygon / rendered-feature area matching
-- Run `node --test` from the repository root to check break calculations and rounding.
+

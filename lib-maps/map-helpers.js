@@ -2097,7 +2097,7 @@ export function setupMap(config, data, rateById, areaById, areas, colour, state)
 
 export function detectValueColumns(csv) {
     if (!csv || !csv.columns) return [];
-    return csv.columns.filter(col => col !== config.dataIdField && col !== config.geoNameField && col.toLowerCase() !== config.dataNameField);
+    return csv.columns.filter(col => col !== config.dataIdField && col !== config.geoNameField && col.toLowerCase() !== String(config.dataNameField).toLowerCase());
 }
 
 export function addDatasetSwitchButtons(data, state, keyscale) {

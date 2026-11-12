@@ -99,7 +99,7 @@ export function drawKeyScale({ keyscale, breaks, colour, config, window, state }
 
     // This is all to do with working out if dropticks are needed (overlap)
     // First, create the ticks (invisible) to measure their widths
-    const tempTicks = d3.select(document.createElementNS('http://www.w3.org/2000/svg', 'svg'))
+    const tempTicks = window.d3.select(document.createElementNS('http://www.w3.org/2000/svg', 'svg'))
         .selectAll('text.keyscale-tick-temp')
         .data(tickData)
         .enter()

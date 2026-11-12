@@ -1,6 +1,6 @@
 import { initialise, addSource } from "../lib/helpers.js";
 import { drawKeyScale } from "../lib-maps/legend.js";
-import { convertTopoJSONtoGeojson, detectGeographySource, setupSearch, buildValueAndAreaLookups, getPalette, getElementHeightById, setupMap, getBreaks, updateKeyInfo, setupDatasetSwitch, updateDataset, redrawMapFill, resolveAutoMapBounds } from "../lib-maps/map-helpers.js";
+import { convertTopoJSONtoGeojson, detectGeographySource, setupSearch, buildValueAndAreaLookups, getPalette, getElementHeightById, setupMap, getBreaks, updateKeyInfo, setupDatasetSwitch, redrawMapFill, resolveAutoMapBounds } from "../lib-maps/map-helpers.js";
 
 const state = {
 	map: null,
@@ -52,11 +52,6 @@ function createMap() {
 	}
 	if (state.data && state.rateById && state.areaById) {
 		setupMap(config, state.data, state.rateById, state.areaById, state.areas, state.colour, state);
-		state.map.once('load', () => {
-			if (state.data) {
-				updateDataset(keyscale, state.data, state);
-			}
-		});
 	}
 
 	updateKeyInfo(undefined, undefined, state);

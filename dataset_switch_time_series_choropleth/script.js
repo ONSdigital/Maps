@@ -772,8 +772,9 @@ function positionTimelinePills(container, entries) {
 		}
 	}
 	pills.forEach(({ pill, x, left, top, width }) => {
-		// Anchor the caret inside the pill, then skew its tip back to the selected date.
-		const caretX = Math.max(6, Math.min(x - left, width - 6));
+		// Keep the 12px caret base clear of the 10px corners, then skew its tip to the date.
+		const caretInset = Math.min(16, width / 2);
+		const caretX = Math.max(caretInset, Math.min(x - left, width - caretInset));
 		pill.style.left = `${left}px`;
 		pill.style.top = `${top}px`;
 		pill.style.setProperty('--timeline-caret-x', `${caretX}px`);

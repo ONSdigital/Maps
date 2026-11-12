@@ -14,6 +14,7 @@ config = {
 	colourUnavailable: ONScolours.noData,
 	breaks: "jenks", // can be "equal", "jenks", or a custom array of breaks - number of values in palette determines number of breaks
 	breaksNumber: 5, // only needed if breaks is "equal" or "jenks" and colour palette a string (then this number defines how many breaks to calculate) - default is 5
+	breaksRoundTo: null, // calculated breaks only: 0.1, 1, 10, 1000, 10000, 1000000, etc.; null = no rounding
 	valueFormat: ",.0f", // d3 format for values
 	valuePrefix: "£",
 	valueSuffix: "",

@@ -14,6 +14,7 @@ config = {
 	// Each dataset below can override these with its own:
 	// - timeSelectionMode: "point" | "range"
 	// - selectionBreaksMode: "fixed" | "perSelection"
+	// - breaksRoundTo
 	// - startTime
 	// - startFromTime / startToTime
 	// - changeMetric
@@ -79,6 +80,7 @@ config = {
 	colourUnavailable: ONScolours.noData,
 	breaks: ["jenks", "jenks"],
 	breaksNumber: [5, 5],
+	breaksRoundTo: [null, null], // per dataset or a single interval: 0.1, 1, 10, 1000, 10000, 1000000, etc.; null = no rounding
 
 	// Keep this as "perSelection" if you want each point/range selection to use its own breaks.
 	// Use "fixed" if you want one consistent legend across all point years or all valid range combinations.

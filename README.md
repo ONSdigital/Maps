@@ -20,6 +20,30 @@ Each template exposes common options such as:
 - Titles, labels, and annotations
 - Explainer and legend settings
 
+### Calculated break rounding
+
+Set `breaksRoundTo` to a positive rounding interval for `"jenks"` or `"equal"`
+breaks, for example `0.01`, `0.1`, `1`, `10`, `100`, `1000`, `10000`, or
+`1000000`. Use `null` (the default), or omit the option, to keep unrounded breaks.
+
+Inner breaks round to the nearest interval. The minimum rounds down and the
+maximum rounds up so the legend still covers all data. If rounding would make
+breaks identical, a configuration error is reported: use a smaller interval or
+fewer classes. Custom break arrays are never rounded.
+
+Dataset-switch templates accept a shared interval or an array such as
+`breaksRoundTo: [1, 1000]`; a `null` entry disables rounding for that dataset.
+Time-series and time-change templates also accept `breaksRoundTo` inside each
+`datasets` entry, overriding the top-level setting. Rounding applies in both
+`"fixed"` and `"perSelection"` modes.
+
+This changes the numeric thresholds used by the map, not just their labels.
+Keep `legendFormat` consistent with the chosen precision. Intervals use the
+data's units: for fractional data displayed as percentages, `0.01` is one
+percentage point.
+
+### Legends and timelines
+
 Keyscale labels are measured using their rendered text widths. Crowded labels
 use additional rows above and below the colour bar, with leader lines and
 automatically expanded legend spacing.
@@ -50,3 +74,4 @@ horizontally, or stack if they cannot fit.
 
 ## Technical notes
 - [`lib-maps/README-postcode-lookup.md`](lib-maps/README-postcode-lookup.md) – how postcode search works, including autocomplete, postcode-to-point lookup, and point-in-polygon / rendered-feature area matching
+- Run `node --test` from the repository root to check break calculations and rounding.

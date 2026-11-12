@@ -59,8 +59,13 @@ The time-series and time-change templates support `timeline.mode`: `"auto"` (def
 `"pearls"`, or `"continuous"`, including inside a dataset's `timeline` override.
 Auto switches to a continuous track when any adjacent time points are less
 than 28px apart, and re-evaluates on resize. Both styles snap to the available
-dates and retain keyboard navigation. Timeline thumbs (including focus rings)
-and active labels stay within the keyscale's horizontal bounds, including in
+dates and retain keyboard navigation. Timelines highlight only the selected
+date in single-date mode; the other markers and
+track stay neutral. Range mode continues to highlight the selected span.
+Switching between range and single-date datasets updates the date pills
+immediately, without needing to interact with the timeline.
+Timeline thumbs (including focus rings) and active labels stay within the
+keyscale's horizontal bounds, including in
 wide pym iframes. Carets point to the selected dates. Range labels separate
 horizontally, or stack if they cannot fit.
 

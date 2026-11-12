@@ -125,11 +125,6 @@
   box-shadow: 0 0 0 3px var(--ons-color-highlight-orange);
 }
 
-.timeline-marker.is-complete {
-  background: var(--ons-color-ocean-blue);
-  border-color: var(--ons-color-ocean-blue);
-}
-
 .timeline-marker.is-active {
   width: 22px;
   height: 22px;

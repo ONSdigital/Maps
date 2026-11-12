@@ -720,7 +720,7 @@ function layoutTimeline(container, items, width) {
 	const span = last - first;
 	const fromPercent = span ? 100 * (layout.positions[from].x - first) / span : 0;
 	const toPercent = span ? 100 * (layout.positions[to].x - first) / span : 0;
-	track.style.background = continuous
+	track.style.background = continuous && isRangeMode()
 		? `linear-gradient(to right, var(--ons-color-grey-50) ${fromPercent}%, var(--ons-color-ocean-blue) ${fromPercent}%, var(--ons-color-ocean-blue) ${toPercent}%, var(--ons-color-grey-50) ${toPercent}%)`
 		: '';
 	return layout;
@@ -899,7 +899,6 @@ function renderRangeTimelineMarkers(container, items, layout) {
 		.attr('aria-label', d => d.srText)
 		.attr('tabindex', -1)
 		.classed('is-active', false)
-		.classed('is-complete', false)
 		.classed('is-from', d => d.index === state.timeFromIndex)
 		.classed('is-to', d => d.index === state.timeToIndex)
 		.classed('is-in-range', d => d.index >= state.timeFromIndex && d.index <= state.timeToIndex)
@@ -1068,7 +1067,6 @@ function renderPointTimelineMarkers(container, items, layout, maxIdx) {
 		.attr('data-index', d => String(d.index))
 		.attr('aria-label', d => d.srText)
 		.attr('tabindex', 0)
-		.classed('is-complete', d => d.index <= state.timeIndex)
 		.classed('is-active', d => d.index === state.timeIndex)
 		.style('left', d => `${getTimelineItemPixel(d, layout)}px`);
 }
@@ -1385,11 +1383,6 @@ function ensureTimelineScaffold(container) {
 			container.appendChild(btn);
 		}
 	} else {
-		if (!container.querySelector('.timeline-pill')) {
-			const pill = document.createElement('div');
-			pill.className = 'timeline-pill';
-			container.appendChild(pill);
-		}
 		// Clean up any range-only elements if switching modes
 		const range = container.querySelector('.timeline-range');
 		if (range) range.remove();
@@ -1402,6 +1395,11 @@ function ensureTimelineScaffold(container) {
 		const hTo = container.querySelector('button.timeline-handle--to');
 		if (hTo) hTo.remove();
 		container.__rangeHandlesWired = false;
+		if (!container.querySelector('.timeline-pill')) {
+			const pill = document.createElement('div');
+			pill.className = 'timeline-pill';
+			container.appendChild(pill);
+		}
 	}
 }
 

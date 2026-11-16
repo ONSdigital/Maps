@@ -123,12 +123,51 @@ function toNumberOrNull(x) {
 	return Number.isFinite(v) ? v : null;
 }
 
+function getAverageConfig() {
+	const chartCfg = config.chart || {};
+	const datasetChartCfg = getCurrentDatasetConfig()?.chart || {};
+	const resolve = createChartOptionResolver(chartCfg, datasetChartCfg);
+	const average = resolve('average');
+	if (typeof average !== 'undefined' && (!average || typeof average !== 'object' || Array.isArray(average))) {
+		throw new Error("[Map Config] chart.average must be an object.");
+	}
+	// Preserve legacy configurations when chart.average is omitted.
+	const method = average?.method ?? (resolve('showMeanLine', true) === false ? 'none' : 'mean');
+	if (!['mean', 'median', 'row', 'none'].includes(method)) {
+		throw new Error("[Map Config] chart.average.method must be 'mean', 'median', 'row' or 'none'.");
+	}
+	const rowId = average?.rowId;
+	if (method === 'row' && (typeof rowId !== 'string' || !rowId.trim())) {
+		throw new Error("[Map Config] chart.average.rowId must be a non-empty string for method 'row'.");
+	}
+	const labels = { mean: 'Mean of areas (unweighted)', median: 'Median of areas', row: 'Supplied average', none: '' };
+	const legacyLegend = typeof average === 'undefined' ? (resolve('meanLegend', {}) || {}) : {};
+	return {
+		method,
+		rowId,
+		label: average?.label ?? legacyLegend.label ?? labels[method],
+		color: average?.color ?? legacyLegend.color ?? 'var(--ons-color-grey-60)',
+	};
+}
+
 function buildSeriesStore(csv) {
 	const timeColumns = detectTimeColumns(csv);
+	const average = getAverageConfig();
+	let averageRow = null;
+	if (average.method === 'row') {
+		const matches = csv.filter(row => row[config.dataIdField] === average.rowId);
+		if (matches.length !== 1) {
+			throw new Error(`[Map Config] chart.average.rowId "${average.rowId}" must match exactly one CSV row; found ${matches.length}.`);
+		}
+		averageRow = matches[0];
+	}
 	const seriesById = {};
 	const areaById = {};
 
 	for (const row of csv) {
+		// A supplied aggregate is a reference, not another area: exclude it from
+		// map values, data-derived area lookups and all break calculations.
+		if (row === averageRow) continue;
 		const code = row[config.dataIdField];
 		if (!code) continue;
 		const areaName = row[config.dataNameField] || row[config.geoNameField] || '';
@@ -140,16 +179,20 @@ function buildSeriesStore(csv) {
 		};
 	}
 
-	const meanSeries = timeColumns.map((t, idx) => {
-		let sum = 0;
-		let n = 0;
-		for (const code of Object.keys(seriesById)) {
-			const v = seriesById[code].values[idx];
-			if (v === null) continue;
-			sum += v;
-			n += 1;
+	// Keep the internal meanSeries name for the chart's existing reference-line API.
+	const meanSeries = average.method === 'none' ? [] : timeColumns.map((t, idx) => {
+		if (averageRow) return { t, v: toNumberOrNull(averageRow[t]) };
+		const values = Object.values(seriesById).map(series => series.values[idx]).filter(v => v !== null);
+		if (!values.length) return { t, v: null };
+		if (average.method === 'median') {
+			values.sort((a, b) => a - b);
+			const middle = Math.floor(values.length / 2);
+			return { t, v: values.length % 2 ? values[middle] : (values[middle - 1] + values[middle]) / 2 };
 		}
-		return { t, v: n ? sum / n : null };
+		// WARNING: every area has equal weight, regardless of population or denominator.
+		// For area rates/percentages this is generally NOT a statistically valid
+		// national/combined estimate. Prefer a correctly calculated supplied row.
+		return { t, v: values.reduce((sum, v) => sum + v, 0) / values.length };
 	});
 
 	return { timeColumns, seriesById, areaById, meanSeries };
@@ -2004,7 +2047,8 @@ function createChart({ overlayInnerHeight = null } = {}) {
 		: {};
 	const solidStroke = chartCfg.solidStroke || 'var(--ons-color-ocean-blue)';
 	const lineStyleDefault = chartCfg.lineStyle || 'gradient';
-	const showMeanLine = (typeof chartCfg.showMeanLine === 'boolean') ? chartCfg.showMeanLine : true;
+	const averageCfg = getAverageConfig();
+	const showMeanLine = averageCfg.method !== 'none';
 	const showBreaks = (typeof chartCfg.showBreaks === 'boolean') ? chartCfg.showBreaks : false;
 	const zeroLineValue = (chartCfg.zeroLine === null || typeof chartCfg.zeroLine === 'undefined') ? null : +chartCfg.zeroLine;
 	const width = Math.floor(container.node()?.getBoundingClientRect().width || 0);
@@ -2072,11 +2116,16 @@ function createChart({ overlayInnerHeight = null } = {}) {
 		subtitle.html('').style('display', 'none');
 	}
 
-	const meanLegendCfg = chartCfg.meanLegend || { label: 'Average', color: 'var(--ons-color-grey-60)' };
+	const meanLegendCfg = averageCfg;
 	const legendId = 'chart-legend';
 	const legend = container.append('div')
 		.attr('id', legendId)
-		.style('display', 'flex')
+		.style('display', showMeanLine ? 'flex' : 'none')
+		.attr('title', averageCfg.method === 'mean'
+			? 'Unweighted mean of available area values, not weighted by population or the relevant denominator. Generally not a valid national or combined estimate.'
+			: averageCfg.method === 'median'
+				? 'Median of available area values, not a population-weighted or combined estimate.'
+				: null)
 		.style('align-items', 'center')
 		.style('gap', '8px')
 		.style('margin', '0 0 8px 0');
@@ -2322,6 +2371,8 @@ function createChart({ overlayInnerHeight = null } = {}) {
 
 		legendSwatch.style('background', meanLegendCfg.color);
 		legendLabel.text(meanLegendCfg.label);
+		const hasMeanData = showMeanLine && Array.isArray(meanSeries) && meanSeries.some(d => d.v !== null && Number.isFinite(d.v));
+		legend.style('display', hasMeanData && meanLegendCfg.label ? 'flex' : 'none');
 		const showChangeSummary = changeSummaryCfg.enabled !== false && selectionMode === 'range' && Array.isArray(areaSeries);
 
 		x.domain(timeColumns);
@@ -2396,7 +2447,7 @@ function createChart({ overlayInnerHeight = null } = {}) {
 			.x(d => x(d.t))
 			.y(d => y(d.v));
 
-		if (showMeanLine && meanSeries) {
+		if (hasMeanData) {
 			meanPath
 				.attr('d', line(meanSeries))
 				.style('opacity', 1);

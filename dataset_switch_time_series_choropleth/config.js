@@ -153,9 +153,25 @@ config = {
 		// (Font sizes / stroke widths remain constant; only the available plot area changes.)
 		subTitle: ["First time buyers per 1,000 people","First time buyers per 100 house sales"],
 		margin: { top: 24, right: 20, bottom: 30, left: 30 },
-		showMeanLine: true,
-		meanLegend: {
-			label: "UK Average",
+		// Reference line: "mean" | "median" | "row" | "none".
+		// WARNING: the calculated mean gives each area equal weight; it is NOT
+		// weighted by population (or the relevant denominator). For rates and
+		// percentages it is generally NOT a statistically valid national average.
+		// The median describes a typical area, not a population/combined estimate.
+		// Prefer a published or correctly weighted aggregate using method: "row".
+		// Set rowId to its exact dataIdField value, e.g. "K02000001" (UK).
+		// That row must occur exactly once in this dataset's CSV and is excluded
+		// from map values and break calculations. Missing values stay gaps.
+		// Set method: "none" to remove the reference line and its legend entirely.
+		// Override this whole object per dataset via datasets[].chart.average.
+		// Both bundled CSVs contain an EXAMPLE_AVERAGE row with fictional values
+		// for demonstration only, NOT a published or statistically valid estimate.
+		// Replace these values with an appropriate aggregate before publishing.
+		average: {
+			method: "row",
+			rowId: "EXAMPLE_AVERAGE", // required for "row"; ignored for other methods
+			// Optional label override; omitted labels describe the chosen method.
+			label: "Example average (illustrative)",
 			color: ONScolours.grey25
 		},
 		yTicks: {

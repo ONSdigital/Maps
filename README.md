@@ -69,6 +69,12 @@ keyscale's horizontal bounds, including in
 wide pym iframes. Carets point to the selected dates. Range labels separate
 horizontally, or stack if they cannot fit.
 
+On first load, a subtle pulse highlights the selected timeline circle and a short
+hint explains dragging and keyboard navigation. Both are dismissed on the first
+pointer, touch, or supported keyboard interaction and stay dismissed when
+switching datasets, until the page is reloaded. The pulse repeats until
+interaction and is disabled for users who prefer reduced motion.
+
 
 ## Repository structure
 - `choropleth/` – single‑dataset choropleth template

@@ -467,6 +467,48 @@ function setTimeSelection(next, { activeHandle = null } = {}) {
 }
 
 let __timelineWired = false;
+let __timelineInteracted = false;
+
+function updateTimelineInteractionHint(container) {
+	const target = isRangeMode()
+		? container.querySelector(`.timeline-handle--${state.activeTimeHandle}`)
+		: container.querySelector('.timeline-marker.is-active');
+	const show = !__timelineInteracted && state.timeColumns.length > 1 && !!target;
+	let hint = document.getElementById('timeline-interaction-hint');
+	container.querySelectorAll('.timeline-discovery-target').forEach(element => {
+		element.classList.remove('timeline-discovery-target');
+	});
+	container.removeAttribute('aria-describedby');
+	container.querySelectorAll('[aria-describedby="timeline-interaction-hint"]').forEach(element => {
+		element.removeAttribute('aria-describedby');
+	});
+
+	if (!show) {
+		if (hint) hint.remove();
+		return;
+	}
+
+	if (!hint) {
+		hint = document.createElement('p');
+		hint.id = 'timeline-interaction-hint';
+		hint.className = 'timeline-interaction-hint';
+		container.after(hint);
+	}
+	hint.textContent = isRangeMode()
+		? 'Drag either circle or use the arrow keys to change the date range.'
+		: 'Drag the circle or use the arrow keys to change the date.';
+	target.classList.add('timeline-discovery-target');
+	container.setAttribute('aria-describedby', hint.id);
+	container.querySelectorAll('button[tabindex="0"]').forEach(element => {
+		element.setAttribute('aria-describedby', hint.id);
+	});
+}
+
+function dismissTimelineInteractionHint(container) {
+	if (__timelineInteracted) return;
+	__timelineInteracted = true;
+	updateTimelineInteractionHint(container);
+}
 
 function getNearestTimelineIndexFromClientX(container, clientX) {
 	if (!container) return 0;
@@ -1410,10 +1452,10 @@ function renderTimeline() {
 	ensureTimelineScaffold(container);
 	if (isRangeMode()) {
 		renderRangeTimeline(container);
-		return;
+	} else {
+		renderPointTimeline(container);
 	}
-
-	renderPointTimeline(container);
+	updateTimelineInteractionHint(container);
 }
 
 function wireTimelineEvents() {
@@ -1421,6 +1463,15 @@ function wireTimelineEvents() {
 	__timelineWired = true;
 	const container = document.getElementById('timeline-slider');
 	if (!container) return;
+
+	// Capture interactions before marker and handle handlers stop propagation.
+	container.addEventListener('pointerdown', () => dismissTimelineInteractionHint(container), { capture: true, once: true });
+	container.addEventListener('touchstart', () => dismissTimelineInteractionHint(container), { capture: true, once: true, passive: true });
+	container.addEventListener('keydown', (event) => {
+		const navigationKeys = ['ArrowLeft', 'ArrowRight', 'Home', 'End', 'PageUp', 'PageDown'];
+		const activatesMarker = (event.key === 'Enter' || event.key === ' ') && event.target.matches('button.timeline-marker');
+		if (navigationKeys.includes(event.key) || activatesMarker) dismissTimelineInteractionHint(container);
+	}, { capture: true });
 
 	// Click/drag on the track area should scrub too (useful on touch).
 	container.addEventListener('pointerdown', (event) => {

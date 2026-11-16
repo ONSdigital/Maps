@@ -2180,7 +2180,7 @@ export function addDatasetSwitchButtons(data, state, keyscale) {
 
         const wrapper = document.createElement('div');
         wrapper.className = 'dataset-switch-option';
-        wrapper.style = 'display: flex; align-items: center; gap: 6px;';
+        wrapper.style = 'display: flex; align-items: stretch; gap: 6px;';
 
         const radio = document.createElement('input');
         radio.type = 'radio';

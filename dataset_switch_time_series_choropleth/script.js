@@ -2371,7 +2371,7 @@ function createChart({ overlayInnerHeight = null } = {}) {
 
 		gridG.call(d3.axisLeft(y).ticks(yTicks).tickSize(-innerWidth).tickFormat(''));
 		gridG.selectAll('line').attr('stroke-width', 2);
-		xAxisG.call(d3.axisBottom(x).tickValues(tickValues));
+		xAxisG.call(d3.axisBottom(x).tickValues(tickValues).tickFormat(raw => formatPillLabel(raw).display));
 		yAxisG.call(d3.axisLeft(y).ticks(yTicks));
 
 		// Optional zero/reference line (e.g., 0) drawn as a solid horizontal line.
